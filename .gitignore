@@ -1,0 +1,5 @@
+build/
+dist/
+ComicZIP_Optimizer.spec
+ComicZIP_Optimizer.zip
+.vscode/
