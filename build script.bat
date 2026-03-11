@@ -13,7 +13,7 @@ set MAIN_SCRIPT=renamer.py
 :: ----------------
 
 echo [정보] version.json에서 읽어온 타겟 버전: %APP_VERSION%
-echo [1/2] PyInstaller 빌드 시작...
+echo [1/2] PyInstaller 빌드 시작..
 
 :: 🌟 2. 실행파일 이름(-n)에 버전을 추가하고, version.json을 패키지에 포함시킴
 pyinstaller -w -D --icon=app.ico -n "%APP_NAME%" ^
