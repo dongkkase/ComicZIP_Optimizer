@@ -4,33 +4,26 @@ import zipfile
 import subprocess
 import threading
 import shutil
-import io
 import json
 import locale
 import re
 import concurrent.futures
 from pathlib import Path
+import queue  
 
-# 🌟 윈도우 작업표시줄 아이콘 고정을 위한 모듈
 import ctypes 
-
-# 인터넷 통신 및 브라우저 열기를 위한 라이브러리 추가
 import urllib.request
-import urllib.error
 import ssl
 import webbrowser
 
-# PyQt6 라이브러리
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QPushButton, QTableWidget, QTableWidgetItem, QHeaderView, 
     QCheckBox, QComboBox, QLineEdit, QFrame, QAbstractItemView, QMessageBox, QFileDialog,
     QDialog, QFormLayout, QDialogButtonBox, QProgressBar, QTextEdit, QSlider
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QSize
+from PyQt6.QtCore import Qt, QTimer, QSize, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap, QPainter, QPainterPath, QIcon, QColor
-
-# 이미지 처리를 위한 PIL
 from PIL import Image
 
 CREATE_NO_WINDOW = 0x08000000
@@ -117,29 +110,6 @@ def natural_keys(text):
     for part in parts:
         result.append([int(c) if c.isdigit() else c.lower() for c in re.split(r'(\d+)', part)])
     return result
-
-class VersionCheckWorker(QThread):
-    result_signal = pyqtSignal(str) 
-
-    def run(self):
-        try:
-            url = "https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/version.json"
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            context = ssl._create_unverified_context()
-            
-            with urllib.request.urlopen(req, timeout=3, context=context) as response:
-                data = json.loads(response.read().decode('utf-8'))
-                latest_version = data.get("latest_version", "")
-                
-                curr_parts = [int(x) for x in CURRENT_VERSION.split('.')]
-                latest_parts = [int(x) for x in latest_version.split('.')]
-                
-                if latest_parts > curr_parts:
-                    self.result_signal.emit(latest_version) 
-                else:
-                    self.result_signal.emit("") 
-        except Exception:
-            self.result_signal.emit("") 
 
 class LogDialog(QDialog):
     def __init__(self, parent, stats, i18n):
@@ -349,39 +319,137 @@ class ArchiveTableWidget(QTableWidget):
         else:
             super().keyPressEvent(event)
 
-class CellCheckBox(QWidget):
-    toggled_signal = pyqtSignal(bool, str)
-    def __init__(self, fp, checked):
-        super().__init__()
-        self.fp = fp
-        self.layout = QHBoxLayout(self)
-        self.layout.setContentsMargins(0, 0, 0, 0)
-        self.layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.checkbox = QCheckBox()
-        self.checkbox.setChecked(checked)
-        self.checkbox.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        self.layout.addWidget(self.checkbox)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            new_state = not self.checkbox.isChecked()
-            self.checkbox.setChecked(new_state)
-            self.toggled_signal.emit(new_state, self.fp)
-        super().mousePressEvent(event)
+class VersionCheckTask:
+    def __init__(self, ui_queue):
+        self.ui_queue = ui_queue
 
-class DummyInfo:
-    def __init__(self, name, size):
-        self.original_name = name  
-        self.filename = name.replace('\\', '/')  
-        self.file_size = int(size) if str(size).isdigit() else 0
-        self.is_dir = False
+    def run(self):
+        try:
+            url = "https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/version.json"
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            context = ssl._create_unverified_context()
+            
+            with urllib.request.urlopen(req, timeout=3, context=context) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                latest_ver = data.get("latest_version", "")
+                
+                curr_parts = [int(x) for x in CURRENT_VERSION.split('.')]
+                latest_parts = [int(x) for x in latest_ver.split('.')]
+                
+                if latest_parts > curr_parts:
+                    self.ui_queue.put({"type": "version_checked", "latest_version": latest_ver})
+        except Exception:
+            pass
 
-class RenameWorker(QThread):
-    progress_signal = pyqtSignal(int, str) 
-    finished_signal = pyqtSignal(dict, dict)
+class FileLoadTask:
+    def __init__(self, paths, seven_z_exe, lang, ui_queue):
+        self.paths = paths
+        self.seven_z_exe = seven_z_exe
+        self.lang = lang
+        self.ui_queue = ui_queue
 
-    def __init__(self, targets, config, archive_data, i18n_dict, pattern_val, custom_text, seven_z_exe):
-        super().__init__()
+    def get_7z_entries(self, filepath):
+        cmd = [self.seven_z_exe, 'l', '-slt', '-ba', str(filepath)]
+        result = subprocess.run(cmd, capture_output=True, text=True, creationflags=CREATE_NO_WINDOW, encoding='utf-8', errors='ignore')
+        entries = []
+        current_entry = {}
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if not line:
+                if current_entry and 'Path' in current_entry and not current_entry.get('Attributes', '').startswith('D'):
+                    entries.append({
+                        'original_name': current_entry['Path'],
+                        'filename': current_entry['Path'].replace('\\', '/'),
+                        'file_size': int(current_entry.get('Size', '0')) if str(current_entry.get('Size', '0')).isdigit() else 0
+                    })
+                current_entry = {}
+            elif '=' in line:
+                k, v = line.split('=', 1)
+                current_entry[k.strip()] = v.strip()
+        if current_entry and 'Path' in current_entry and not current_entry.get('Attributes', '').startswith('D'):
+            entries.append({
+                'original_name': current_entry['Path'],
+                'filename': current_entry['Path'].replace('\\', '/'),
+                'file_size': int(current_entry.get('Size', '0')) if str(current_entry.get('Size', '0')).isdigit() else 0
+            })
+        return entries
+
+    def run(self):
+        try:
+            exts = {'.zip', '.cbz', '.cbr', '.7z'}
+            all_files = []
+            new_data = {}
+            nested_files = []
+            unsupported_files = []
+            
+            for p in self.paths:
+                path_obj = Path(p)
+                if path_obj.is_file():
+                    all_files.append(path_obj)
+                elif path_obj.is_dir():
+                    for sub in path_obj.rglob('*'):
+                        if sub.is_file() and 'bak' not in sub.parts:
+                            all_files.append(sub)
+
+            total = len(all_files)
+            if total == 0:
+                self.ui_queue.put({"type": "load_done", "data": {}, "nested": [], "unsupported": []})
+                return
+
+            for idx, path_obj in enumerate(all_files):
+                filepath = str(path_obj)
+                filename = path_obj.name
+                ext = path_obj.suffix.lower()
+
+                if idx % max(1, total // 100) == 0 or idx == total - 1:
+                    msg = f"[{idx+1}/{total}] 파일 분석 중: {filename}" if self.lang == 'ko' else f"[{idx+1}/{total}] Analyzing: {filename}"
+                    self.ui_queue.put({"type": "progress", "percent": int((idx / total) * 100), "msg": msg})
+
+                if ext not in exts:
+                    unsupported_files.append(filename)
+                    continue
+
+                try:
+                    size_mb = os.path.getsize(filepath) / (1024 * 1024)
+                    if ext in ['.zip', '.cbz']:
+                        with zipfile.ZipFile(filepath, 'r') as zf:
+                            entries = sorted([{
+                                'original_name': info.filename,
+                                'filename': info.filename.replace('\\', '/'),
+                                'file_size': info.file_size
+                            } for info in zf.infolist() if not info.is_dir()], key=lambda x: natural_keys(x['filename']))
+                    else:
+                        if not os.path.exists(self.seven_z_exe): 
+                            continue
+                        entries = sorted(self.get_7z_entries(filepath), key=lambda x: natural_keys(x['filename']))
+
+                    image_exts = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'}
+                    img_entries = [e for e in entries if Path(e['filename']).suffix.lower() in image_exts]
+                    
+                    if not img_entries:
+                        continue 
+
+                    nested_exts = {'.zip', '.cbz', '.cbr', '.7z', '.rar', '.alz', '.egg'}
+                    if any(Path(e['filename']).suffix.lower() in nested_exts for e in entries):
+                        nested_files.append(filename)
+                        continue
+
+                    new_data[filepath] = {
+                        'checked': True,
+                        'entries': img_entries, 'size_mb': size_mb, 'name': filename, 'ext': ext
+                    }
+                except:
+                    pass
+
+            self.ui_queue.put({"type": "progress", "percent": 100, "msg": "분석 완료" if self.lang == 'ko' else "Analysis Done"})
+            self.ui_queue.put({"type": "load_done", "data": new_data, "nested": nested_files, "unsupported": unsupported_files})
+
+        except Exception as e:
+            self.ui_queue.put({"type": "progress", "percent": 100, "msg": f"Error: {e}"})
+            self.ui_queue.put({"type": "load_done", "data": {}, "nested": [], "unsupported": []})
+
+class RenameTask:
+    def __init__(self, targets, config, archive_data, i18n_dict, pattern_val, custom_text, seven_z_exe, ui_queue):
         self.targets = targets
         self.backup_on = config.get("backup_on", False)
         self.flatten_folders = config.get("flatten_folders", False)
@@ -396,6 +464,7 @@ class RenameWorker(QThread):
         self.pattern_val = pattern_val
         self.custom_text = custom_text
         self.seven_z_exe = seven_z_exe
+        self.ui_queue = ui_queue
         
         self._is_cancelled = False
 
@@ -461,181 +530,202 @@ class RenameWorker(QThread):
 
     def run(self):
         stats = {'success': [], 'skip': [], 'error': []} 
-        total = len(self.targets)
         new_archive_data = {} 
-        
-        startupinfo = None
-        if os.name == 'nt':
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = subprocess.SW_HIDE
+        try:
+            total = len(self.targets)
+            startupinfo = None
+            if os.name == 'nt':
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = subprocess.SW_HIDE
 
-        for idx, file_path in enumerate(self.targets):
-            if self._is_cancelled:
-                stats['skip'].append(f"{os.path.basename(file_path)} (Cancelled)")
-                break
+            for idx, file_path in enumerate(self.targets):
+                if self._is_cancelled:
+                    stats['skip'].append(f"{os.path.basename(file_path)} (Cancelled)")
+                    break
 
-            filename = os.path.basename(file_path)
-            msg = f"[{idx+1}/{total}] 처리 중: {filename}" if self.lang == "ko" else f"[{idx+1}/{total}] Processing: {filename}"
-            self.progress_signal.emit(int((idx / total) * 100), msg)
+                filename = os.path.basename(file_path)
+                msg = f"[{idx+1}/{total}] 처리 중: {filename}" if self.lang == "ko" else f"[{idx+1}/{total}] Processing: {filename}"
+                self.ui_queue.put({"type": "progress", "percent": int((idx / total) * 100), "msg": msg})
 
-            try:
-                if self.backup_on:
-                    bak_dir = os.path.join(os.path.dirname(file_path), 'bak')
-                    os.makedirs(bak_dir, exist_ok=True)
-                    shutil.copy2(file_path, os.path.join(bak_dir, filename))
+                try:
+                    if self.backup_on:
+                        bak_dir = os.path.join(os.path.dirname(file_path), 'bak')
+                        os.makedirs(bak_dir, exist_ok=True)
+                        shutil.copy2(file_path, os.path.join(bak_dir, filename))
 
-                data = self.archive_data[file_path]
-                entries = data['entries'].copy() 
-                ext_type = data['ext'].lower()
-                
-                if self.target_format == 'none':
-                    target_ext = ext_type
-                    archive_type = '-t7z' if ext_type == '.7z' else '-tzip'
-                else:
-                    target_ext = f".{self.target_format}"
-                    archive_type = '-t7z' if self.target_format == '7z' else '-tzip'
-
-                cover_entry = next((e for e in entries if os.path.basename(e.filename).lower().startswith('cover')), None)
-                if cover_entry:
-                    entries.remove(cover_entry)
-                    entries.insert(0, cover_entry)
-
-                rename_args = []
-                total_count = len(entries)
-                stem_name = Path(file_path).stem
-
-                has_non_webp = any(not e.original_name.lower().endswith('.webp') for e in entries)
-                actual_webp_needed = self.webp_conversion and has_non_webp
-
-                for count, entry in enumerate(entries):
-                    old_name = entry.original_name
-                    dir_name = os.path.dirname(entry.filename)
-                    ext = os.path.splitext(entry.filename)[1]
-                    if not ext: ext = ".jpg" 
+                    data = self.archive_data[file_path]
+                    entries = data['entries'].copy() 
+                    ext_type = data['ext'].lower()
                     
-                    if self.webp_conversion:
-                        ext = ".webp"
-                    
-                    new_basename = self.generate_new_name(count, ext, total_count, stem_name)
-                    
-                    if self.flatten_folders:
-                        new_name = new_basename
+                    if self.target_format == 'none':
+                        target_ext = ext_type
+                        archive_type = '-t7z' if ext_type == '.7z' else '-tzip'
                     else:
-                        new_name = os.path.join(dir_name, new_basename).replace('\\', '/') if dir_name else new_basename
+                        target_ext = f".{self.target_format}"
+                        archive_type = '-t7z' if self.target_format == '7z' else '-tzip'
 
-                    if old_name != new_name or actual_webp_needed:
-                        rename_args.append((old_name, new_name))
+                    cover_entry = next((e for e in entries if os.path.basename(e['filename']).lower().startswith('cover')), None)
+                    if cover_entry:
+                        entries.remove(cover_entry)
+                        entries.insert(0, cover_entry)
 
-                format_changed = (target_ext != ext_type)
-                needs_rename = len(rename_args) > 0
-                
-                must_extract = actual_webp_needed or format_changed or self.flatten_folders or (ext_type not in ['.zip', '.cbz'])
+                    rename_args = []
+                    total_count = len(entries)
+                    stem_name = Path(file_path).stem
 
-                if not needs_rename and not must_extract:
-                    stats['skip'].append(filename)
-                    new_archive_data[file_path] = file_path 
-                    continue
+                    has_non_webp = any(not e['original_name'].lower().endswith('.webp') for e in entries)
+                    actual_webp_needed = self.webp_conversion and has_non_webp
 
-                if not must_extract:
-                    flat_args = []
-                    for old_n, new_n in rename_args:
-                        flat_args.extend([old_n, new_n])
+                    for count, entry in enumerate(entries):
+                        old_name = entry['original_name']
+                        dir_name = os.path.dirname(entry['filename'])
+                        ext = os.path.splitext(entry['filename'])[1]
+                        if not ext: ext = ".jpg" 
                         
-                    for i in range(0, len(flat_args), 80):
-                        if self._is_cancelled: break
-                        chunk = flat_args[i:i + 80]
-                        cmd = [self.seven_z_exe, 'rn', str(file_path)] + chunk
-                        subprocess.run(cmd, startupinfo=startupinfo, creationflags=CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+                        if self.webp_conversion:
+                            ext = ".webp"
+                        
+                        new_basename = self.generate_new_name(count, ext, total_count, stem_name)
+                        
+                        if self.flatten_folders:
+                            new_name = new_basename
+                        else:
+                            new_name = os.path.join(dir_name, new_basename).replace('\\', '/') if dir_name else new_basename
+
+                        if old_name != new_name or actual_webp_needed:
+                            rename_args.append((old_name, new_name))
+
+                    format_changed = (target_ext != ext_type)
+                    needs_rename = len(rename_args) > 0
                     
-                    if not self._is_cancelled:
-                        stats['success'].append(filename)
-                        new_archive_data[file_path] = file_path
-                else: 
-                    temp_dir = os.path.join(os.path.dirname(file_path), f".tmp_{filename}")
-                    if os.path.exists(temp_dir): shutil.rmtree(temp_dir, ignore_errors=True)
-                    os.makedirs(temp_dir, exist_ok=True)
-                    
-                    cmd_ext = [self.seven_z_exe, 'x', str(file_path), f'-o{temp_dir}', '-y']
-                    subprocess.run(cmd_ext, startupinfo=startupinfo, creationflags=CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-                    
-                    if rename_args:
-                        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_threads) as executor:
-                            futures = []
-                            for old_n, new_n in rename_args:
-                                futures.append(executor.submit(self._convert_single_image, temp_dir, old_n, new_n))
+                    must_extract = actual_webp_needed or format_changed or self.flatten_folders or (ext_type not in ['.zip', '.cbz'])
+
+                    if not needs_rename and not must_extract:
+                        stats['skip'].append(filename)
+                        new_archive_data[file_path] = file_path 
+                        continue
+
+                    if not must_extract:
+                        flat_args = []
+                        for old_n, new_n in rename_args:
+                            flat_args.extend([old_n, new_n])
                             
-                            for i, future in enumerate(concurrent.futures.as_completed(futures)):
-                                if self._is_cancelled: break 
+                        for i in range(0, len(flat_args), 80):
+                            if self._is_cancelled: break
+                            chunk = flat_args[i:i + 80]
+                            cmd = [self.seven_z_exe, 'rn', str(file_path)] + chunk
+                            subprocess.run(cmd, startupinfo=startupinfo, creationflags=CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+                        
+                        if not self._is_cancelled:
+                            stats['success'].append(filename)
+                            new_archive_data[file_path] = file_path
+                    else: 
+                        temp_dir = os.path.join(os.path.dirname(file_path), f".tmp_{filename}")
+                        if os.path.exists(temp_dir): shutil.rmtree(temp_dir, ignore_errors=True)
+                        os.makedirs(temp_dir, exist_ok=True)
+                        
+                        cmd_ext = [self.seven_z_exe, 'x', str(file_path), f'-o{temp_dir}', '-y']
+                        subprocess.run(cmd_ext, startupinfo=startupinfo, creationflags=CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+                        
+                        if rename_args:
+                            with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_threads) as executor:
+                                futures = []
+                                for old_n, new_n in rename_args:
+                                    futures.append(executor.submit(self._convert_single_image, temp_dir, old_n, new_n))
                                 
-                                if i % max(1, len(rename_args) // 20) == 0:
-                                    sub_prog = int((idx / total) * 100) + int((i / len(rename_args)) * (100 / total))
-                                    prog_msg = f"Converting ({self.max_threads} Threads): {filename} ({i}/{len(rename_args)})" if self.lang == "en" else f"다중 코어 변환 중 ({self.max_threads} 스레드): {filename} ({i}/{len(rename_args)})"
-                                    self.progress_signal.emit(sub_prog, prog_msg)
+                                for i, future in enumerate(concurrent.futures.as_completed(futures)):
+                                    if self._is_cancelled: break 
+                                    
+                                    if i % max(1, len(rename_args) // 20) == 0:
+                                        sub_prog = int((idx / total) * 100) + int((i / len(rename_args)) * (100 / total))
+                                        p_msg = f"Converting ({self.max_threads} Threads): {filename} ({i}/{len(rename_args)})" if self.lang == "en" else f"다중 코어 변환 중 ({self.max_threads} 스레드): {filename} ({i}/{len(rename_args)})"
+                                        self.ui_queue.put({"type": "progress", "percent": sub_prog, "msg": p_msg})
 
-                    if self._is_cancelled:
-                        shutil.rmtree(temp_dir, ignore_errors=True)
-                        break
+                        if self._is_cancelled:
+                            shutil.rmtree(temp_dir, ignore_errors=True)
+                            break
 
-                    if self.flatten_folders:
-                        for dirpath, dirnames, filenames in os.walk(temp_dir, topdown=False):
-                            for d in dirnames:
-                                dp = os.path.join(dirpath, d)
-                                try:
-                                    if not os.listdir(dp):
-                                        os.rmdir(dp)
-                                except: pass
+                        if self.flatten_folders:
+                            for dirpath, dirnames, filenames in os.walk(temp_dir, topdown=False):
+                                for d in dirnames:
+                                    dp = os.path.join(dirpath, d)
+                                    try:
+                                        if not os.listdir(dp):
+                                            os.rmdir(dp)
+                                    except: pass
 
-                    self.progress_signal.emit(int(((idx + 0.9) / total) * 100), f"Re-archiving: {filename}")
-                            
-                    target_final_path = str(Path(file_path).with_suffix(target_ext))
-                    temp_archive = os.path.join(os.path.dirname(file_path), f".tmp_archive_{filename}{target_ext}")
-                    
-                    if os.path.exists(temp_archive):
-                        os.remove(temp_archive)
+                        self.ui_queue.put({"type": "progress", "percent": int(((idx + 0.9) / total) * 100), "msg": f"Re-archiving: {filename}"})
+                                
+                        target_final_path = str(Path(file_path).with_suffix(target_ext))
+                        temp_archive = os.path.join(os.path.dirname(file_path), f".tmp_archive_{filename}{target_ext}")
                         
-                    cmd_zip = [self.seven_z_exe, 'a', archive_type, temp_archive, os.path.join(temp_dir, '*'), '-mx=0']
-                    subprocess.run(cmd_zip, startupinfo=startupinfo, creationflags=CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-                    
-                    shutil.rmtree(temp_dir, ignore_errors=True)
-                    
-                    if os.path.normcase(os.path.abspath(file_path)) == os.path.normcase(os.path.abspath(target_final_path)):
-                        os.remove(file_path)
-                    else:
-                        if os.path.exists(file_path):
+                        if os.path.exists(temp_archive):
+                            os.remove(temp_archive)
+                            
+                        cmd_zip = [self.seven_z_exe, 'a', archive_type, temp_archive, os.path.join(temp_dir, '*'), '-mx=0']
+                        subprocess.run(cmd_zip, startupinfo=startupinfo, creationflags=CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+                        
+                        shutil.rmtree(temp_dir, ignore_errors=True)
+                        
+                        if os.path.normcase(os.path.abspath(file_path)) == os.path.normcase(os.path.abspath(target_final_path)):
                             os.remove(file_path)
-                        if os.path.exists(target_final_path):
-                            os.remove(target_final_path)
-                            
-                    os.rename(temp_archive, target_final_path)
-                            
-                    stats['success'].append(filename)
-                    new_archive_data[file_path] = target_final_path 
-            except Exception as e:
-                stats['error'].append(f"{filename} - {str(e)}")
+                        else:
+                            if os.path.exists(file_path):
+                                os.remove(file_path)
+                            if os.path.exists(target_final_path):
+                                os.remove(target_final_path)
+                                
+                        os.rename(temp_archive, target_final_path)
+                                
+                        stats['success'].append(filename)
+                        new_archive_data[file_path] = target_final_path 
+                except Exception as e:
+                    stats['error'].append(f"{filename} - {str(e)}")
 
-        if self._is_cancelled:
-            self.progress_signal.emit(0, "Cancelled" if self.lang == "en" else "작업 중단됨")
+            if self._is_cancelled:
+                self.ui_queue.put({"type": "progress", "percent": 0, "msg": "Cancelled" if self.lang == "en" else "작업 중단됨"})
+            else:
+                self.ui_queue.put({"type": "progress", "percent": 100, "msg": "Done!" if self.lang == "en" else "작업 완료!"})
+                
+            self.ui_queue.put({"type": "rename_done", "stats": stats, "new_archive_data": new_archive_data, "was_cancelled": self._is_cancelled})
+
+        except Exception as e:
+            self.ui_queue.put({"type": "progress", "percent": 100, "msg": f"Critical Error: {e}"})
+            stats['error'].append(str(e))
+            self.ui_queue.put({"type": "rename_done", "stats": stats, "new_archive_data": new_archive_data, "was_cancelled": True})
+
+def bg_load_image(arc_path, inner_path, ext, target_id, seven_z_exe, ui_queue):
+    img_data = None
+    try:
+        if ext in ['.zip', '.cbz']:
+            with zipfile.ZipFile(arc_path, 'r') as zf:
+                img_data = zf.read(inner_path)
         else:
-            self.progress_signal.emit(100, "Done!" if self.lang == "en" else "작업 완료!")
-            
-        self.finished_signal.emit(stats, new_archive_data)
+            cmd = [seven_z_exe, 'e', '-so', str(arc_path), inner_path]
+            res = subprocess.run(cmd, capture_output=True, creationflags=CREATE_NO_WINDOW)
+            if res.returncode == 0 and res.stdout:
+                img_data = res.stdout
+    except:
+        pass
+    ui_queue.put({"type": "image_loaded", "target_id": target_id, "img_data": img_data})
 
 class RenamerApp(QMainWindow):
-    image_loaded_signal = pyqtSignal(object, object) 
-
     def __init__(self):
         super().__init__()
         
-        # 🌟 타이틀바 및 작업표시줄 아이콘을 위해 미리 세팅
         icon_path = get_resource_path('app.ico')
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
             
-        self.image_loaded_signal.connect(self.render_image)
-
         self.config = load_config()
         self.lang = self.config["lang"]
+        
+        self.ui_queue = queue.Queue()
+        self.is_loading = False
+        self.is_renaming = False
+        self.load_thread = None
+        self.rename_thread = None
         self.latest_version_found = None 
         
         window_width = self.config.get("width", 1150)
@@ -738,17 +828,14 @@ class RenamerApp(QMainWindow):
         
         self.setWindowTitle(self.i18n[self.lang]["title"])
         self.setMinimumSize(1050, 750) 
-        
         self.resize(window_width, window_height)
         if is_maximized:
             self.showMaximized()
 
         self.setAcceptDrops(True) 
-            
         self.archive_data = {} 
         self.current_archive_path = None
         self.seven_zip_path = get_resource_path('7za.exe')
-        
         self.latest_version_url = "https://github.com/dongkkase/ComicZIP_Optimizer/releases"
 
         self.archive_timer = QTimer()
@@ -759,11 +846,36 @@ class RenamerApp(QMainWindow):
         self.inner_timer.setSingleShot(True)
         self.inner_timer.timeout.connect(self._process_inner_select)
 
+        self.ui_update_timer = QTimer(self)
+        self.ui_update_timer.timeout.connect(self.process_pending_ui_updates)
+        self.ui_update_timer.start(50) 
+
         self.setup_ui()
         self.apply_language()
         self.apply_dark_theme()
         
         self.check_for_updates()
+
+    def process_pending_ui_updates(self):
+        while not self.ui_queue.empty():
+            try:
+                msg = self.ui_queue.get_nowait()
+                mtype = msg.get("type")
+
+                if mtype == "progress":
+                    self.progress_bar.setValue(msg.get("percent", 0))
+                    self.lbl_status.setText(msg.get("msg", ""))
+                elif mtype == "load_done":
+                    self.on_files_loaded(msg.get("data", {}), msg.get("nested", []), msg.get("unsupported", []))
+                elif mtype == "rename_done":
+                    self.finish_process(msg.get("stats", {}), msg.get("new_archive_data", {}), msg.get("was_cancelled", False))
+                elif mtype == "image_loaded":
+                    self.render_image(msg.get("target_id"), msg.get("img_data"))
+                elif mtype == "version_checked":
+                    self.latest_version_found = msg.get("latest_version")
+                    self.update_version_button_ui()
+            except queue.Empty:
+                break
 
     def setup_ui(self):
         central_widget = QWidget()
@@ -834,10 +946,15 @@ class RenamerApp(QMainWindow):
         self.btn_clear_all.setObjectName("dangerBtn")
         self.btn_clear_all.clicked.connect(self.clear_list)
 
+        self.btn_toggle_all = QPushButton()
+        self.btn_toggle_all.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_toggle_all.clicked.connect(self.toggle_all_checkboxes)
+
         toolbar_layout.addWidget(self.btn_add_folder)
         toolbar_layout.addWidget(self.btn_add_file)
         toolbar_layout.addWidget(self.btn_remove_sel)
         toolbar_layout.addWidget(self.btn_clear_all)
+        toolbar_layout.addWidget(self.btn_toggle_all)
         toolbar_layout.addStretch()
 
         self.btn_version = QPushButton()
@@ -877,39 +994,24 @@ class RenamerApp(QMainWindow):
         self.lbl_target.setObjectName("boldLabel")
         right_layout.addWidget(self.lbl_target)
 
-        self.table_archives = ArchiveTableWidget(0, 4)
+        # 🌟 테이블 렌더링 최적화: 충돌의 원인이던 4번째 투명 컬럼 완전 제거
+        self.table_archives = ArchiveTableWidget(0, 3)
         self.table_archives.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table_archives.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table_archives.verticalHeader().setVisible(False) 
-        self.table_archives.delete_pressed.connect(self.remove_selected)
+        
+        self.table_archives.itemSelectionChanged.connect(self.on_archive_select)
+        self.table_archives.itemChanged.connect(self.on_table_item_changed)
+        self.table_archives.delete_pressed.connect(self.remove_highlighted)
         
         header_arch = self.table_archives.horizontalHeader()
-        header_arch.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        self.table_archives.setColumnWidth(0, 45) 
-        header_arch.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header_arch.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header_arch.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        self.table_archives.setColumnWidth(1, 90)
         header_arch.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
         self.table_archives.setColumnWidth(2, 90)
-        header_arch.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
-        self.table_archives.setColumnWidth(3, 90)
         
         self.table_archives.setMinimumHeight(150)
-        self.table_archives.itemSelectionChanged.connect(self.on_archive_select)
-        
-        self.header_cb = QCheckBox(self.table_archives.horizontalHeader())
-        self.header_cb.setFixedSize(24, 24)
-        self.header_cb.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.header_cb.setStyleSheet("background: transparent; margin: 0px; padding: 0px;")
-        self.header_cb.clicked.connect(self.on_header_checkbox_toggled)
-        
-        def update_cb_pos(*args):
-            x = header_arch.sectionPosition(0) + (header_arch.sectionSize(0) - 24) // 2
-            y = (header_arch.height() - 24) // 2
-            self.header_cb.move(x, y)
-            
-        header_arch.sectionResized.connect(update_cb_pos)
-        header_arch.geometriesChanged.connect(update_cb_pos)
-        QTimer.singleShot(0, update_cb_pos) 
-        
         right_layout.addWidget(self.table_archives, 1) 
 
         self.lbl_total_count = QLabel()
@@ -964,8 +1066,8 @@ class RenamerApp(QMainWindow):
 
         main_layout.addWidget(right_frame, 1)
 
-        self.render_image(self.lbl_cover_img, None)
-        self.render_image(self.lbl_inner_img, None)
+        self.render_image("cover", None)
+        self.render_image("inner", None)
 
     def apply_dark_theme(self):
         style = """
@@ -1007,6 +1109,7 @@ class RenamerApp(QMainWindow):
         QTableWidget { background-color: #2b2b2b; color: white; border: 1px solid #444; border-radius: 8px; gridline-color: #3a3a3a; }
         QHeaderView::section { background-color: #1f1f1f; color: white; padding: 5px; border: none; font-weight: bold; }
         QTableWidget::item:selected { background-color: #3a7ebf; }
+        QTableWidget::indicator { width: 18px; height: 18px; }
         
         QSlider::groove:horizontal { border-radius: 4px; height: 8px; background: #3a3a3a; }
         QSlider::handle:horizontal { background: #3498DB; width: 16px; height: 16px; margin: -4px 0; border-radius: 8px; }
@@ -1018,13 +1121,8 @@ class RenamerApp(QMainWindow):
         self.setStyleSheet(style)
 
     def check_for_updates(self):
-        self.version_worker = VersionCheckWorker()
-        self.version_worker.result_signal.connect(self.on_version_checked)
-        self.version_worker.start()
-
-    def on_version_checked(self, latest_version):
-        self.latest_version_found = latest_version
-        self.update_version_button_ui()
+        task = VersionCheckTask(self.ui_queue)
+        threading.Thread(target=task.run, daemon=True).start()
 
     def update_version_button_ui(self):
         if self.latest_version_found:
@@ -1046,17 +1144,16 @@ class RenamerApp(QMainWindow):
 
     def toggle_ui_elements(self, is_processing):
         enabled = not is_processing
-        
         self.btn_add_folder.setEnabled(enabled)
         self.btn_add_file.setEnabled(enabled)
         self.btn_remove_sel.setEnabled(enabled)
         self.btn_clear_all.setEnabled(enabled)
+        self.btn_toggle_all.setEnabled(enabled)
         self.btn_settings.setEnabled(enabled)
         self.btn_version.setEnabled(enabled) 
         self.cb_pattern.setEnabled(enabled)
         self.table_archives.setEnabled(enabled)
         self.table_inner.setEnabled(enabled)
-        self.header_cb.setEnabled(enabled)
         self.setAcceptDrops(enabled) 
 
         if is_processing:
@@ -1069,7 +1166,6 @@ class RenamerApp(QMainWindow):
         dlg.setStyleSheet(self.styleSheet()) 
         if dlg.exec() == QDialog.DialogCode.Accepted:
             new_data = dlg.get_data()
-            
             self.config["lang"] = new_data["lang"]
             self.config["target_format"] = self.format_keys[new_data["target_format_idx"]]
             self.config["backup_on"] = new_data["backup_on"]
@@ -1080,7 +1176,6 @@ class RenamerApp(QMainWindow):
             
             self.lang = self.config["lang"]
             save_config(self.config)
-
             self.apply_language()
             self.update_inner_preview_list() 
             self.refresh_archive_list()
@@ -1094,6 +1189,7 @@ class RenamerApp(QMainWindow):
         self.btn_add_file.setText(t["add_file"])
         self.btn_remove_sel.setText(t["remove_sel"])
         self.btn_clear_all.setText(t["clear_all"])
+        self.btn_toggle_all.setText("☑ 전체 선택" if self.lang == "ko" else "☑ Toggle All")
         self.btn_settings.setText(t["settings_btn"]) 
         self.lbl_pattern.setText(t["pattern_lbl"])
         
@@ -1107,7 +1203,7 @@ class RenamerApp(QMainWindow):
         self.lbl_inner.setText(t["inner_lbl"])
         
         self.table_archives.setPlaceholderText(t["drag_drop"])
-        self.table_archives.setHorizontalHeaderLabels(["", t["col_name"], t["col_count"], t["col_size"]])
+        self.table_archives.setHorizontalHeaderLabels([t["col_name"], t["col_count"], t["col_size"]])
         self.table_inner.setHorizontalHeaderLabels([t["col_old"], t["col_new"], t["col_fsize"]])
         
         if self.btn_run.objectName() == "actionBtn":
@@ -1119,12 +1215,11 @@ class RenamerApp(QMainWindow):
             self.lbl_status.setText(t["status_wait"])
             
         self.refresh_archive_list()
-        
         self.update_version_button_ui()
         
         if not self.current_archive_path:
-            self.render_image(self.lbl_cover_img, None)
-            self.render_image(self.lbl_inner_img, None)
+            self.render_image("cover", None)
+            self.render_image("inner", None)
 
     def on_pattern_change(self, value):
         t = self.i18n[self.lang]["patterns"]
@@ -1143,8 +1238,15 @@ class RenamerApp(QMainWindow):
 
     def dropEvent(self, event):
         event.acceptProposedAction()
-        files = [u.toLocalFile() for u in event.mimeData().urls()]
-        QTimer.singleShot(0, lambda: self.process_paths(files))
+        if self.is_loading or self.is_renaming: return
+        
+        files = []
+        for u in event.mimeData().urls():
+            if u.isLocalFile():
+                files.append(u.toLocalFile())
+                
+        if files:
+            self.process_paths(files)
 
     def add_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Directory")
@@ -1155,37 +1257,48 @@ class RenamerApp(QMainWindow):
         if files: self.process_paths(files)
 
     def process_paths(self, paths):
-        exts = {'.zip', '.cbz', '.cbr', '.7z'}
-        added = False
-        nested_files = [] 
-        unsupported_files = []
-
-        for p in paths:
-            path_obj = Path(p)
-            if path_obj.is_file():
-                if path_obj.suffix.lower() in exts:
-                    if str(p) not in self.archive_data:
-                        res = self.load_archive_info(str(p), batch_mode=True)
-                        if res == True: added = True
-                        elif res == "nested": nested_files.append(path_obj.name)
-                else:
-                    unsupported_files.append(path_obj.name)
-            elif path_obj.is_dir():
-                for sub in path_obj.rglob('*'):
-                    if sub.is_file() and sub.suffix.lower() in exts:
-                        if 'bak' not in sub.parts and str(sub) not in self.archive_data:
-                            res = self.load_archive_info(str(sub), batch_mode=True)
-                            if res == True: added = True
-                            elif res == "nested": nested_files.append(sub.name)
+        if self.is_loading or self.is_renaming:
+            return
             
-            QApplication.processEvents()
+        self.is_loading = True
+        self.toggle_ui_elements(is_processing=True)
+        self.btn_run.setEnabled(False) 
+        self.progress_bar.show()
+        self.progress_bar.setValue(0)
+        self.lbl_status.setText("목록을 불러오는 중입니다..." if self.lang == "ko" else "Loading files...")
         
+        task = FileLoadTask(paths, self.seven_zip_path, self.lang, self.ui_queue)
+        self.load_thread = threading.Thread(target=task.run, daemon=True)
+        self.load_thread.start()
+
+    # 🌟 완료 직후 안전한 UI 복구 시스템
+    def safe_hide_progress(self, msg):
+        self.lbl_status.setText(msg)
+        QTimer.singleShot(250, self._actual_hide)
+
+    def _actual_hide(self):
+        self.progress_bar.hide()
+        self.progress_bar.setValue(0)
+
+    def on_files_loaded(self, new_data, nested_files, unsupported_files):
+        added = False
+        for fp, data in new_data.items():
+            if fp not in self.archive_data:
+                self.archive_data[fp] = data
+                added = True
+
         self.refresh_archive_list()
-        self.update_header_checkbox_state()
 
         if added and self.table_archives.rowCount() > 0:
             self.table_archives.selectRow(self.table_archives.rowCount()-1)
-            
+
+        self.is_loading = False
+        self.toggle_ui_elements(is_processing=False)
+        self.btn_run.setEnabled(True)
+        
+        # 🌟 애니메이션 충돌 방지를 위해 지연 숨김 적용
+        self.safe_hide_progress(self.i18n[self.lang]["status_wait"])
+        
         if unsupported_files:
             if self.lang == "ko":
                 msg = "다음 파일은 지원하지 않는 형식이므로 제외되었습니다:\n" + "\n".join(unsupported_files[:5])
@@ -1204,43 +1317,30 @@ class RenamerApp(QMainWindow):
                 if len(nested_files) > 5: msg += f"\n...and {len(nested_files)-5} more"
             QMessageBox.warning(self, "Warning", msg)
 
-    def get_7z_entries(self, filepath):
-        cmd = [self.seven_zip_path, 'l', '-slt', '-ba', str(filepath)]
-        result = subprocess.run(cmd, capture_output=True, text=True, creationflags=CREATE_NO_WINDOW, encoding='utf-8', errors='ignore')
-        entries = []
-        current_entry = {}
-        for line in result.stdout.splitlines():
-            line = line.strip()
-            if not line:
-                if current_entry and 'Path' in current_entry and not current_entry.get('Attributes', '').startswith('D'):
-                    entries.append(DummyInfo(current_entry['Path'], current_entry.get('Size', '0')))
-                current_entry = {}
-            elif '=' in line:
-                k, v = line.split('=', 1)
-                current_entry[k.strip()] = v.strip()
-        if current_entry and 'Path' in current_entry and not current_entry.get('Attributes', '').startswith('D'):
-            entries.append(DummyInfo(current_entry['Path'], current_entry.get('Size', '0')))
-        return entries
-
     def load_archive_info(self, filepath, batch_mode=False):
         try:
             size_mb = os.path.getsize(filepath) / (1024 * 1024)
             ext = Path(filepath).suffix.lower()
             if ext in ['.zip', '.cbz']:
                 with zipfile.ZipFile(filepath, 'r') as zf:
-                    entries = sorted([DummyInfo(info.filename, info.file_size) for info in zf.infolist() if not info.is_dir()], key=lambda x: natural_keys(x.filename))
+                    entries = sorted([{
+                        'original_name': info.filename,
+                        'filename': info.filename.replace('\\', '/'),
+                        'file_size': info.file_size
+                    } for info in zf.infolist() if not info.is_dir()], key=lambda x: natural_keys(x['filename']))
             else:
                 if not os.path.exists(self.seven_zip_path): return False
-                entries = sorted(self.get_7z_entries(filepath), key=lambda x: natural_keys(x.filename))
+                task = FileLoadTask([], self.seven_zip_path, self.lang, self.ui_queue)
+                entries = sorted(task.get_7z_entries(filepath), key=lambda x: natural_keys(x['filename']))
 
             image_exts = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'}
-            img_entries = [e for e in entries if Path(e.filename).suffix.lower() in image_exts]
+            img_entries = [e for e in entries if Path(e['filename']).suffix.lower() in image_exts]
             
             if not img_entries:
                 return False 
 
             nested_exts = {'.zip', '.cbz', '.cbr', '.7z', '.rar', '.alz', '.egg'}
-            if any(Path(e.filename).suffix.lower() in nested_exts for e in entries):
+            if any(Path(e['filename']).suffix.lower() in nested_exts for e in entries):
                 if not batch_mode:
                     msg = f"[{os.path.basename(filepath)}]\n내부에 압축 파일이 포함되어 제외됩니다." if self.lang == "ko" else f"[{os.path.basename(filepath)}]\nContains nested archives. Skipped."
                     QMessageBox.warning(self, "Warning", msg)
@@ -1257,49 +1357,39 @@ class RenamerApp(QMainWindow):
         if filepath in self.archive_data: del self.archive_data[filepath]
         self.load_archive_info(filepath)
 
-    def on_individual_checkbox_toggled(self, state, fp):
-        if fp in self.archive_data:
-            self.archive_data[fp]['checked'] = state
-        self.update_header_checkbox_state()
+    def on_table_item_changed(self, item):
+        if item.column() == 0:
+            fp = item.data(Qt.ItemDataRole.UserRole)
+            if fp and fp in self.archive_data:
+                is_checked = (item.checkState() == Qt.CheckState.Checked)
+                self.archive_data[fp]['checked'] = is_checked
 
-    def on_header_checkbox_toggled(self, checked):
-        self.all_checked = checked
+    def toggle_all_checkboxes(self):
+        self.all_checked = not self.all_checked
         for fp in self.archive_data:
             self.archive_data[fp]['checked'] = self.all_checked
         
-        for row in range(self.table_archives.rowCount()):
-            widget = self.table_archives.cellWidget(row, 0)
-            if isinstance(widget, CellCheckBox):
-                widget.checkbox.setChecked(self.all_checked)
-
-    def update_header_checkbox_state(self):
-        if not self.archive_data:
-            self.all_checked = False
-        else:
-            self.all_checked = all(data['checked'] for data in self.archive_data.values())
-        
-        self.header_cb.blockSignals(True)
-        self.header_cb.setChecked(self.all_checked)
-        self.header_cb.blockSignals(False)
-
-    def refresh_archive_list(self):
         self.table_archives.blockSignals(True)
-        self.table_archives.setRowCount(0)
-        row = 0
+        for row in range(self.table_archives.rowCount()):
+            item = self.table_archives.item(row, 0)
+            if item:
+                item.setCheckState(Qt.CheckState.Checked if self.all_checked else Qt.CheckState.Unchecked)
+        self.table_archives.blockSignals(False)
+
+    # 🌟 테이블 렌더링 병목 차단을 위한 최적화
+    def refresh_archive_list(self):
+        self.table_archives.setUpdatesEnabled(False)
+        self.table_archives.blockSignals(True)
         
+        self.table_archives.clearContents()
+        self.table_archives.setRowCount(0)
+        
+        row = 0
         fmt_key = self.config.get("target_format", "none")
         webp_on = self.config.get("webp_conversion", False)
         
         for fp, data in self.archive_data.items():
             self.table_archives.insertRow(row)
-            
-            chk_widget = CellCheckBox(fp, data['checked'])
-            chk_widget.toggled_signal.connect(self.on_individual_checkbox_toggled)
-            self.table_archives.setCellWidget(row, 0, chk_widget)
-            
-            hidden_item = QTableWidgetItem()
-            hidden_item.setData(Qt.ItemDataRole.UserRole, fp) 
-            self.table_archives.setItem(row, 0, hidden_item)
             
             name = data['name']
             ext = data['ext'].lower().replace('.', '')
@@ -1315,19 +1405,24 @@ class RenamerApp(QMainWindow):
                 addon = f" 🔄 ({badge_str} 변환)" if self.lang == "ko" else f" 🔄 ({badge_str} conv)"
                 name += addon
                 
-            name_item = QTableWidgetItem(name)
+            chk_item = QTableWidgetItem(name)
+            chk_item.setData(Qt.ItemDataRole.UserRole, fp) 
+            chk_item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            chk_item.setCheckState(Qt.CheckState.Checked if data['checked'] else Qt.CheckState.Unchecked)
+            
             count_item = QTableWidgetItem(str(len(data['entries'])))
             count_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             size_item = QTableWidgetItem(f"{data['size_mb']:.1f}")
             size_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             
-            self.table_archives.setItem(row, 1, name_item)
-            self.table_archives.setItem(row, 2, count_item)
-            self.table_archives.setItem(row, 3, size_item)
+            self.table_archives.setItem(row, 0, chk_item)
+            self.table_archives.setItem(row, 1, count_item)
+            self.table_archives.setItem(row, 2, size_item)
             row += 1
             
         self.table_archives.blockSignals(False)
-        self.table_archives.viewport().update() 
+        self.table_archives.setUpdatesEnabled(True)
+        QApplication.processEvents() # 🌟 UI에 대량의 객체를 안전하게 한 번만 그리도록 강제 적용
         
         if self.archive_data:
             self.lbl_total_count.setText(self.i18n[self.lang]["total_files"].format(count=len(self.archive_data)))
@@ -1352,7 +1447,7 @@ class RenamerApp(QMainWindow):
         if not item: return
         
         fp = item.data(Qt.ItemDataRole.UserRole)
-        if fp not in self.archive_data: return 
+        if not fp or fp not in self.archive_data: return 
         
         self.current_archive_path = fp
         data = self.archive_data[fp]
@@ -1364,25 +1459,28 @@ class RenamerApp(QMainWindow):
 
         entries = data['entries'].copy()
         img_exts = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'}
-        cover = next((e for e in entries if os.path.basename(e.filename).lower().startswith('cover') and Path(e.filename).suffix.lower() in img_exts), None)
+        
+        cover = next((e for e in entries if os.path.basename(e['filename']).lower().startswith('cover') and Path(e['filename']).suffix.lower() in img_exts), None)
         if cover:
             entries.remove(cover)
             entries.insert(0, cover)
 
-        target = next((e for e in entries if Path(e.filename).suffix.lower() in img_exts), None)
+        target = next((e for e in entries if Path(e['filename']).suffix.lower() in img_exts), None)
         if target:
-            threading.Thread(target=self._bg_load_image, args=(fp, target.original_name, data['ext'], self.lbl_cover_img), daemon=True).start()
+            threading.Thread(target=bg_load_image, args=(fp, target['original_name'], data['ext'], "cover", self.seven_zip_path, self.ui_queue), daemon=True).start()
         else:
-            self.render_image(self.lbl_cover_img, None)
+            self.render_image("cover", None)
 
     def update_inner_preview_list(self):
         if not self.current_archive_path: return
+        self.table_inner.setUpdatesEnabled(False)
         self.table_inner.blockSignals(True)
+        self.table_inner.clearContents()
         self.table_inner.setRowCount(0)
         
         data = self.archive_data[self.current_archive_path]
         entries = data['entries'].copy()
-        cover = next((e for e in entries if os.path.basename(e.filename).lower().startswith('cover')), None)
+        cover = next((e for e in entries if os.path.basename(e['filename']).lower().startswith('cover')), None)
         if cover:
             entries.remove(cover)
             entries.insert(0, cover)
@@ -1397,7 +1495,7 @@ class RenamerApp(QMainWindow):
         webp_on = self.config.get("webp_conversion", False)
 
         for idx, e in enumerate(entries):
-            old = e.filename
+            old = e['filename']
             ext = ".webp" if webp_on else (os.path.splitext(old)[1] or ".jpg")
             
             pad = 4 if total >= 1000 else 3
@@ -1413,9 +1511,9 @@ class RenamerApp(QMainWindow):
 
             self.table_inner.insertRow(idx)
             i1 = QTableWidgetItem(os.path.basename(old) if flatten else old)
-            i1.setData(Qt.ItemDataRole.UserRole, e.original_name) 
+            i1.setData(Qt.ItemDataRole.UserRole, e['original_name']) 
             i2 = QTableWidgetItem(new)
-            i3 = QTableWidgetItem(f"{e.file_size/1024:.1f} KB")
+            i3 = QTableWidgetItem(f"{e['file_size']/1024:.1f} KB")
             i3.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             
             self.table_inner.setItem(idx, 0, i1)
@@ -1423,6 +1521,7 @@ class RenamerApp(QMainWindow):
             self.table_inner.setItem(idx, 2, i3)
             
         self.table_inner.blockSignals(False)
+        self.table_inner.setUpdatesEnabled(True)
 
     def on_inner_select(self):
         self.inner_timer.start(150)
@@ -1437,30 +1536,10 @@ class RenamerApp(QMainWindow):
         
         orig_fp = item.data(Qt.ItemDataRole.UserRole)
         ext = self.archive_data[self.current_archive_path]['ext']
-        threading.Thread(target=self._bg_load_image, args=(self.current_archive_path, orig_fp, ext, self.lbl_inner_img), daemon=True).start()
+        threading.Thread(target=bg_load_image, args=(self.current_archive_path, orig_fp, ext, "inner", self.seven_zip_path, self.ui_queue), daemon=True).start()
 
-    def _bg_load_image(self, arc_path, inner_path, ext, target_label):
-        img_data = self.get_preview_image_data(arc_path, inner_path, ext)
-        self.image_loaded_signal.emit(target_label, img_data)
-
-    def get_preview_image_data(self, filepath, target_filename, ext):
-        try:
-            if ext in ['.zip', '.cbz']:
-                with zipfile.ZipFile(filepath, 'r') as zf:
-                    for info in zf.infolist():
-                        if info.filename == target_filename:
-                            return zf.read(info.filename)
-                    return None
-            else:
-                cmd = [self.seven_zip_path, 'e', '-so', str(filepath), target_filename]
-                res = subprocess.run(cmd, capture_output=True, creationflags=CREATE_NO_WINDOW)
-                if res.returncode == 0 and res.stdout:
-                    return res.stdout
-                return None
-        except:
-            return None
-
-    def render_image(self, label_widget, img_data):
+    def render_image(self, target_id, img_data):
+        label_widget = self.lbl_cover_img if target_id == "cover" else self.lbl_inner_img
         cw, ch = 260, 300 
 
         if not img_data:
@@ -1471,7 +1550,7 @@ class RenamerApp(QMainWindow):
                 except: img_data = None
             
         if not img_data:
-            label_widget.setText(self.i18n[self.lang]["no_preview"] if label_widget == self.lbl_cover_img else self.i18n[self.lang]["no_image"])
+            label_widget.setText(self.i18n[self.lang]["no_preview"] if target_id == "cover" else self.i18n[self.lang]["no_image"])
             return
 
         try:
@@ -1496,45 +1575,43 @@ class RenamerApp(QMainWindow):
         except:
             label_widget.setText(self.i18n[self.lang]["no_image"])
 
+    # 🔘 버튼 전용: 체크박스(☑)된 것만 지움
     def remove_selected(self):
-        selected_items = self.table_archives.selectedItems()
-        if not selected_items:
-            return
-            
-        self.archive_timer.stop()
-        self.inner_timer.stop()
-            
-        rows_to_remove = set()
-        for item in selected_items:
-            rows_to_remove.add(item.row())
-            
-        if not rows_to_remove: return
-        min_row = min(rows_to_remove) 
-            
+        fps_to_remove = [fp for fp, data in self.archive_data.items() if data.get('checked', False)]
+        if not fps_to_remove: return
+        self._execute_removal(fps_to_remove)
+
+    # ⌨️ Delete 키 전용: 파랗게 선택된 줄만 지움
+    def remove_highlighted(self):
         fps_to_remove = []
+        selected_items = self.table_archives.selectedItems()
+        rows_to_remove = set([item.row() for item in selected_items])
         for row in rows_to_remove:
             item = self.table_archives.item(row, 0)
             if item:
                 fp = item.data(Qt.ItemDataRole.UserRole)
-                fps_to_remove.append(fp)
+                if fp: fps_to_remove.append(fp)
                 
+        if not fps_to_remove: return
+        self._execute_removal(fps_to_remove)
+
+    # 🗑️ 공통 삭제 실행 및 화면 정리 로직
+    def _execute_removal(self, fps_to_remove):
+        self.archive_timer.stop()
+        self.inner_timer.stop()
+        
         for fp in fps_to_remove:
             if fp in self.archive_data: 
                 del self.archive_data[fp]
                 
         self.refresh_archive_list()
-        self.update_header_checkbox_state()
         
-        new_count = self.table_archives.rowCount()
-        if new_count > 0:
-            next_row = min_row
-            if next_row >= new_count:
-                next_row = new_count - 1
-            self.table_archives.selectRow(next_row) 
+        if self.table_archives.rowCount() > 0:
+            self.table_archives.selectRow(0) 
         else: 
             self.table_inner.setRowCount(0)
-            self.render_image(self.lbl_cover_img, None)
-            self.render_image(self.lbl_inner_img, None)
+            self.render_image("cover", None)
+            self.render_image("inner", None)
             self.current_archive_path = None
 
     def clear_list(self):
@@ -1542,10 +1619,9 @@ class RenamerApp(QMainWindow):
         self.inner_timer.stop()
         self.archive_data.clear()
         self.refresh_archive_list()
-        self.update_header_checkbox_state()
         self.table_inner.setRowCount(0)
-        self.render_image(self.lbl_cover_img, None)
-        self.render_image(self.lbl_inner_img, None)
+        self.render_image("cover", None)
+        self.render_image("inner", None)
         self.current_archive_path = None
 
     def start_process(self):
@@ -1555,6 +1631,10 @@ class RenamerApp(QMainWindow):
             QMessageBox.warning(self, "Warning", msg)
             return
 
+        if self.is_loading or self.is_renaming:
+            return
+
+        self.is_renaming = True
         self.toggle_ui_elements(is_processing=True)
 
         self.btn_run.clicked.disconnect()
@@ -1566,25 +1646,23 @@ class RenamerApp(QMainWindow):
         self.progress_bar.show() 
         self.progress_bar.setValue(0)
         
-        self.worker = RenameWorker(
+        task = RenameTask(
             targets, self.config, self.archive_data, 
             self.i18n, self.cb_pattern.currentText(), 
-            self.entry_custom.text(), self.seven_zip_path
+            self.entry_custom.text(), self.seven_zip_path, self.ui_queue
         )
-        self.worker.progress_signal.connect(self.update_status_msg)
-        self.worker.finished_signal.connect(self.finish_process)
-        self.worker.start()
+        self.rename_task = task
+        self.rename_thread = threading.Thread(target=task.run, daemon=True)
+        self.rename_thread.start()
 
     def cancel_process(self):
         self.btn_run.setText(self.i18n[self.lang]["cancel_wait"])
         self.btn_run.setEnabled(False)
-        self.worker.cancel()
+        if self.rename_task:
+            self.rename_task.cancel()
 
-    def update_status_msg(self, percent, msg):
-        self.lbl_status.setText(msg)
-        self.progress_bar.setValue(percent)
-
-    def finish_process(self, stats, new_archive_data):
+    def finish_process(self, stats, new_archive_data, was_cancelled):
+        self.is_renaming = False
         self.toggle_ui_elements(is_processing=False)
 
         self.btn_run.clicked.disconnect()
@@ -1593,8 +1671,7 @@ class RenamerApp(QMainWindow):
         self.btn_run.setText(self.i18n[self.lang]["run_btn"])
         self.btn_run.setEnabled(True)
         self.btn_run.setStyleSheet(self.styleSheet())
-        self.progress_bar.hide()
-
+        
         for old_fp, new_fp in new_archive_data.items():
             if old_fp != new_fp:
                 if old_fp in self.archive_data: del self.archive_data[old_fp]
@@ -1604,7 +1681,6 @@ class RenamerApp(QMainWindow):
                 self.force_reload_archive(new_fp)
                 
         self.refresh_archive_list()
-        self.update_header_checkbox_state()
 
         if self.current_archive_path and self.current_archive_path in self.archive_data:
             for row in range(self.table_archives.rowCount()):
@@ -1612,15 +1688,16 @@ class RenamerApp(QMainWindow):
                     self.table_archives.selectRow(row)
                     break
                     
-        if self.worker._is_cancelled:
-            self.lbl_status.setText("Cancelled" if self.lang == "en" else "작업 중단됨")
+        if was_cancelled:
+            final_msg = "Cancelled" if self.lang == "en" else "작업 중단됨"
             QMessageBox.warning(self, "Cancelled", "사용자에 의해 작업이 중단되었습니다." if self.lang == "ko" else "Process cancelled by user.")
         else:
             if self.lang == "ko":
-                msg_str = f"작업 완료! (성공: {len(stats['success'])}건 / 스킵: {len(stats['skip'])}건 / 오류: {len(stats['error'])}건)"
+                final_msg = f"작업 완료! (성공: {len(stats['success'])}건 / 스킵: {len(stats['skip'])}건 / 오류: {len(stats['error'])}건)"
             else:
-                msg_str = f"Done! (Success: {len(stats['success'])} / Skip: {len(stats['skip'])} / Error: {len(stats['error'])})"
-            self.lbl_status.setText(msg_str)
+                final_msg = f"Done! (Success: {len(stats['success'])} / Skip: {len(stats['skip'])} / Error: {len(stats['error'])})"
+        
+        self.safe_hide_progress(final_msg)
         
         log_dlg = LogDialog(self, stats, self.i18n[self.lang])
         log_dlg.setStyleSheet(self.styleSheet())
@@ -1634,8 +1711,6 @@ class RenamerApp(QMainWindow):
         event.accept()
 
 if __name__ == "__main__":
-    # 🌟 윈도우 작업표시줄 및 타이틀바 아이콘 강제 적용을 위한 코드
-    import ctypes
     try:
         myappid = 'dongkkase.comiczip.optimizer.1'
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
