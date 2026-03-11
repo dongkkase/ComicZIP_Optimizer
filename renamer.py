@@ -32,9 +32,7 @@ from PIL import Image
 
 CREATE_NO_WINDOW = 0x08000000
 
-# 현재 버전 정의
-CURRENT_VERSION = "1.5.1"
-
+# 🌟 경로 찾는 함수들을 최상단으로 이동 (버전 파일 로딩을 위해)
 def get_executable_dir():
     if getattr(sys, 'frozen', False):
         return os.path.dirname(sys.executable)
@@ -42,6 +40,31 @@ def get_executable_dir():
         return os.path.dirname(os.path.abspath(sys.argv[0]))
     else:
         return os.path.dirname(os.path.abspath(__file__))
+
+def get_resource_path(filename):
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(base_dir, filename)
+    if os.path.exists(path):
+        return path
+        
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        path = os.path.join(sys._MEIPASS, filename)
+        if os.path.exists(path):
+            return path
+            
+    return os.path.join(get_executable_dir(), filename)
+
+# 🌟 같이 동봉된 version.json을 스스로 읽어서 현재 버전을 셋팅하는 스마트 함수
+def load_current_version():
+    try:
+        v_path = get_resource_path('version.json')
+        with open(v_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            return data.get("latest_version", "1.0.0")
+    except:
+        return "1.0.0"
+
+CURRENT_VERSION = load_current_version()
 
 def get_config_path():
     return os.path.join(get_executable_dir(), 'config.json')
@@ -86,19 +109,6 @@ def save_config(config_data):
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(config_data, f, ensure_ascii=False, indent=4)
     except: pass
-
-def get_resource_path(filename):
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    path = os.path.join(base_dir, filename)
-    if os.path.exists(path):
-        return path
-        
-    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-        path = os.path.join(sys._MEIPASS, filename)
-        if os.path.exists(path):
-            return path
-            
-    return os.path.join(get_executable_dir(), filename)
 
 def natural_keys(text):
     parts = str(text).replace('\\', '/').split('/')
@@ -305,7 +315,7 @@ class SettingsDialog(QDialog):
     def get_data(self):
         return {
             "lang": "ko" if self.cb_lang.currentText() == "한국어" else "en",
-            "target_format_idx": self.cb_format.currentIndex(),
+            "target_format_idx": self.cb_format.currentIndex(), 
             "backup_on": self.chk_backup.isChecked(),
             "flatten_folders": self.chk_flatten.isChecked(),
             "webp_conversion": self.chk_webp.isChecked(),
@@ -619,7 +629,7 @@ class RenamerApp(QMainWindow):
 
         self.config = load_config()
         self.lang = self.config["lang"]
-        self.latest_version_found = None # 🌟 업데이트 정보 기억용 변수
+        self.latest_version_found = None 
         
         window_width = self.config.get("width", 1150)
         window_height = self.config.get("height", 800)
@@ -827,7 +837,6 @@ class RenamerApp(QMainWindow):
         toolbar_layout.addWidget(self.btn_clear_all)
         toolbar_layout.addStretch()
 
-        # 🌟 버전 버튼 초기화 (언어 적용 전)
         self.btn_version = QPushButton()
         self.btn_version.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_version.setObjectName("versionBtn")
@@ -956,7 +965,6 @@ class RenamerApp(QMainWindow):
         self.render_image(self.lbl_inner_img, None)
 
     def apply_dark_theme(self):
-        # 🌟 버튼의 테두리와 배경색을 추가하여 명확한 클릭 영역 제공
         style = """
         QMainWindow, QDialog { background-color: #1e1e1e; }
         QFrame#panelFrame { background-color: #2b2b2b; border-radius: 10px; }
@@ -976,9 +984,9 @@ class RenamerApp(QMainWindow):
         QPushButton { background-color: #3a3a3a; color: white; border-radius: 6px; padding: 8px 12px; font-family: '맑은 고딕', 'Segoe UI Emoji'; font-weight: bold; }
         QPushButton:hover { background-color: #4a4a4a; }
         
-        QPushButton#versionBtn { background-color: #2b2b2b; color: #cccccc; font-weight: bold; border: 1px solid #555; padding: 8px 15px; }
+        QPushButton#versionBtn { background-color: #2b2b2b; color: #cccccc; font-weight: bold; border: 1px solid #555; }
         QPushButton#versionBtn:hover { background-color: #3a3a3a; color: #ffffff; border: 1px solid #777; }
-        QPushButton#versionBtnUpdate { background-color: #27AE60; color: #ffffff; font-weight: bold; border: 1px solid #2ECC71; padding: 8px 15px; }
+        QPushButton#versionBtnUpdate { background-color: #27AE60; color: #ffffff; font-weight: bold; border: 1px solid #2ECC71; }
         QPushButton#versionBtnUpdate:hover { background-color: #2ECC71; }
         
         QPushButton#settingsBtn { background-color: #2b2b2b; border: 1px solid #555; }
@@ -1015,7 +1023,6 @@ class RenamerApp(QMainWindow):
         self.latest_version_found = latest_version
         self.update_version_button_ui()
 
-    # 🌟 언어 변경 시에도 텍스트가 정상 반영되도록 버전 UI 업데이트 함수 분리
     def update_version_button_ui(self):
         if self.latest_version_found:
             update_msg = f"🎉 업데이트 가능: v{CURRENT_VERSION} ➔ v{self.latest_version_found}" if self.lang == "ko" else f"🎉 Update Available: v{CURRENT_VERSION} ➔ v{self.latest_version_found}"
@@ -1110,7 +1117,6 @@ class RenamerApp(QMainWindow):
             
         self.refresh_archive_list()
         
-        # 언어 변경 시 버전 텍스트도 새 언어에 맞춰 업데이트
         self.update_version_button_ui()
         
         if not self.current_archive_path:
