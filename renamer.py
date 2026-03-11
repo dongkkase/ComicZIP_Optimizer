@@ -11,7 +11,7 @@ import re
 import concurrent.futures
 from pathlib import Path
 
-# 🌟 인터넷 통신 및 브라우저 열기를 위한 라이브러리 추가
+# 인터넷 통신 및 브라우저 열기를 위한 라이브러리 추가
 import urllib.request
 import urllib.error
 import ssl
@@ -32,9 +32,7 @@ from PIL import Image
 
 CREATE_NO_WINDOW = 0x08000000
 
-# 🌟 현재 버전 정의 (새 버전 배포 시 여기만 숫자를 올려주면 됩니다)
-CURRENT_VERSION = "1.5.1"
-
+# 🌟 경로 찾는 함수들을 최상단으로 이동 (버전 파일 로딩을 위해)
 def get_executable_dir():
     if getattr(sys, 'frozen', False):
         return os.path.dirname(sys.executable)
@@ -42,6 +40,31 @@ def get_executable_dir():
         return os.path.dirname(os.path.abspath(sys.argv[0]))
     else:
         return os.path.dirname(os.path.abspath(__file__))
+
+def get_resource_path(filename):
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(base_dir, filename)
+    if os.path.exists(path):
+        return path
+        
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        path = os.path.join(sys._MEIPASS, filename)
+        if os.path.exists(path):
+            return path
+            
+    return os.path.join(get_executable_dir(), filename)
+
+# 🌟 같이 동봉된 version.json을 스스로 읽어서 현재 버전을 셋팅하는 스마트 함수
+def load_current_version():
+    try:
+        v_path = get_resource_path('version.json')
+        with open(v_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            return data.get("latest_version", "1.0.0")
+    except:
+        return "1.0.0"
+
+CURRENT_VERSION = load_current_version()
 
 def get_config_path():
     return os.path.join(get_executable_dir(), 'config.json')
@@ -87,19 +110,6 @@ def save_config(config_data):
             json.dump(config_data, f, ensure_ascii=False, indent=4)
     except: pass
 
-def get_resource_path(filename):
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    path = os.path.join(base_dir, filename)
-    if os.path.exists(path):
-        return path
-        
-    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-        path = os.path.join(sys._MEIPASS, filename)
-        if os.path.exists(path):
-            return path
-            
-    return os.path.join(get_executable_dir(), filename)
-
 def natural_keys(text):
     parts = str(text).replace('\\', '/').split('/')
     result = []
@@ -107,33 +117,28 @@ def natural_keys(text):
         result.append([int(c) if c.isdigit() else c.lower() for c in re.split(r'(\d+)', part)])
     return result
 
-# 🌟 백그라운드 버전 체크 스레드 (앱 실행 시 멈춤 방지)
 class VersionCheckWorker(QThread):
     result_signal = pyqtSignal(str) 
 
     def run(self):
         try:
-            # GitHub의 Raw 데이터 URL 사용 (캐시 우회용 헤더 추가)
             url = "https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/version.json"
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            
-            # 인증서 오류 무시 (일부 윈도우 환경 방어)
             context = ssl._create_unverified_context()
             
             with urllib.request.urlopen(req, timeout=3, context=context) as response:
                 data = json.loads(response.read().decode('utf-8'))
                 latest_version = data.get("latest_version", "")
                 
-                # 버전 비교 (예: "1.5.2" -> [1, 5, 2] 로 변환하여 크기 비교)
                 curr_parts = [int(x) for x in CURRENT_VERSION.split('.')]
                 latest_parts = [int(x) for x in latest_version.split('.')]
                 
                 if latest_parts > curr_parts:
-                    self.result_signal.emit(latest_version) # 신규 버전 발견
+                    self.result_signal.emit(latest_version) 
                 else:
-                    self.result_signal.emit("") # 최신 버전임
+                    self.result_signal.emit("") 
         except Exception:
-            self.result_signal.emit("") # 인터넷 연결 실패 등 예외 시 무시
+            self.result_signal.emit("") 
 
 class LogDialog(QDialog):
     def __init__(self, parent, stats, i18n):
@@ -310,7 +315,7 @@ class SettingsDialog(QDialog):
     def get_data(self):
         return {
             "lang": "ko" if self.cb_lang.currentText() == "한국어" else "en",
-            "target_format_idx": self.cb_format.currentIndex(),
+            "target_format_idx": self.cb_format.currentIndex(), 
             "backup_on": self.chk_backup.isChecked(),
             "flatten_folders": self.chk_flatten.isChecked(),
             "webp_conversion": self.chk_webp.isChecked(),
@@ -624,6 +629,7 @@ class RenamerApp(QMainWindow):
 
         self.config = load_config()
         self.lang = self.config["lang"]
+        self.latest_version_found = None 
         
         window_width = self.config.get("width", 1150)
         window_height = self.config.get("height", 800)
@@ -740,7 +746,6 @@ class RenamerApp(QMainWindow):
         self.current_archive_path = None
         self.seven_zip_path = get_resource_path('7za.exe')
         
-        # 최신 버전 다운로드 URL 초기화 (업데이트가 없을 경우 기본 릴리즈 페이지 연결)
         self.latest_version_url = "https://github.com/dongkkase/ComicZIP_Optimizer/releases"
 
         self.archive_timer = QTimer()
@@ -755,7 +760,6 @@ class RenamerApp(QMainWindow):
         self.apply_language()
         self.apply_dark_theme()
         
-        # 🌟 UI 세팅이 끝나면 백그라운드에서 버전 체크 실행
         self.check_for_updates()
 
     def setup_ui(self):
@@ -833,8 +837,7 @@ class RenamerApp(QMainWindow):
         toolbar_layout.addWidget(self.btn_clear_all)
         toolbar_layout.addStretch()
 
-        # 🌟 버전 표시 및 업데이트 버튼 추가 (설정 버튼 왼쪽)
-        self.btn_version = QPushButton(f"v{CURRENT_VERSION}")
+        self.btn_version = QPushButton()
         self.btn_version.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_version.setObjectName("versionBtn")
         self.btn_version.clicked.connect(self.open_update_link)
@@ -981,10 +984,10 @@ class RenamerApp(QMainWindow):
         QPushButton { background-color: #3a3a3a; color: white; border-radius: 6px; padding: 8px 12px; font-family: '맑은 고딕', 'Segoe UI Emoji'; font-weight: bold; }
         QPushButton:hover { background-color: #4a4a4a; }
         
-        QPushButton#versionBtn { background-color: transparent; color: #888888; font-weight: bold; border: none; padding-right: 15px; }
-        QPushButton#versionBtn:hover { color: #ffffff; }
-        QPushButton#versionBtnUpdate { background-color: transparent; color: #3498DB; font-weight: bold; border: none; padding-right: 15px; }
-        QPushButton#versionBtnUpdate:hover { color: #5DADE2; }
+        QPushButton#versionBtn { background-color: #2b2b2b; color: #cccccc; font-weight: bold; border: 1px solid #555; }
+        QPushButton#versionBtn:hover { background-color: #3a3a3a; color: #ffffff; border: 1px solid #777; }
+        QPushButton#versionBtnUpdate { background-color: #27AE60; color: #ffffff; font-weight: bold; border: 1px solid #2ECC71; }
+        QPushButton#versionBtnUpdate:hover { background-color: #2ECC71; }
         
         QPushButton#settingsBtn { background-color: #2b2b2b; border: 1px solid #555; }
         QPushButton#settingsBtn:hover { background-color: #3a3a3a; }
@@ -996,7 +999,7 @@ class RenamerApp(QMainWindow):
         QPushButton#actionBtnCancel { background-color: #E74C3C; font-size: 14px; padding: 10px 20px; }
         QPushButton#actionBtnCancel:hover { background-color: #C0392B; }
         
-        QPushButton:disabled { background-color: #555555; color: #888888; }
+        QPushButton:disabled { background-color: #555555; color: #888888; border: 1px solid #444; }
         
         QTableWidget { background-color: #2b2b2b; color: white; border: 1px solid #444; border-radius: 8px; gridline-color: #3a3a3a; }
         QHeaderView::section { background-color: #1f1f1f; color: white; padding: 5px; border: none; font-weight: bold; }
@@ -1011,26 +1014,29 @@ class RenamerApp(QMainWindow):
         """
         self.setStyleSheet(style)
 
-    # 🌟 업데이트 체크 시작 함수
     def check_for_updates(self):
         self.version_worker = VersionCheckWorker()
         self.version_worker.result_signal.connect(self.on_version_checked)
         self.version_worker.start()
 
-    # 🌟 업데이트 체크 결과 반영 함수
     def on_version_checked(self, latest_version):
-        if latest_version:
-            # 업데이트가 있을 때 (색상 및 텍스트 변경)
-            self.btn_version.setText(f"v{CURRENT_VERSION} > new v{latest_version}")
+        self.latest_version_found = latest_version
+        self.update_version_button_ui()
+
+    def update_version_button_ui(self):
+        if self.latest_version_found:
+            update_msg = f"🎉 업데이트 가능: v{CURRENT_VERSION} ➔ v{self.latest_version_found}" if self.lang == "ko" else f"🎉 Update Available: v{CURRENT_VERSION} ➔ v{self.latest_version_found}"
+            self.btn_version.setText(update_msg)
             self.btn_version.setObjectName("versionBtnUpdate")
-            self.btn_version.setStyleSheet(self.styleSheet()) # 스타일 재적용
-            self.latest_version_url = f"https://github.com/dongkkase/ComicZIP_Optimizer/releases/download/v{latest_version}/ComicZIP_Optimizer.zip"
+            self.btn_version.setStyleSheet(self.styleSheet()) 
+            self.latest_version_url = f"https://github.com/dongkkase/ComicZIP_Optimizer/releases/download/v{self.latest_version_found}/ComicZIP_Optimizer.zip"
         else:
-            # 최신 버전일 때 (기본 상태 유지)
-            self.btn_version.setText(f"v{CURRENT_VERSION}")
+            latest_msg = f"✅ v{CURRENT_VERSION} (최신 버전)" if self.lang == "ko" else f"✅ v{CURRENT_VERSION} (Latest)"
+            self.btn_version.setText(latest_msg)
+            self.btn_version.setObjectName("versionBtn")
+            self.btn_version.setStyleSheet(self.styleSheet())
             self.latest_version_url = "https://github.com/dongkkase/ComicZIP_Optimizer/releases"
 
-    # 🌟 버전 버튼 클릭 시 웹 브라우저 띄우기
     def open_update_link(self):
         if self.latest_version_url:
             webbrowser.open(self.latest_version_url)
@@ -1043,7 +1049,7 @@ class RenamerApp(QMainWindow):
         self.btn_remove_sel.setEnabled(enabled)
         self.btn_clear_all.setEnabled(enabled)
         self.btn_settings.setEnabled(enabled)
-        self.btn_version.setEnabled(enabled) # 버전 버튼 잠금
+        self.btn_version.setEnabled(enabled) 
         self.cb_pattern.setEnabled(enabled)
         self.table_archives.setEnabled(enabled)
         self.table_inner.setEnabled(enabled)
@@ -1110,6 +1116,8 @@ class RenamerApp(QMainWindow):
             self.lbl_status.setText(t["status_wait"])
             
         self.refresh_archive_list()
+        
+        self.update_version_button_ui()
         
         if not self.current_archive_path:
             self.render_image(self.lbl_cover_img, None)
