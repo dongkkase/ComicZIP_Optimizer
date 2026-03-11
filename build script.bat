@@ -1,0 +1,5 @@
+@echo off
+setlocal
+pyinstaller -w -D --icon=app.ico -n "ComicZIP Optimizer" --add-data "7za.exe;." --add-data "previewframe.png;." --exclude-module PyQt6.QtNetwork --exclude-module PyQt6.QtSql --exclude-module PyQt6.QtWebEngine --exclude-module PyQt6.QtWebEngineCore --exclude-module PyQt6.QtWebEngineWidgets --exclude-module PyQt6.QtQml --exclude-module PyQt6.QtQuick --exclude-module PyQt6.QtBluetooth --exclude-module PyQt6.QtMultimedia --exclude-module PyQt6.QtMultimediaWidgets --exclude-module PyQt6.QtDBus --exclude-module PyQt6.QtDesigner --exclude-module PyQt6.QtOpenGL --exclude-module PyQt6.QtOpenGLWidgets --exclude-module PyQt6.QtPrintSupport --exclude-module PyQt6.QtSvg --exclude-module PyQt6.QtTest --exclude-module PyQt6.QtXml --exclude-module tkinter --exclude-module pydoc --exclude-module email --exclude-module http --exclude-module urllib --exclude-module xmlrpc --upx-dir=. renamer.py
+pause
+endlocal
