@@ -58,7 +58,7 @@ This project is licensed under the **[MIT License](LICENSE)**.
 <a id="-한국어"></a>
 ## 🇰🇷 한국어
 <kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/video/demo2.png)</kbd>
-**ComicZIP Optimizer(코믹집 옵티마이저)**는 만화/코믹스 수집가 및 e-book 리더기(Kavita, Plex, YACReader 등) 사용자를 위한 강력한 GUI 최적화 툴입니다. 
+ComicZIP Optimizer(코믹집 옵티마이저)는 만화/코믹스 수집가 및 e-book 리더기(Kavita, Plex, YACReader 등) 사용자를 위한 강력한 GUI 최적화 툴입니다. 
 압축 파일을 일일이 풀지 않고도 내부 이미지 파일명 일괄 변경, 폴더 구조 평탄화, 다중 코어 WebP 변환을 지원하여 관리 편의성과 용량 다이어트를 동시에 제공합니다.
 
 <p align="center">
@@ -86,7 +86,7 @@ This project is licensed under the **[MIT License](LICENSE)**.
 
 ### 🚀 실행 방법
 
-1. 우측의 [Releases](https://github.com/dongkkase/ComicZIP_Optimizer/releases) 페이지로 이동합니다.
+1. [Releases](https://github.com/dongkkase/ComicZIP_Optimizer/releases) 페이지로 이동합니다.
 2. 최신 버전의 `ComicZIP_Optimizer.zip` 파일을 다운로드합니다.
 3. 압축을 풀고 안에 있는 실행 파일(`.exe`)을 바로 실행하세요. (별도의 설치가 필요 없는 포터블 버전입니다.)
 
