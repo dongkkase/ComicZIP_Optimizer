@@ -1,0 +1,13 @@
+{
+    "lang": "ko",
+    "target_format": "zip",
+    "backup_on": false,
+    "flatten_folders": false,
+    "webp_conversion": true,
+    "webp_quality": 100,
+    "max_threads": 6,
+    "play_sound": true,
+    "width": 1150,
+    "height": 750,
+    "is_maximized": false
+}

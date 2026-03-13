@@ -8,7 +8,7 @@ $ErrorActionPreference = "Stop"
 # --- 설정 영역 ---
 $APP_NAME = "ComicZIP_Optimizer"
 $ZIP_NAME = "ComicZIP_Optimizer.zip"
-$MAIN_SCRIPT = "renamer.py"
+$MAIN_SCRIPT = "main.py" # 🌟 변경됨: renamer.py -> main.py
 # ----------------
 
 # --- 기존 실행 중인 프로세스 강제 종료 ---
@@ -19,16 +19,29 @@ if (Get-Process -Name $APP_NAME -ErrorAction SilentlyContinue) {
 }
 # -----------------------------------------
 
+Remove-Item -Recurse -Force build, dist
+Remove-Item -Force *.spec
+
 Write-Host "`n[1/2] PyInstaller 빌드 시작..." -ForegroundColor Cyan
 
 # 파워쉘은 백틱(`)을 사용하여 안전하게 줄바꿈을 지원합니다.
 pyinstaller -y -w -D --icon=app.ico -n "$APP_NAME" `
+    --paths "$ROOT_DIR" `
+    --hidden-import ui.main_window `
+    --hidden-import ui.dialogs `
+    --hidden-import ui.widgets `
+    --hidden-import ui.signals `
+    --hidden-import core.parser `
+    --hidden-import core.archive_utils `
+    --hidden-import tasks.load_task `
+    --hidden-import tasks.organize_task `
+    --hidden-import tasks.rename_task `
+    --hidden-import tasks.update_task `
     --add-data "app.ico;." `
     --add-data "7za.exe;." `
     --add-data "previewframe.png;." `
     --add-data "version.json;." `
     --add-data "sounds\complete.wav;." `
-    --exclude-module PyQt6.QtNetwork `
     --exclude-module PyQt6.QtSql `
     --exclude-module PyQt6.QtWebEngine `
     --exclude-module PyQt6.QtWebEngineCore `
@@ -75,9 +88,13 @@ Write-Host $FinalMessage -ForegroundColor Yellow
 Write-Host "==========================================" -ForegroundColor Green
 
 # --- 완료 알림음 (윈도우 기본 미디어의 듣기 좋은 소리 사용) ---
-$sound = New-Object System.Media.SoundPlayer
-$sound.SoundLocation = ".\sounds\complete.wav" # "tada.wav" 로 변경하시면 짜잔~ 하는 소리가 납니다.
-$sound.Play()
+try {
+    $sound = New-Object System.Media.SoundPlayer
+    $sound.SoundLocation = ".\sounds\complete.wav"
+    $sound.Play()
+} catch {
+    # 알림음 재생 실패 시 무시
+}
 
 # --- 개발 모드일 경우 프로그램 자동 실행 ---
 if ($DevMode) {
