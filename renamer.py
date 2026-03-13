@@ -62,7 +62,7 @@ def play_complete_sound():
     except:
         pass
 
-CURRENT_VERSION = "1.6.0"
+CURRENT_VERSION = "1.7.0"
 try:
     _ver_path = get_resource_path("version.json")
     if os.path.exists(_ver_path):
@@ -111,7 +111,6 @@ def save_config(config_data):
             json.dump(config_data, f, ensure_ascii=False, indent=4)
     except: pass
 
-# 🌟 정렬 로직 핵심 수정: 슬래시(/)를 기준으로 폴더 계층을 나누어 윈도우 탐색기와 완벽히 동일하게 정렬되도록 개선
 def natural_keys(text):
     return [[f"{int(c):010d}" if c.isdigit() else c.lower() for c in re.split(r'(\d+)', p)] for p in str(text).replace('\\', '/').split('/')]
 
@@ -119,7 +118,8 @@ class WorkerSignals(QObject):
     progress = pyqtSignal(int, str)
     load_done = pyqtSignal(dict, list, list)
     rename_done = pyqtSignal(dict, dict, bool)
-    org_load_done = pyqtSignal(dict)
+    # 🌟 [수정] 스킵된 파일 목록을 UI로 보내기 위해 list 타입 추가
+    org_load_done = pyqtSignal(dict, list)
     org_process_done = pyqtSignal(dict, list, bool)
     image_loaded = pyqtSignal(str, object)
     version_checked = pyqtSignal(str)
@@ -238,6 +238,12 @@ def format_leaf_name(parent_core, leaf_name, index, total_items, lang='ko'):
         else:
             num_str = f"{index+1:0{pad}d}"
             
+        base_num = re.sub(r'\D', '', parent_core)
+        rem_num = re.sub(r'\D', '', num_str)
+        if base_num and base_num == rem_num and not re.search(r'[가-힣a-zA-Z]', parent_core):
+            if lang == 'en': return f"v{num_str}"
+            else: return f"{num_str}권"
+            
         if lang == 'en': return f"{parent_core} v{num_str}".strip()
         else: return f"{parent_core} {num_str}권".strip()
 
@@ -287,11 +293,37 @@ def format_leaf_name(parent_core, leaf_name, index, total_items, lang='ko'):
                 remainder = re.sub(r'(\d+)\s*\.\s*(\d+)', r'\1.\2', remainder)
             
     has_text = re.search(r'[가-힣a-zA-Z]', child_core)
-    if not has_text or (child_core and get_similarity(child_core, parent_core) >= 0.5):
+    
+    # 🌟 [버그 수정] 부모 폴더와 자식 파일의 맨 끝 숫자만 다를 경우, 숫자를 제외한 순수 텍스트를 제목으로 확정
+    parent_text = re.sub(r'(?:[\s\-_]+)?0*\d+(?:\.\d+)?$', '', parent_core).strip()
+    child_text = re.sub(r'(?:[\s\-_]+)?0*\d+(?:\.\d+)?$', '', child_core).strip()
+    
+    if child_core and parent_core != child_core and parent_text == child_text and parent_text:
+        base_name = parent_text
+    elif not has_text or (child_core and get_similarity(child_core, parent_core) >= 0.5):
         base_name = parent_core
     else:
         base_name = child_core if child_core else parent_core
         
+    rem_num_match = re.search(r'\d+(?:\.\d+)?', remainder)
+    if rem_num_match:
+        rem_num_str = rem_num_match.group(0)
+        if '.' in rem_num_str:
+            val_str = str(float(rem_num_str))
+            val_str = val_str.rstrip('0').rstrip('.') if '.' in val_str else val_str
+        else:
+            val_str = str(int(rem_num_str))
+            
+        pattern = r'(.*?)(?:[\s\-_]+)?0*' + re.escape(val_str) + r'(?:\.0+)?$'
+        match = re.search(pattern, base_name)
+        
+        if match:
+            base_name_candidate = match.group(1).strip()
+            if base_name_candidate:
+                base_name = base_name_candidate
+            elif not re.search(r'[가-힣a-zA-Z]', base_name):
+                return remainder.strip()
+                
     return f"{base_name} {remainder}".strip()
 
 # =========================================================
@@ -552,6 +584,7 @@ class OrganizerLoadTask:
             img_exts = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'}
             all_files = []
             new_data = {}
+            skipped_files = [] # 🌟 제외된 파일명을 담을 리스트
             
             for p in self.paths:
                 path_obj = Path(p)
@@ -564,7 +597,7 @@ class OrganizerLoadTask:
 
             total = len(all_files)
             if total == 0:
-                self.signals.org_load_done.emit({})
+                self.signals.org_load_done.emit({}, [])
                 return
 
             for idx, path_obj in enumerate(all_files):
@@ -577,14 +610,20 @@ class OrganizerLoadTask:
 
                 size_mb = os.path.getsize(filepath) / (1024 * 1024)
                 image_paths = []
+                requires_processing = False 
                 
                 def scan_zip(zf_path, prefix=""):
+                    nonlocal requires_processing
                     try:
                         with zipfile.ZipFile(zf_path, 'r') as zf:
                             for info in zf.infolist():
-                                if info.is_dir(): continue
                                 fn_lower = info.filename.lower()
-                                if fn_lower.endswith(('.zip', '.cbz')):
+                                
+                                if info.is_dir() or '/' in info.filename.replace('\\', '/'):
+                                    requires_processing = True
+                                    
+                                if fn_lower.endswith(('.zip', '.cbz', '.cbr', '.rar', '.7z')):
+                                    requires_processing = True
                                     try:
                                         with zf.open(info.filename) as nested_zf:
                                             scan_zip(nested_zf, prefix + info.filename + "/")
@@ -597,15 +636,26 @@ class OrganizerLoadTask:
                             for line in res.stdout.splitlines():
                                 if line.startswith("Path = "):
                                     p = line[7:].replace('\\', '/')
+                                    if '/' in p:
+                                        requires_processing = True
+                                    if p.lower().endswith(('.zip', '.cbz', '.cbr', '.rar', '.7z')):
+                                        requires_processing = True
                                     if p.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif')):
                                         image_paths.append(prefix + p)
 
                 scan_zip(filepath)
                 if not image_paths: continue
 
+                if not requires_processing:
+                    skipped_files.append(filename) # 🌟 작업 불필요 파일 추가
+                    continue
+
                 leaf_folders = set()
                 for p in image_paths:
                     leaf_folders.add(os.path.dirname(p))
+                    
+                if len(leaf_folders) > 1 and '' in leaf_folders:
+                    leaf_folders.remove('')
                     
                 leaf_folders = sorted(list(leaf_folders), key=natural_keys)
 
@@ -645,11 +695,11 @@ class OrganizerLoadTask:
                 }
 
             self.signals.progress.emit(100, "분석 완료" if self.lang == 'ko' else "Analysis Done")
-            self.signals.org_load_done.emit(new_data)
+            self.signals.org_load_done.emit(new_data, skipped_files) # 🌟 수정: 스킵 파일도 함께 전송
 
         except Exception as e:
             self.signals.progress.emit(100, f"Error: {e}")
-            self.signals.org_load_done.emit({})
+            self.signals.org_load_done.emit({}, []) # 🌟 에러 시 빈 배열 반환
 
 class OrganizerProcessTask:
     def __init__(self, targets, config, org_data, seven_z_exe, signals):
@@ -728,6 +778,9 @@ class OrganizerProcessTask:
                             if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif')):
                                 leaf_folders.add(root)
                                 
+                    if len(leaf_folders) > 1 and temp_base in leaf_folders:
+                        leaf_folders.remove(temp_base)
+                        
                     leaf_folders = sorted(list(leaf_folders), key=natural_keys)
                     target_ext = f".{self.target_format}" if self.target_format != "none" else ".zip"
                     archive_type = '-t7z' if target_ext == '.7z' else '-tzip'
@@ -776,15 +829,33 @@ class OrganizerProcessTask:
                         
                         subprocess.run([self.seven_z_exe, 'a', archive_type, temp_archive, '*', '-mx=0'], cwd=leaf, stdout=subprocess.DEVNULL, creationflags=CREATE_NO_WINDOW, check=True)
                         
-                        if os.path.exists(target_path): os.remove(target_path)
-                        shutil.move(temp_archive, target_path)
+                        is_same_as_original = os.path.normcase(os.path.abspath(target_path)) == os.path.normcase(os.path.abspath(file_path))
+                        tmp_backup_path = file_path + ".tmp"
+
+                        if is_same_as_original:
+                            if os.path.exists(tmp_backup_path):
+                                os.remove(tmp_backup_path)
+                            os.rename(file_path, tmp_backup_path) 
+                            try:
+                                shutil.move(temp_archive, target_path)
+                            except Exception as e:
+                                os.rename(tmp_backup_path, file_path) 
+                                raise e
+                        else:
+                            if os.path.exists(target_path): 
+                                os.remove(target_path)
+                            shutil.move(temp_archive, target_path)
                         
                         created_zips.append(target_path)
 
                     shutil.rmtree(temp_base, ignore_errors=True)
                     
                     if not self._is_cancelled:
-                        os.remove(file_path)
+                        if os.path.exists(file_path):
+                            os.remove(file_path)
+                        elif os.path.exists(file_path + ".tmp"):
+                            os.remove(file_path + ".tmp")
+                            
                         stats['success'].append(filename)
                         try:
                             parent_dir = os.path.dirname(file_path)
@@ -1106,13 +1177,29 @@ class RenameTask:
                         subprocess.run([self.seven_z_exe, 'a', archive_type, temp_archive, '*', '-mx=0'], cwd=temp_dir, startupinfo=startupinfo, creationflags=CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, check=True)
                         shutil.rmtree(temp_dir, ignore_errors=True)
                         
-                        if os.path.normcase(os.path.abspath(file_path)) == os.path.normcase(os.path.abspath(target_final_path)):
-                            os.remove(file_path)
+                        is_same_path = os.path.normcase(os.path.abspath(file_path)) == os.path.normcase(os.path.abspath(target_final_path))
+                        
+                        if is_same_path:
+                            tmp_backup_path = file_path + ".tmp"
+                            if os.path.exists(tmp_backup_path):
+                                os.remove(tmp_backup_path)
+                            os.rename(file_path, tmp_backup_path)
+                            
+                            try:
+                                shutil.move(temp_archive, target_final_path)
+                                os.remove(tmp_backup_path)
+                            except Exception as e:
+                                if os.path.exists(target_final_path):
+                                    os.remove(target_final_path)
+                                os.rename(tmp_backup_path, file_path) 
+                                raise e 
                         else:
-                            if os.path.exists(file_path): os.remove(file_path)
-                            if os.path.exists(target_final_path): os.remove(target_final_path)
+                            if os.path.exists(target_final_path): 
+                                os.remove(target_final_path)
+                            shutil.move(temp_archive, target_final_path)
+                            if os.path.exists(file_path): 
+                                os.remove(file_path)
                                 
-                        shutil.move(temp_archive, target_final_path)
                         stats['success'].append(filename)
                         new_archive_data[file_path] = target_final_path 
 
@@ -1158,6 +1245,7 @@ class RenamerApp(QMainWindow):
         self.signals.progress.connect(self.update_progress)
         self.signals.load_done.connect(self.on_renamer_loaded)
         self.signals.rename_done.connect(self.finish_process_rename)
+        # 🌟 [수정] skipped_files 매개변수 연결
         self.signals.org_load_done.connect(self.on_organizer_loaded)
         self.signals.org_process_done.connect(self.finish_process_org)
         self.signals.image_loaded.connect(self.render_image)
@@ -1851,7 +1939,8 @@ class RenamerApp(QMainWindow):
         self.active_task = task
         threading.Thread(target=task.run, daemon=True).start()
 
-    def on_organizer_loaded(self, new_data):
+    # 🌟 [수정] skipped_files 리스트를 받아와 팝업창 띄우기
+    def on_organizer_loaded(self, new_data, skipped_files):
         for fp, data in new_data.items():
             if fp not in self.org_data:
                 self.org_data[fp] = data
@@ -1859,6 +1948,15 @@ class RenamerApp(QMainWindow):
         self.is_org_expanded = True
         self.refresh_org_list()
         self.safe_finish_ui_reset()
+        
+        # 🌟 스킵된 파일 안내 메시지창 띄우기
+        if skipped_files:
+            msg = "다음 파일은 내부에 폴더 구조가 없어 1차 정리가 완료된 것으로 판단, 목록에서 자동으로 제외되었습니다:\n\n" if self.lang == "ko" else "The following files have no inner folders and were skipped:\n\n"
+            msg += "\n".join(skipped_files[:5])
+            if len(skipped_files) > 5:
+                msg += f"\n...외 {len(skipped_files)-5}개" if self.lang == "ko" else f"\n...and {len(skipped_files)-5} more"
+            
+            QMessageBox.information(self, "알림" if self.lang == "ko" else "Information", msg)
 
     def on_renamer_loaded(self, new_data, nested_files, unsupported_files):
         added = False
