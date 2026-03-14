@@ -1,5 +1,5 @@
 {
-    "lang": "ko",
+    "lang": "en",
     "target_format": "zip",
     "backup_on": false,
     "flatten_folders": false,
@@ -7,7 +7,8 @@
     "webp_quality": 100,
     "max_threads": 6,
     "play_sound": true,
-    "width": 1150,
-    "height": 750,
-    "is_maximized": false
+    "width": 1100,
+    "height": 1120,
+    "is_maximized": false,
+    "last_tab_index": 2
 }

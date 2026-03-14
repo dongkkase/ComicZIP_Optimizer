@@ -19,10 +19,12 @@ from tasks.load_task import OrganizerLoadTask, FileLoadTask
 from tasks.organize_task import OrganizerProcessTask
 from tasks.rename_task import RenameTask
 
-# 🌟 각 탭을 모듈로 깔끔하게 불러옵니다!
 from ui.tabs.tab1_organizer import Tab1Organizer
 from ui.tabs.tab2_renamer import Tab2Renamer
 from ui.tabs.tab3_metadata import Tab3Metadata
+
+# 🌟 [핵심 변경] 새로 만든 다국어/데이터 파일을 불러옵니다!
+from core.i18n import get_i18n
 
 class RenamerApp(QMainWindow):
     def __init__(self):
@@ -40,7 +42,6 @@ class RenamerApp(QMainWindow):
         self.signals.version_checked.connect(self.on_version_checked)
         self.signals.release_notes_loaded.connect(self.on_release_notes_loaded)
         
-        # 🌟 [이미지 렌더링 라우팅] 백그라운드에서 이미지가 오면, 현재 켜져있는 탭으로 보내줍니다.
         self.signals.image_loaded.connect(self.route_image_loaded)
         
         self.is_processing = False
@@ -61,84 +62,9 @@ class RenamerApp(QMainWindow):
         icon_path = get_resource_path('app.ico')
         if os.path.exists(icon_path): self.setWindowIcon(QIcon(icon_path))
         
-        from config import get_safe_thread_limits
-        total_c, safe_c, _ = get_safe_thread_limits()
-        self.i18n = {
-            "ko": {
-                "title": f"ComicZIP Optimizer v{CURRENT_VERSION}",
-                "tab1": "압축 파일 구조 정리(평탄화)", "tab2": "내부 파일명 변경", 
-                "tab3": "메타데이터 관리", "tab4": "릴리스 노트",
-                "cover_preview": "📚 표지 미리보기", "inner_preview": "🖼️ 내부 파일 미리보기",
-                "add_folder": "📂 폴더 추가", "add_file": "📄 파일 추가",
-                "remove_sel": "🗑️ 선택 삭제", "clear_all": "🧹 전체 비우기",
-                "toggle_all": "☑ 전체 선택/해제",
-                "settings_btn": "⚙️ 환경 설정", "settings_title": "환경 설정",
-                "lang_lbl": "🌐 언어 (Language) :", "format_lbl": "📦 변환 포맷 :",
-                "play_sound": "작업 완료 알림음 재생", 
-                "backup": "원본 백업 (bak 폴더 생성)",
-                "flatten": "폴더 구조 평탄화 (하위 폴더 제거)",
-                "flatten_desc": "압축 파일 내의 폴더를 모두 무시하고 이미지를 최상단으로 꺼냅니다.",
-                "webp": "모든 이미지를 WebP로 일괄 변환",
-                "webp_desc": "모든 이미지를 고효율 WebP 포맷으로 변환하여 확장자 통일성을 보장합니다.",
-                "webp_quality": "WebP 품질 (Quality) :", "max_threads": "다중 스레드 (Threads) :",
-                "threads_desc": f"⚠️ 수치가 높을수록 변환 속도가 빨라지지만 PC가 느려질 수 있습니다.\n시스템 안정을 위해 전체 {total_c}코어 중 여유분을 남긴 안전 수치({safe_c}코어)까지만 올릴 수 있습니다.",
-                "btn_save": "저장", "btn_cancel": "취소", "btn_close": "닫기",
-                "btn_continue_tab2": "🚀 내부 파일명 변경 (Tab 2) 이어서 하기",
-                "log_title": "상세 작업 결과 로그",
-                "pattern_lbl": "💡 파일명 패턴 :",
-                "target_lbl": " 대상 압축파일 (ZIP, CBZ, CBR, 7Z 지원) ",
-                "inner_lbl": " 내부 파일 리스트 (패턴 실시간 미리보기) ",
-                "col_org_name": "작업 대상 및 구조", "col_org_path": "완료 저장 경로 (직접 수정 가능)", "col_org_count": "항목수", "col_org_size": "용량",
-                "batch_default": "일괄 기본값", "batch_title": "일괄 책제목",
-                "col_name": "파일명 (포맷 변경 반영)", "col_count": "항목 수", "col_size": "용량 (MB)",
-                "col_old": "원본 파일명", "col_new": "변경될 파일명", "col_fsize": "크기",
-                "drag_drop": "📂 폴더나 파일을 여기로 드래그 앤 드롭하세요",
-                "run_btn": "🚀 최적화 실행", "cancel_btn": "🛑 작업 중단",
-                "cancel_wait": "⏳ 중단 처리 중...", "status_wait": "대기 중...",
-                "no_preview": "미리보기 없음", "no_image": "미리볼 수 없는 이미지입니다.",
-                "total_files": "총 {count}개 리스트",
-                "format_opts": ["변경없음", "zip", "cbz", "cbr", "7z"],
-                "patterns": ["기본 숫자 패딩 (000, 001...)", "영문 도서 스타일 (Cover, Page_001...)",
-                             "압축파일명 동기화 (파일명_000...)", "압축파일명 + 도서 (파일명_Cover...) - 추천", "사용자 정의 (직접입력_000...)"]
-            },
-            "en": {
-                "title": f"ComicZIP Optimizer v{CURRENT_VERSION}",
-                "tab1": "Archive Organizer", "tab2": "Inner Renamer", 
-                "tab3": "Metadata Management", "tab4": "Release Notes",
-                "cover_preview": "📚 Cover Preview", "inner_preview": "🖼️ Inner Preview",
-                "add_folder": "📂 Add Folder", "add_file": "📄 Add File",
-                "remove_sel": "🗑️ Remove Sel", "clear_all": "🧹 Clear All",
-                "toggle_all": "☑ Toggle All",
-                "settings_btn": "⚙️ Settings", "settings_title": "Preferences",
-                "lang_lbl": "🌐 Language :", "format_lbl": "📦 Output Format :",
-                "play_sound": "Play completion sound",  
-                "backup": "Backup Original (bak folder)",
-                "flatten": "Flatten Folders (Remove Sub-folders)",
-                "flatten_desc": "Extracts all images to the root, ignoring folders.",
-                "webp": "Convert all images to WebP",
-                "webp_desc": "Converts all images strictly to WebP format.",
-                "webp_quality": "WebP Quality :", "max_threads": "Multi-threads :",
-                "threads_desc": f"⚠️ Higher values increase speed but consume more CPU.\nFor system stability, the maximum is capped at {safe_c} cores (Total: {total_c}).",
-                "btn_save": "Save", "btn_cancel": "Cancel", "btn_close": "Close",
-                "btn_continue_tab2": "🚀 Continue to Inner Renamer (Tab 2)",
-                "log_title": "Detailed Job Log",
-                "pattern_lbl": "💡 Naming Pattern :",
-                "target_lbl": " Target Archives (ZIP, CBZ, CBR, 7Z) ",
-                "inner_lbl": " Inner Files (Real-time Preview) ",
-                "col_org_name": "Original Name & Structure", "col_org_path": "Output Save Path", "col_org_count": "Items", "col_org_size": "Size",
-                "batch_default": "Batch Default", "batch_title": "Batch Title",
-                "col_name": "File Name", "col_count": "Items", "col_size": "Size",
-                "col_old": "Original Name", "col_new": "New Name", "col_fsize": "Size",
-                "drag_drop": "📂 Drag and drop folders or files here",
-                "run_btn": "🚀 Execute Process", "cancel_btn": "🛑 Cancel Process",
-                "cancel_wait": "⏳ Cancelling...", "status_wait": "Waiting...",
-                "no_preview": "No Preview", "no_image": "Cannot preview this image.",
-                "total_files": "Total {count} items",
-                "format_opts": ["No Change", "zip", "cbz", "cbr", "7z"],
-                "patterns": ["Basic Number Padding (000, 001...)", "English Book Style (Cover, Page_001...)",
-                             "Sync with Archive Name (File_000...)", "Archive + Book (File_Cover...) - Recommended", "Custom (Input_000...)"]
-            }
-        }
+        # 🌟 [핵심 변경] 예전의 수백 줄 하드코딩 코드를 지우고, core/i18n.py에서 데이터를 당겨옵니다.
+        # 이 한 줄 덕분에 장르, 태그, 포맷 데이터가 Tab3로 정상적으로 넘어가게 됩니다!
+        self.i18n = get_i18n()
 
         self.setup_ui()
         self.apply_language()
@@ -147,6 +73,9 @@ class RenamerApp(QMainWindow):
         self.setAcceptDrops(True)
         self.check_for_updates()
         threading.Thread(target=ReleaseNotesTask(self.signals).run, daemon=True).start()
+
+        last_tab_index = self.config.get("last_tab_index", 0)
+        self.tabs.setCurrentIndex(last_tab_index)
 
     def route_image_loaded(self, target_id, img_data):
         current_tab = self.tabs.currentWidget()
@@ -327,6 +256,7 @@ class RenamerApp(QMainWindow):
         QTableWidget::item:selected, QTreeWidget::item:selected { background-color: #3a7ebf; }
         QTableWidget::indicator, QTreeWidget::indicator { width: 18px; height: 18px; }
         
+        QScrollArea { background-color: transparent; border: none; }
         QSlider::groove:horizontal { border-radius: 4px; height: 8px; background: #3a3a3a; }
         QSlider::handle:horizontal { background: #3498DB; width: 16px; height: 16px; margin: -4px 0; border-radius: 8px; }
         QSlider::handle:horizontal:hover { background: #5DADE2; }
@@ -350,7 +280,6 @@ class RenamerApp(QMainWindow):
         self.btn_toggle_all.setText(t["toggle_all"])
         self.btn_settings.setText(t["settings_btn"]) 
         
-        # 🌟 탭 파일 안의 글자들도 업데이트하라고 각 객체에 위임합니다!
         if hasattr(self.tab1, 'retranslate_ui'): self.tab1.retranslate_ui(t, self.lang)
         if hasattr(self.tab2, 'retranslate_ui'): self.tab2.retranslate_ui(t, self.lang)
         if hasattr(self.tab3, 'retranslate_ui'): self.tab3.retranslate_ui(t, self.lang)
@@ -370,7 +299,7 @@ class RenamerApp(QMainWindow):
         self.btn_remove_sel.setEnabled(enabled)
         self.btn_clear_all.setEnabled(enabled)
         self.btn_toggle_all.setEnabled(enabled)
-        self.btn_run.setEnabled(index in [0, 1] and not self.is_processing)
+        self.btn_run.setVisible(index in [0, 1])
 
     def toggle_ui_elements(self, is_processing):
         enabled = not is_processing
@@ -431,7 +360,6 @@ class RenamerApp(QMainWindow):
         files, _ = QFileDialog.getOpenFileNames(self, "Select Archives", "", "Archive files (*.zip *.cbz *.cbr *.7z *.rar)", options=QFileDialog.Option.DontUseNativeDialog)
         if files: self.process_paths(files)
 
-    # 🌟 [공용 버튼 라우팅] 메인 창에서 버튼을 누르면 활성화된 탭으로 명령을 보냅니다.
     def toggle_all_checkboxes(self):
         current = self.tabs.currentWidget()
         if hasattr(current, 'toggle_all_checkboxes'): current.toggle_all_checkboxes()
@@ -448,7 +376,28 @@ class RenamerApp(QMainWindow):
         if self.is_processing: return
         
         if self.tabs.currentIndex() == 2:
-            QMessageBox.information(self, "알림", "메타데이터 탭 화면 설계 대기 중입니다.")
+            files_dropped = [p for p in paths if os.path.isfile(p)]
+            folders_dropped = [p for p in paths if os.path.isdir(p)]
+            final_paths = []
+
+            if files_dropped:
+                msg = "파일이 선택되었습니다.\n선택한 파일이 포함된 '폴더 전체(시리즈)'를 추가하시겠습니까?\n\n• Yes: 파일이 속한 폴더의 모든 압축파일 함께 추가\n• No: 드래그한 파일만 개별 추가" if self.lang == "ko" else "Files were dropped.\nAdd the entire folder (Series)?\n\n• Yes: Add all archives in the folder\n• No: Add only selected files"
+                
+                reply = QMessageBox.question(
+                    self, "추가 방식 선택" if self.lang == "ko" else "Select Add Method", msg, 
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel
+                )
+
+                if reply == QMessageBox.StandardButton.Cancel: return
+                elif reply == QMessageBox.StandardButton.Yes:
+                    parent_dirs = set(os.path.dirname(f) for f in files_dropped)
+                    for d in parent_dirs: folders_dropped.append(d)
+                else: final_paths.extend(files_dropped)
+
+            for d in folders_dropped:
+                if d not in final_paths: final_paths.append(d)
+
+            if final_paths: self.tab3.load_paths(final_paths)
             return
             
         self.is_processing = True
@@ -465,7 +414,6 @@ class RenamerApp(QMainWindow):
         self.active_task = task
         threading.Thread(target=task.run, daemon=True).start()
 
-    # 🌟 [데이터 소유권 분리] 백그라운드 작업이 완료되면 알맞은 탭의 변수에 저장합니다.
     def on_organizer_loaded(self, new_data, skipped_files):
         for fp, data in new_data.items():
             if fp not in self.tab1.org_data:
@@ -642,5 +590,6 @@ class RenamerApp(QMainWindow):
         self.config["width"] = self.normalGeometry().width()
         self.config["height"] = self.normalGeometry().height()
         self.config["is_maximized"] = self.isMaximized()
+        self.config["last_tab_index"] = self.tabs.currentIndex()
         save_config(self.config)
         event.accept()
