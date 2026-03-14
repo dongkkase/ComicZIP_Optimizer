@@ -3,3 +3,16 @@ dist/
 ComicZIP_Optimizer.spec
 ComicZIP_Optimizer.zip
 .vscode/
+.bak/
+.gitignore
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+*.DS_Store
+Thumbs.db
