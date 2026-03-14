@@ -3,7 +3,12 @@ import threading
 import webbrowser
 from pathlib import Path
 
-from PyQt6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QProgressBar, QComboBox, QLineEdit, QFrame, QFileDialog, QMessageBox, QTableWidgetItem, QTreeWidgetItem, QAbstractItemView, QHeaderView, QTextBrowser, QSizePolicy, QTabWidget, QTableWidget, QTabWidget, QTableWidget
+from PyQt6.QtWidgets import (
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, 
+    QProgressBar, QComboBox, QLineEdit, QFrame, QFileDialog, QMessageBox, 
+    QTableWidgetItem, QTreeWidgetItem, QAbstractItemView, QHeaderView, 
+    QTextBrowser, QSizePolicy, QTabWidget, QTableWidget, QDialog
+)
 from PyQt6.QtCore import Qt, QTimer, QSize
 from PyQt6.QtGui import QImage, QPixmap, QPainter, QPainterPath, QIcon, QColor
 
@@ -64,7 +69,8 @@ class RenamerApp(QMainWindow):
         self.i18n = {
             "ko": {
                 "title": f"ComicZIP Optimizer v{CURRENT_VERSION}",
-                "tab1": "압축 파일 구조 정리(평탄화)", "tab2": "내부 파일명 변경", "tab3": "릴리스 노트",
+                "tab1": "압축 파일 구조 정리(평탄화)", "tab2": "내부 파일명 변경", 
+                "tab3": "메타데이터 관리", "tab4": "릴리스 노트",
                 "cover_preview": "📚 표지 미리보기", "inner_preview": "🖼️ 내부 파일 미리보기",
                 "add_folder": "📂 폴더 추가", "add_file": "📄 파일 추가",
                 "remove_sel": "🗑️ 선택 삭제", "clear_all": "🧹 전체 비우기",
@@ -100,7 +106,8 @@ class RenamerApp(QMainWindow):
             },
             "en": {
                 "title": f"ComicZIP Optimizer v{CURRENT_VERSION}",
-                "tab1": "Archive Organizer", "tab2": "Inner Renamer", "tab3": "Release Notes",
+                "tab1": "Archive Organizer", "tab2": "Inner Renamer", 
+                "tab3": "Metadata Management", "tab4": "Release Notes",
                 "cover_preview": "📚 Cover Preview", "inner_preview": "🖼️ Inner Preview",
                 "add_folder": "📂 Add Folder", "add_file": "📄 Add File",
                 "remove_sel": "🗑️ Remove Sel", "clear_all": "🧹 Clear All",
@@ -240,7 +247,6 @@ class RenamerApp(QMainWindow):
             log_dlg = LogDialog(self, stats, self.i18n[self.lang], show_continue_btn=show_cont)
             log_dlg.setStyleSheet(self.styleSheet())
             
-            # 🌟 [버그 수정] PyQt6에서는 exec()가 숫자(int)를 반환하므로 int로 감싸서 비교해야 완벽히 작동합니다.
             from PyQt6.QtWidgets import QDialog
             if log_dlg.exec() == int(QDialog.DialogCode.Accepted):
                 self.tabs.setCurrentIndex(1)
@@ -317,24 +323,30 @@ class RenamerApp(QMainWindow):
 
         main_layout.addLayout(toolbar_layout)
 
+        # 🌟 4개의 탭으로 구조 변경
         self.tabs = QTabWidget()
         self.tab1 = QWidget() 
         self.tab2 = QWidget() 
-        self.tab3 = QWidget() 
+        self.tab3 = QWidget() # 신규 탭: 메타데이터 관리
+        self.tab4 = QWidget() # 기존 탭: 릴리스 노트
         
         self.tabs.addTab(self.tab1, "")
         self.tabs.addTab(self.tab2, "")
         self.tabs.addTab(self.tab3, "")
+        self.tabs.addTab(self.tab4, "")
         self.tabs.currentChanged.connect(self.on_tab_changed)
         main_layout.addWidget(self.tabs, 1)
 
+        # 각 탭의 화면 구성 실행
         self.setup_tab1_organizer()
         self.setup_tab2_renamer()
+        self.setup_tab3_metadata()
 
-        t3_layout = QVBoxLayout(self.tab3)
+        # 릴리스 노트는 이제 tab4에 배치됩니다.
+        t4_layout = QVBoxLayout(self.tab4)
         self.browser_release = QTextBrowser()
         self.browser_release.setOpenExternalLinks(True)
-        t3_layout.addWidget(self.browser_release)
+        t4_layout.addWidget(self.browser_release)
 
         bottom_layout = QHBoxLayout()
         self.lbl_status = QLabel()
@@ -401,34 +413,6 @@ class RenamerApp(QMainWindow):
         
         layout.addWidget(self.tree_org, 1)
         layout.addWidget(self.lbl_org_count, alignment=Qt.AlignmentFlag.AlignCenter)
-
-    def toggle_org_expand(self):
-        if self.tree_org.topLevelItemCount() == 0: return
-        is_currently_expanded = self.tree_org.topLevelItem(0).isExpanded()
-        self.is_org_expanded = not is_currently_expanded
-        for i in range(self.tree_org.topLevelItemCount()):
-            self.tree_org.topLevelItem(i).setExpanded(self.is_org_expanded)
-
-    def update_out_path(self, fp, text):
-        if fp in self.org_data:
-            self.org_data[fp]['out_path'] = text
-
-    def set_single_path(self, fp, path):
-        if fp in self.org_data and 'le_path' in self.org_data[fp]:
-            self.org_data[fp]['le_path'].setText(path)
-
-    def batch_set_default(self):
-        for fp, data in self.org_data.items():
-            if data.get('checked', False) and 'le_path' in data:
-                data['le_path'].setText(os.path.dirname(fp))
-
-    def batch_set_title(self):
-        for fp, data in self.org_data.items():
-            if data.get('checked', False) and 'le_path' in data:
-                if data['clean_title'] == "제목없음":
-                    data['le_path'].setText(os.path.join(os.path.dirname(fp), "제목없음_수정필요"))
-                else:
-                    data['le_path'].setText(os.path.join(os.path.dirname(fp), data['clean_title']))
 
     def setup_tab2_renamer(self):
         layout = QHBoxLayout(self.tab2)
@@ -539,6 +523,46 @@ class RenamerApp(QMainWindow):
         layout.addWidget(left_frame)
         layout.addWidget(right_frame, 1)
 
+    # 🌟 메타데이터 관리 탭 (추후 화면 정의서 수령 후 개발 대기)
+    def setup_tab3_metadata(self):
+        layout = QVBoxLayout(self.tab3)
+        
+        lbl_placeholder = QLabel("🛠️ 메타데이터 관리 화면 (UI 설계 대기 중)")
+        lbl_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_placeholder.setStyleSheet("color: #aaaaaa; font-size: 16px; font-weight: bold;")
+        
+        layout.addStretch()
+        layout.addWidget(lbl_placeholder)
+        layout.addStretch()
+
+    def toggle_org_expand(self):
+        if self.tree_org.topLevelItemCount() == 0: return
+        is_currently_expanded = self.tree_org.topLevelItem(0).isExpanded()
+        self.is_org_expanded = not is_currently_expanded
+        for i in range(self.tree_org.topLevelItemCount()):
+            self.tree_org.topLevelItem(i).setExpanded(self.is_org_expanded)
+
+    def update_out_path(self, fp, text):
+        if fp in self.org_data:
+            self.org_data[fp]['out_path'] = text
+
+    def set_single_path(self, fp, path):
+        if fp in self.org_data and 'le_path' in self.org_data[fp]:
+            self.org_data[fp]['le_path'].setText(path)
+
+    def batch_set_default(self):
+        for fp, data in self.org_data.items():
+            if data.get('checked', False) and 'le_path' in data:
+                data['le_path'].setText(os.path.dirname(fp))
+
+    def batch_set_title(self):
+        for fp, data in self.org_data.items():
+            if data.get('checked', False) and 'le_path' in data:
+                if data['clean_title'] == "제목없음":
+                    data['le_path'].setText(os.path.join(os.path.dirname(fp), "제목없음_수정필요"))
+                else:
+                    data['le_path'].setText(os.path.join(os.path.dirname(fp), data['clean_title']))
+
     def apply_dark_theme(self):
         style = """
         QMainWindow, QDialog { background-color: #1e1e1e; }
@@ -601,6 +625,7 @@ class RenamerApp(QMainWindow):
         self.tabs.setTabText(0, t["tab1"])
         self.tabs.setTabText(1, t["tab2"])
         self.tabs.setTabText(2, t["tab3"])
+        self.tabs.setTabText(3, t["tab4"])
         
         self.lbl_cover_title.setText(t["cover_preview"])
         self.lbl_inner_title.setText(t["inner_preview"])
@@ -644,7 +669,8 @@ class RenamerApp(QMainWindow):
             self.render_image("inner", None)
 
     def on_tab_changed(self, index):
-        enabled = (index != 2) and not self.is_processing
+        # 탭 0(정리), 탭 1(변경)에서만 상단 버튼을 활성화합니다. (설계에 따라 추후 변경 가능)
+        enabled = (index in [0, 1]) and not self.is_processing
         self.btn_add_folder.setEnabled(enabled)
         self.btn_add_file.setEnabled(enabled)
         self.btn_remove_sel.setEnabled(enabled)
@@ -654,11 +680,15 @@ class RenamerApp(QMainWindow):
 
     def toggle_ui_elements(self, is_processing):
         enabled = not is_processing
-        self.btn_add_folder.setEnabled(enabled)
-        self.btn_add_file.setEnabled(enabled)
-        self.btn_remove_sel.setEnabled(enabled)
-        self.btn_clear_all.setEnabled(enabled)
-        self.btn_toggle_all.setEnabled(enabled)
+        
+        current_tab = self.tabs.currentIndex()
+        top_btn_enabled = enabled if current_tab in [0, 1] else False
+        
+        self.btn_add_folder.setEnabled(top_btn_enabled)
+        self.btn_add_file.setEnabled(top_btn_enabled)
+        self.btn_remove_sel.setEnabled(top_btn_enabled)
+        self.btn_clear_all.setEnabled(top_btn_enabled)
+        self.btn_toggle_all.setEnabled(top_btn_enabled)
         
         if hasattr(self, 'btn_toggle_expand'):
             self.btn_toggle_expand.setEnabled(enabled)
@@ -681,7 +711,6 @@ class RenamerApp(QMainWindow):
     def open_settings(self):
         dlg = SettingsDialog(self, self.config, self.format_keys, self.i18n)
         dlg.setStyleSheet(self.styleSheet()) 
-        # 🌟 [버그 수정] PyQt6 환경에 맞게 결과값을 int(숫자)로 변환하여 정확히 인식하도록 수정
         from PyQt6.QtWidgets import QDialog
         if dlg.exec() == int(QDialog.DialogCode.Accepted):
             new_data = dlg.get_data()
@@ -689,10 +718,10 @@ class RenamerApp(QMainWindow):
             self.lang = self.config["lang"]
             save_config(self.config)
             self.apply_language()
-            self.update_inner_preview_list()
+            self.update_inner_preview_list() 
 
     def dragEnterEvent(self, event):
-        if self.tabs.currentIndex() == 2: event.ignore(); return
+        if self.tabs.currentIndex() >= 2: event.ignore(); return
         if event.mimeData().hasUrls(): event.acceptProposedAction()
         else: event.ignore()
 
@@ -1218,7 +1247,6 @@ class RenamerApp(QMainWindow):
         except: return False
 
     def force_reload_archive(self, filepath):
-        if filepath in self.archive_data: del self.archive_data[filepath]
         self.load_archive_info(filepath)
 
     def closeEvent(self, event):
