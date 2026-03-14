@@ -13,7 +13,8 @@ from PyQt6.QtWidgets import (
     QFrame, QSizePolicy, QTreeWidgetItem, QStackedWidget, QGroupBox,
     QTextEdit, QComboBox, QGridLayout, QScrollArea, QMessageBox, QCheckBox, QLayout, QSpacerItem
 )
-from PyQt6.QtCore import Qt, QTimer, QSize, QRect, QPoint
+# 🌟 QThread와 pyqtSignal을 추가 임포트합니다.
+from PyQt6.QtCore import Qt, QTimer, QSize, QRect, QPoint, QThread, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap, QPainter, QPainterPath, QColor
 
 from utils import natural_keys
@@ -186,6 +187,42 @@ class TagInputArea(QFrame):
         if self.on_change_cb: self.on_change_cb()
 
 # =========================================================
+# 🌟 [신규 추가] 저장 전용 백그라운드 워커 (프리징 방지용)
+# =========================================================
+class SaveWorker(QThread):
+    progress = pyqtSignal(int, int)          # 진행 상황 (현재, 전체)
+    finished_all = pyqtSignal(int, int)      # 일괄 저장 완료 (성공수, 실패수)
+    finished_single = pyqtSignal(bool, str)  # 단일 저장 완료 (성공여부, 메시지)
+
+    def __init__(self, target_dict, tab_instance, is_single=False):
+        super().__init__()
+        self.target_dict = target_dict
+        self.tab = tab_instance
+        self.is_single = is_single
+
+    def run(self):
+        # 1. 단일 저장 로직
+        if self.is_single:
+            fp, data = list(self.target_dict.items())[0]
+            xml_str = self.tab._create_comicinfo_xml(data)
+            success, msg = self.tab._inject_xml_to_archive(fp, xml_str)
+            self.finished_single.emit(success, msg)
+            
+        # 2. 일괄 모두 저장 로직
+        else:
+            success_count, fail_count = 0, 0
+            total = len(self.target_dict)
+            current = 0
+            for fp, data in self.target_dict.items():
+                xml_str = self.tab._create_comicinfo_xml(data)
+                success, _ = self.tab._inject_xml_to_archive(fp, xml_str)
+                if success: success_count += 1
+                else: fail_count += 1
+                current += 1
+                self.progress.emit(current, total)
+            self.finished_all.emit(success_count, fail_count)
+
+# =========================================================
 # 메인 탭 3 클래스
 # =========================================================
 class Tab3Metadata(QWidget):
@@ -197,6 +234,9 @@ class Tab3Metadata(QWidget):
         self.book_meta = {}  
         
         self.current_meta_file = None
+        self.dynamic_series_btns = [] # 다국어 대응을 위한 동적 버튼 리스트
+        self.save_worker = None       # 스레드 객체를 잃지 않도록 변수 선언
+        
         self.cover_timer = QTimer()
         self.cover_timer.setSingleShot(True)
         self.cover_timer.timeout.connect(self._process_cover_load)
@@ -255,7 +295,7 @@ class Tab3Metadata(QWidget):
         self.right_overlay.setStyleSheet("background: rgba(0, 0, 0, 80);")
         def overlay_click(event):
             t_now = self.main_app.i18n[self.main_app.lang]
-            QMessageBox.information(self, "안내" if self.main_app.lang == "ko" else "Notice", t_now["t3_msg_sel"])
+            QMessageBox.information(self, t_now["msg_notice"], t_now["t3_msg_sel"])
             event.accept()
         self.right_overlay.mousePressEvent = overlay_click
         
@@ -271,6 +311,7 @@ class Tab3Metadata(QWidget):
         
         self.cb_meta_api = QComboBox()
         self.cb_meta_api.addItems(["리디북스", "알라딘", "코믹박스", "Google Books"])
+        self.cb_meta_api.setStyleSheet("padding: 5px; border: 1px solid #555; border-radius: 4px; background-color: #2b2b2b;")
         search_layout.addWidget(self.cb_meta_api)
         
         self.lbl_search_query = QLabel(t["t3_search_query"])
@@ -278,77 +319,102 @@ class Tab3Metadata(QWidget):
         
         self.le_meta_search = QLineEdit()
         self.le_meta_search.setPlaceholderText(t["t3_search_ph"])
+        self.le_meta_search.setStyleSheet("padding: 6px; border: 1px solid #555; border-radius: 4px; background-color: #2b2b2b;")
         search_layout.addWidget(self.le_meta_search, 1)
         
         self.btn_meta_search = QPushButton(t["t3_btn_search"])
         self.btn_meta_search.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_meta_search.setStyleSheet("QPushButton { padding: 6px 14px; font-size: 12px; background-color: #333333; color: white; border: 1px solid #555; border-radius: 4px; } QPushButton:hover { background-color: #444444; }")
         search_layout.addWidget(self.btn_meta_search)
         right_layout.addLayout(search_layout)
 
-        # 2. 🌟 내비게이션 및 컨트롤 영역 (버튼 그룹 UI 적용)
-        nav_layout = QHBoxLayout()
-        nav_layout.setSpacing(15) 
-        
-        base_style = "QPushButton { padding: 6px 10px; font-size: 11px; background-color: #3a3a3a; color: white; border: 1px solid #555; }"
-        hover_style = "QPushButton:hover { background-color: #4a4a4a; }"
-        
-        # [그룹 1] 섹션 이동 버튼 묶음
-        group1_layout = QHBoxLayout()
-        group1_layout.setSpacing(0)
-        
+        # 버튼 사전 생성
         self.btn_goto_basic = QPushButton(t["t3_nav_basic"])
         self.btn_goto_crew = QPushButton(t["t3_nav_crew"])
         self.btn_goto_publish = QPushButton(t["t3_nav_publish"])
         self.btn_goto_genre = QPushButton(t["t3_nav_genre"])
         self.btn_goto_etc = QPushButton(t["t3_nav_etc"])
+        self.btn_prev_vol = QPushButton(t["t3_btn_prev"])
+        self.btn_next_vol = QPushButton(t["t3_btn_next"])
+        self.btn_apply_all = QPushButton(t["t3_btn_apply_all"])
+        self.btn_apply_series = QPushButton(t["t3_btn_apply_series"])
+
+        self.btn_apply_all.setToolTip(t["t3_tt_apply_all"])
+        self.btn_apply_series.setToolTip(t["t3_tt_apply_series"])
+
+        def set_segmented_btn_style(btn, pos, is_primary=False):
+            bg = "#2b5797" if is_primary else "#333333"
+            hover_bg = "#366cb5" if is_primary else "#444444"
+            border = "#555555"
+            text_color = "#ffffff" if is_primary else "#dddddd"
+            radius = "5px"
+            
+            style = f"""
+                QPushButton {{
+                    background-color: {bg};
+                    color: {text_color};
+                    border: 1px solid {border};
+                    padding: 7px 12px;
+                    font-size: 12px;
+                    border-radius: 0px;
+                    {'font-weight: bold;' if is_primary else ''}
+                }}
+                QPushButton:hover {{
+                    background-color: {hover_bg};
+                }}
+            """
+            
+            if pos == "left_end":
+                style += f"QPushButton {{ border-top-left-radius: {radius}; border-bottom-left-radius: {radius}; }}"
+            elif pos == "right_end":
+                style += f"QPushButton {{ border-top-right-radius: {radius}; border-bottom-right-radius: {radius}; }}"
+            elif pos == "middle":
+                style += "QPushButton { border-left: none; }"
+                
+            btn.setStyleSheet(style)
+
+        nav_layout = QHBoxLayout()
+        nav_layout.setSpacing(12) 
+        
+        group1_layout = QHBoxLayout()
+        group1_layout.setSpacing(0)
         
         section_btns = [self.btn_goto_basic, self.btn_goto_crew, self.btn_goto_publish, self.btn_goto_genre, self.btn_goto_etc]
         for i, b in enumerate(section_btns):
             b.setCursor(Qt.CursorShape.PointingHandCursor)
-            if i == 0:
-                b.setStyleSheet(base_style + hover_style + "QPushButton { border-top-left-radius: 4px; border-bottom-left-radius: 4px; border-top-right-radius: 0px; border-bottom-right-radius: 0px; border-right: 0; }")
-            elif i == len(section_btns) - 1:
-                b.setStyleSheet(base_style + hover_style + "QPushButton { border-top-left-radius: 0px; border-bottom-left-radius: 0px; border-top-right-radius: 4px; border-bottom-right-radius: 4px; border-right: 0; }")
-            else:
-                b.setStyleSheet(base_style + hover_style + "QPushButton { border-radius: 0px; border-right: none; }")
+            if i == 0: set_segmented_btn_style(b, "left_end")
+            elif i == len(section_btns) - 1: set_segmented_btn_style(b, "right_end")
+            else: set_segmented_btn_style(b, "middle")
             group1_layout.addWidget(b)
         
-        # [그룹 2] 이전/다음 권 버튼 묶음
         group2_layout = QHBoxLayout()
-        group2_layout.setSpacing(0)
+        group2_layout.setSpacing(2)
         
-        self.btn_prev_vol = QPushButton("< 이전 권" if self.main_app.lang == "ko" else "< Previous")
-        self.btn_next_vol = QPushButton("다음 권 >" if self.main_app.lang == "ko" else "Next >")
-
         self.btn_prev_vol.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_next_vol.setCursor(Qt.CursorShape.PointingHandCursor)
         
-        self.btn_prev_vol.setStyleSheet(base_style + hover_style + "QPushButton { border-top-left-radius: 4px; border-bottom-left-radius: 4px; border-right: none; border-top-right-radius:0px; border-bottom-right-radius:0px; }")
-        self.btn_next_vol.setStyleSheet(base_style + hover_style + "QPushButton { border-top-right-radius: 4px; border-bottom-right-radius: 4px; border-top-left-radius:0px; border-bottom-left-radius:0px; }")
+        set_segmented_btn_style(self.btn_prev_vol, "left_end")
+        set_segmented_btn_style(self.btn_next_vol, "right_end")
         
         self.btn_prev_vol.clicked.connect(self.action_prev_vol)
         self.btn_next_vol.clicked.connect(self.action_next_vol)
         group2_layout.addWidget(self.btn_prev_vol)
         group2_layout.addWidget(self.btn_next_vol)
         
-        # [그룹 3] 전체 적용 버튼 묶음
         group3_layout = QHBoxLayout()
-        group3_layout.setSpacing(0)
+        group3_layout.setSpacing(2)
         
-        self.btn_apply_all = QPushButton(t["t3_btn_apply_all"])
-        self.btn_apply_series = QPushButton(t["t3_btn_apply_series"])
         self.btn_apply_all.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_apply_series.setCursor(Qt.CursorShape.PointingHandCursor)
         
-        self.btn_apply_all.setStyleSheet(base_style + hover_style + "QPushButton { border-top-left-radius: 4px; border-bottom-left-radius: 4px; border-top-right-radius:0px; border-bottom-right-radius:0px; border-right: none; }")
-        self.btn_apply_series.setStyleSheet(base_style + "QPushButton { border-top-right-radius: 4px; border-bottom-right-radius: 4px; border-top-left-radius:0px; border-bottom-left-radius:0px; background-color: #2b5797; color: white; font-weight: bold; border-left: 1px solid #1a3c6d; } QPushButton:hover { background-color: #366cb5; }")
+        set_segmented_btn_style(self.btn_apply_all, "left_end")
+        set_segmented_btn_style(self.btn_apply_series, "right_end", is_primary=True)
         
         self.btn_apply_all.clicked.connect(self.action_apply_all)
         self.btn_apply_series.clicked.connect(self.action_apply_series)
         group3_layout.addWidget(self.btn_apply_all)
         group3_layout.addWidget(self.btn_apply_series)
 
-        # 레이아웃 조립
         nav_layout.addLayout(group1_layout)
         nav_layout.addStretch()
         nav_layout.addLayout(group2_layout)
@@ -357,7 +423,6 @@ class Tab3Metadata(QWidget):
 
         right_layout.addLayout(nav_layout)
 
-        # 3. 메타데이터 스크롤 폼
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_content = QWidget()
@@ -522,11 +587,12 @@ class Tab3Metadata(QWidget):
             
             start_row += 1
             
-            btn_series_text = "현재 입력된 값을 시리즈 전체 책에 덮어씌웁니다." if self.main_app.lang == "ko" else "Apply current values to all books in series."
-            btn_series = QPushButton(btn_series_text)
+            btn_series = QPushButton(t["t3_btn_apply_series_tag"])
             btn_series.setStyleSheet("background-color: #3a3a3a; color: #dddddd; padding: 6px; border-radius: 4px; border: 1px solid #555; font-weight: bold;")
             btn_series.setCursor(Qt.CursorShape.PointingHandCursor)
             layout.addWidget(btn_series, start_row, 1)
+            
+            self.dynamic_series_btns.append(btn_series)
 
             start_row += 1
             layout.addItem(QSpacerItem(10, 20, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed), start_row, 1)
@@ -572,17 +638,14 @@ class Tab3Metadata(QWidget):
                     if fp in self.book_meta:
                         self.book_meta[fp][key] = val
                         count += 1
-                msg = f"입력된 값이 시리즈 내 {count}권에 일괄 적용되었습니다." if self.main_app.lang == "ko" else f"Applied to {count} books in the series."
-                QMessageBox.information(self, "완료" if self.main_app.lang == "ko" else "Done", msg)
+                t_now = self.main_app.i18n[self.main_app.lang]
+                QMessageBox.information(self, t_now["msg_done"], t_now["t3_msg_applied_series_tag"].format(count=count))
                 
             btn_series.clicked.connect(apply_to_series)
             
             self.meta_ui_fields[key] = {'my': le_my, 'res': le_res, 'is_text': False, 'is_combo': False, 'is_tag': True, 'lbl': lbl_widget, 't_key': t_key, 'is_cb': True}
             return start_row + 1
 
-        # =========================================================
-        # 1. [기본 정보]
-        # =========================================================
         self.group_basic, gl_basic = create_group_box(t["t3_nav_basic"])
         self.lbl_col_orig = QLabel(f"<b>{t['t3_col_orig']}</b>")
         self.lbl_col_res = QLabel(f"<b>{t['t3_col_res']}</b>")
@@ -599,9 +662,6 @@ class Tab3Metadata(QWidget):
         add_row(gl_basic, 8, 'Summary', 't3_f_sum', is_text=True)
         scroll_layout.addWidget(self.group_basic)
 
-        # =========================================================
-        # 2. [작가 및 제작진]
-        # =========================================================
         self.group_crew, gl_crew = create_group_box(t["t3_nav_crew"])
         add_row(gl_crew, 0, 'Writer', 't3_f_writer')
         add_row(gl_crew, 1, 'Penciller', 't3_f_pen')
@@ -612,9 +672,6 @@ class Tab3Metadata(QWidget):
         add_row(gl_crew, 6, 'Editor', 't3_f_editor')
         scroll_layout.addWidget(self.group_crew)
 
-        # =========================================================
-        # 3. [출판 정보]
-        # =========================================================
         self.group_publish, gl_publish = create_group_box(t["t3_nav_publish"])
         add_row(gl_publish, 0, 'Publisher', 't3_f_pub')
         add_row(gl_publish, 1, 'Imprint', 't3_f_imp')
@@ -625,9 +682,6 @@ class Tab3Metadata(QWidget):
         add_row(gl_publish, 6, 'Day', 't3_f_day', is_num=True, is_date=True, date_type='D')
         scroll_layout.addWidget(self.group_publish)
 
-        # =========================================================
-        # 4. [장르/태그/등장인물]
-        # =========================================================
         self.group_genre_tags, gl_genre_tags = create_group_box(t["t3_nav_genre"])
         r = 0
         r = add_checkbox_group(gl_genre_tags, r, 'Genre', 't3_f_genre', t.get("meta_genres", {}))
@@ -638,7 +692,6 @@ class Tab3Metadata(QWidget):
         gl_genre_tags.addWidget(lbl_char, r, 0)
         
         le_char_my = TagInputArea()
-        
         le_char_res = QTextEdit()
         le_char_res.setMaximumHeight(80)
         le_char_res.setStyleSheet("background-color: #1a1a1a; color: #888888;")
@@ -651,11 +704,11 @@ class Tab3Metadata(QWidget):
         gl_genre_tags.addWidget(le_char_res, r, 3)
         
         r += 1
-        btn_char_series_text = "현재 입력된 값을 시리즈 전체 책에 덮어씌웁니다." if self.main_app.lang == "ko" else "Apply current values to all books in series."
-        btn_char_series = QPushButton(btn_char_series_text)
+        btn_char_series = QPushButton(t["t3_btn_apply_series_tag"])
         btn_char_series.setStyleSheet("background-color: #3a3a3a; color: #dddddd; padding: 6px; border-radius: 4px; border: 1px solid #555; font-weight: bold;")
         btn_char_series.setCursor(Qt.CursorShape.PointingHandCursor)
         gl_genre_tags.addWidget(btn_char_series, r, 1)
+        self.dynamic_series_btns.append(btn_char_series)
         
         r += 1
         gl_genre_tags.addItem(QSpacerItem(10, 20, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed), r, 1)
@@ -673,17 +726,14 @@ class Tab3Metadata(QWidget):
                 if fp in self.book_meta:
                     self.book_meta[fp]['Characters'] = val
                     count += 1
-            msg = f"입력된 등장인물이 시리즈 내 {count}권에 일괄 적용되었습니다." if self.main_app.lang == "ko" else f"Characters applied to {count} books."
-            QMessageBox.information(self, "완료" if self.main_app.lang == "ko" else "Done", msg)
+            t_now = self.main_app.i18n[self.main_app.lang]
+            QMessageBox.information(self, t_now["msg_done"], t_now["t3_msg_applied_char_series"].format(count=count))
             
         btn_char_series.clicked.connect(apply_char_to_series)
         
         self.meta_ui_fields['Characters'] = {'my': le_char_my, 'res': le_char_res, 'is_text': False, 'is_combo': False, 'is_tag': True, 'lbl': lbl_char, 't_key': 't3_f_char'}
         scroll_layout.addWidget(self.group_genre_tags)
 
-        # =========================================================
-        # 5. [기타 정보]
-        # =========================================================
         self.group_etc, gl_etc = create_group_box(t["t3_nav_etc"])
         add_row(gl_etc, 0, 'AgeRating', 't3_f_age', combo_items=t.get("meta_age", {}), editable_combo=False)
         add_row(gl_etc, 1, 'CommunityRating', 't3_f_rate') 
@@ -702,13 +752,18 @@ class Tab3Metadata(QWidget):
         self.btn_goto_genre.clicked.connect(lambda: scroll_to(self.group_genre_tags))
         self.btn_goto_etc.clicked.connect(lambda: scroll_to(self.group_etc))
 
-        # 하단 액션 버튼
         bottom_btn_layout = QHBoxLayout()
         self.btn_auto_vol = QPushButton(t["t3_auto_vol"])
         self.btn_auto_chap = QPushButton(t["t3_auto_chap"])
         self.btn_auto_pages = QPushButton(t["t3_auto_pages"])
         self.btn_meta_save = QPushButton(t["t3_save"])
         self.btn_meta_save_all = QPushButton(t["t3_save_all"])
+
+        self.btn_auto_vol.setToolTip(t["t3_tt_auto_vol"])
+        self.btn_auto_chap.setToolTip(t["t3_tt_auto_chap"])
+        self.btn_auto_pages.setToolTip(t["t3_tt_auto_pages"])
+        self.btn_meta_save.setToolTip(t["t3_tt_save"])
+        self.btn_meta_save_all.setToolTip(t["t3_tt_save_all"])
         
         for btn in [self.btn_auto_vol, self.btn_auto_chap, self.btn_auto_pages, self.btn_meta_save, self.btn_meta_save_all]:
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -769,6 +824,21 @@ class Tab3Metadata(QWidget):
         self.btn_meta_save.setText(t["t3_save"])
         self.btn_meta_save_all.setText(t["t3_save_all"])
         
+        self.btn_prev_vol.setText("< 이전 권" if lang == "ko" else "< Prev Vol")
+        self.btn_next_vol.setText("다음 권 >" if lang == "ko" else "Next Vol >")
+        
+        # 🌟 언어 변경 시 툴팁 및 동적 버튼 텍스트 함께 변경
+        self.btn_apply_all.setToolTip(t["t3_tt_apply_all"])
+        self.btn_apply_series.setToolTip(t["t3_tt_apply_series"])
+        self.btn_auto_vol.setToolTip(t["t3_tt_auto_vol"])
+        self.btn_auto_chap.setToolTip(t["t3_tt_auto_chap"])
+        self.btn_auto_pages.setToolTip(t["t3_tt_auto_pages"])
+        self.btn_meta_save.setToolTip(t["t3_tt_save"])
+        self.btn_meta_save_all.setToolTip(t["t3_tt_save_all"])
+
+        for b in getattr(self, 'dynamic_series_btns', []):
+            b.setText(t["t3_btn_apply_series_tag"])
+            
         for key, field in self.meta_ui_fields.items():
             if field.get('is_cb'):
                 field['lbl'].setText(f"<b>{t[field['t_key']]}</b>")
@@ -807,10 +877,10 @@ class Tab3Metadata(QWidget):
                 self.tree_meta_files.setCurrentItem(parent.child(idx + 1))
 
     def load_paths(self, paths):
+        t = self.main_app.i18n[self.main_app.lang]
         self.main_app.progress_bar.show()
         self.main_app.progress_bar.setRange(0, 0)
-        msg = "메타데이터 분석 중..." if self.main_app.lang == "ko" else "Analyzing metadata..."
-        self.main_app.lbl_status.setText(msg)
+        self.main_app.lbl_status.setText(t["t3_msg_analyzing"])
         threading.Thread(target=self._bg_load_paths, args=(paths,), daemon=True).start()
 
     def _bg_load_paths(self, paths):
@@ -875,6 +945,7 @@ class Tab3Metadata(QWidget):
         return None
 
     def refresh_tree(self):
+        t = self.main_app.i18n[self.main_app.lang]
         self.tree_meta_files.clear()
         if not self.meta_data:
             self.meta_stacked.setCurrentIndex(0)
@@ -909,17 +980,17 @@ class Tab3Metadata(QWidget):
                 item_layout.setSpacing(1)
                 
                 lbl_title = QLabel(f"📄 {title}")
-                lbl_title.setStyleSheet("color: #ffffff; font-size: 13px;margin-bottom:0")
+                lbl_title.setStyleSheet("color: #ffffff; font-size: 13px; margin-bottom:0;")
                 lbl_title.setWordWrap(True) 
                 
-                date_str = f"🕒 {mod_date}" if mod_date else "(데이터 없음)" if self.main_app.lang == "ko" else "(No Data)"
+                date_str = f"🕒 {mod_date}" if mod_date else t["t3_no_data"]
                 lbl_date = QLabel(date_str)
-                lbl_date.setStyleSheet("color: #aaaaaa;  font-size: 10px; margin-left:20px;margin-top:0;") 
+                lbl_date.setStyleSheet("color: #aaaaaa; font-size: 10px; margin-left:20px; margin-top:0;") 
                 
                 item_layout.addWidget(lbl_title)
                 item_layout.addWidget(lbl_date)
                 
-                child_item.setSizeHint(0, QSize(200, 40))
+                child_item.setSizeHint(0, QSize(200, 48))
                 self.tree_meta_files.setItemWidget(child_item, 0, item_widget)
                 
         self.tree_meta_files.expandAll()
@@ -980,6 +1051,7 @@ class Tab3Metadata(QWidget):
         label_widget = self.lbl_meta_cover
         cw = max(200, label_widget.width() - 10)
         ch = 340
+        t = self.main_app.i18n[self.main_app.lang]
         
         if not img_data:
             p = get_resource_path("previewframe.png")
@@ -988,7 +1060,7 @@ class Tab3Metadata(QWidget):
                     with open(p, "rb") as f: img_data = f.read()
                 except: pass
         if not img_data:
-            label_widget.setText(self.main_app.i18n[self.main_app.lang]["no_preview"])
+            label_widget.setText(t["no_preview"])
             return
 
         try:
@@ -1001,7 +1073,7 @@ class Tab3Metadata(QWidget):
             painter.setClipPath(path); painter.drawPixmap(0, 0, pixmap); painter.end()
             label_widget.setPixmap(target)
         except:
-            label_widget.setText(self.main_app.i18n[self.main_app.lang]["no_image"])
+            label_widget.setText(t["no_image"])
 
     def _save_ui_to_dict(self):
         if self.current_meta_file and self.current_meta_file in self.book_meta:
@@ -1043,6 +1115,7 @@ class Tab3Metadata(QWidget):
                 else: field['my'].setText(val)
 
     def action_apply_series(self):
+        t = self.main_app.i18n[self.main_app.lang]
         if not self.current_meta_file: return
         self._save_ui_to_dict() 
         
@@ -1060,8 +1133,7 @@ class Tab3Metadata(QWidget):
                     results_to_copy[key] = val
                 
         if not results_to_copy:
-            t = self.main_app.i18n[self.main_app.lang]
-            QMessageBox.information(self, "안내" if self.main_app.lang == "ko" else "Notice", "복사할 검색 결과 데이터가 없습니다." if self.main_app.lang == "ko" else "No search result data to copy.")
+            QMessageBox.information(self, t["msg_notice"], t["t3_msg_no_data_copy"])
             return
 
         files_in_series = self.meta_data[parent_dir]
@@ -1072,10 +1144,10 @@ class Tab3Metadata(QWidget):
                     self.book_meta[fp][k] = v
                     
         self._load_dict_to_ui(self.current_meta_file)
-        t = self.main_app.i18n[self.main_app.lang]
-        QMessageBox.information(self, "완료" if self.main_app.lang == "ko" else "Done", "검색 결과가 시리즈 내의 모든 책에 일괄 적용되었습니다." if self.main_app.lang == "ko" else "Search results applied to all books in the series.")
+        QMessageBox.information(self, t["msg_done"], t["t3_msg_applied_series_all"])
 
     def action_auto_volume(self):
+        t = self.main_app.i18n[self.main_app.lang]
         if not self.current_meta_file: return
         parent_dir = str(Path(self.current_meta_file).parent)
         for f in self.meta_data.get(parent_dir, []):
@@ -1084,9 +1156,10 @@ class Tab3Metadata(QWidget):
             match = re.search(r'(?i)(?:vol\.|v\.|권)\s*(\d+)', title) or re.search(r'(\d+)\s*권', title) or re.search(r'\b(\d+)\s*$', title.strip())
             if match: self.book_meta[fp]['Volume'] = str(int(match.group(1)))
         self._load_dict_to_ui(self.current_meta_file)
-        QMessageBox.information(self, "완료" if self.main_app.lang == "ko" else "Done", "시리즈의 모든 책에 자동 권수가 입력되었습니다." if self.main_app.lang == "ko" else "Auto volume applied.")
+        QMessageBox.information(self, t["msg_done"], t["t3_msg_auto_vol_done"])
 
     def action_auto_chapter(self):
+        t = self.main_app.i18n[self.main_app.lang]
         if not self.current_meta_file: return
         parent_dir = str(Path(self.current_meta_file).parent)
         for f in self.meta_data.get(parent_dir, []):
@@ -1095,9 +1168,10 @@ class Tab3Metadata(QWidget):
             match = re.search(r'(?i)(?:ch\.|chapter|화)\s*(\d+)', title) or re.search(r'(\d+)\s*화', title)
             if match: self.book_meta[fp]['Number'] = str(int(match.group(1)))
         self._load_dict_to_ui(self.current_meta_file)
-        QMessageBox.information(self, "완료" if self.main_app.lang == "ko" else "Done", "시리즈의 모든 책에 자동 화가 입력되었습니다." if self.main_app.lang == "ko" else "Auto chapter applied.")
+        QMessageBox.information(self, t["msg_done"], t["t3_msg_auto_chap_done"])
 
     def action_auto_pages(self):
+        t = self.main_app.i18n[self.main_app.lang]
         if not self.current_meta_file: return
         parent_dir = str(Path(self.current_meta_file).parent)
         for f in self.meta_data.get(parent_dir, []):
@@ -1113,7 +1187,7 @@ class Tab3Metadata(QWidget):
                 self.book_meta[fp]['PageCount'] = str(img_count)
                 
         self._load_dict_to_ui(self.current_meta_file)
-        QMessageBox.information(self, "완료" if self.main_app.lang == "ko" else "Done", "시리즈의 모든 책에 자동 페이지 수가 입력되었습니다." if self.main_app.lang == "ko" else "Auto page count applied.")
+        QMessageBox.information(self, t["msg_done"], t["t3_msg_auto_pages_done"])
 
     def remove_selected(self):
         selected_items = self.tree_meta_files.selectedItems()
@@ -1196,8 +1270,9 @@ class Tab3Metadata(QWidget):
         return '<?xml version="1.0" encoding="utf-8"?>\n' + ET.tostring(root, encoding='utf-8').decode('utf-8')
 
     def _inject_xml_to_archive(self, archive_path, xml_str):
+        t = self.main_app.i18n[self.main_app.lang]
         ext = Path(archive_path).suffix.lower()
-        if ext not in ['.zip', '.cbz', '.7z']: return False, "지원되지 않는 포맷" if self.main_app.lang == "ko" else "Unsupported format"
+        if ext not in ['.zip', '.cbz', '.7z']: return False, t["t3_msg_unsupported_format"]
             
         with tempfile.TemporaryDirectory() as tmp_dir:
             xml_path = os.path.join(tmp_dir, "ComicInfo.xml")
@@ -1206,31 +1281,68 @@ class Tab3Metadata(QWidget):
             cmd = [self.main_app.seven_zip_path, 'u', archive_path, "ComicInfo.xml"]
             try:
                 res = subprocess.run(cmd, cwd=tmp_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=subprocess.CREATE_NO_WINDOW)
-                if res.returncode == 0: return True, "성공"
-                else: return False, "7z 오류" if self.main_app.lang == "ko" else "7z error"
+                if res.returncode == 0: return True, t["msg_success"]
+                else: return False, t["t3_msg_7z_error"]
             except Exception as e: return False, str(e)
 
+    # 🌟 [신규 추가] 단일 저장 버튼 백그라운드 처리
     def action_save_single(self):
+        t = self.main_app.i18n[self.main_app.lang]
         if not self.current_meta_file: return
         self._save_ui_to_dict()
         fp = self.current_meta_file
-        xml_str = self._create_comicinfo_xml(self.book_meta[fp])
-        success, msg = self._inject_xml_to_archive(fp, xml_str)
-        if success: 
-            QMessageBox.information(self, "완료" if self.main_app.lang == "ko" else "Done", "ComicInfo.xml 저장 성공." if self.main_app.lang == "ko" else "Saved ComicInfo.xml.")
-            self.refresh_tree() 
-        else: QMessageBox.warning(self, "실패" if self.main_app.lang == "ko" else "Failed", f"실패 사유: {msg}" if self.main_app.lang == "ko" else f"Reason: {msg}")
 
-    def action_save_all(self):
-        self._save_ui_to_dict()
-        success_count, fail_count = 0, 0
-        for fp, data in self.book_meta.items():
-            if not os.path.exists(fp): continue
-            xml_str = self._create_comicinfo_xml(data)
-            success, _ = self._inject_xml_to_archive(fp, xml_str)
-            if success: success_count += 1
-            else: fail_count += 1
+        self.set_right_panel_active(False)
+        self.main_app.progress_bar.show()
+        self.main_app.progress_bar.setRange(0, 0)
+        self.main_app.lbl_status.setText(t["t3_msg_saving"])
+
+        targets = {fp: self.book_meta[fp]}
+        self.save_worker = SaveWorker(targets, self, is_single=True)
+        self.save_worker.finished_single.connect(self._on_save_single_finished)
+        self.save_worker.start()
+
+    def _on_save_single_finished(self, success, msg):
+        t = self.main_app.i18n[self.main_app.lang]
+        self.main_app.progress_bar.hide()
+        self.main_app.lbl_status.setText(t["status_wait"])
         
-        msg = f"총 {success_count}건 성공, {fail_count}건 실패." if self.main_app.lang == "ko" else f"{success_count} succeeded, {fail_count} failed."
-        QMessageBox.information(self, "일괄 저장 완료" if self.main_app.lang == "ko" else "Save All Complete", msg)
+        if success: 
+            QMessageBox.information(self, t["msg_done"], t["t3_msg_save_single_done"])
+            self.refresh_tree() 
+        else: 
+            QMessageBox.warning(self, t["msg_failed"], t["t3_msg_save_failed_reason"].format(msg=msg))
+            self.set_right_panel_active(True)
+
+    # 🌟 [신규 추가] 모두 저장 버튼 백그라운드 처리
+    def action_save_all(self):
+        t = self.main_app.i18n[self.main_app.lang]
+        self._save_ui_to_dict()
+        
+        targets = {fp: data for fp, data in self.book_meta.items() if os.path.exists(fp)}
+        if not targets:
+            QMessageBox.information(self, t["msg_notice"], t["t3_msg_no_data_copy"])
+            return
+
+        self.set_right_panel_active(False)
+        self.main_app.progress_bar.show()
+        self.main_app.progress_bar.setRange(0, len(targets))
+        self.main_app.progress_bar.setValue(0)
+        self.main_app.lbl_status.setText(t["t3_msg_saving"])
+
+        self.save_worker = SaveWorker(targets, self, is_single=False)
+        self.save_worker.progress.connect(self._on_save_progress)
+        self.save_worker.finished_all.connect(self._on_save_all_finished)
+        self.save_worker.start()
+
+    def _on_save_progress(self, current, total):
+        self.main_app.progress_bar.setValue(current)
+
+    def _on_save_all_finished(self, success_count, fail_count):
+        t = self.main_app.i18n[self.main_app.lang]
+        self.main_app.progress_bar.hide()
+        self.main_app.lbl_status.setText(t["status_wait"])
+        
+        msg = t["t3_msg_save_all_done"].format(success_count=success_count, fail_count=fail_count)
+        QMessageBox.information(self, t["t3_msg_save_all_title"], msg)
         self.refresh_tree()
