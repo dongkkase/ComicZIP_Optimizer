@@ -317,8 +317,9 @@ class Tab3Metadata(QWidget):
         group2_layout = QHBoxLayout()
         group2_layout.setSpacing(0)
         
-        self.btn_prev_vol = QPushButton("< 이전 권")
-        self.btn_next_vol = QPushButton("다음 권 >")
+        self.btn_prev_vol = QPushButton("< 이전 권" if self.main_app.lang == "ko" else "< Previous")
+        self.btn_next_vol = QPushButton("다음 권 >" if self.main_app.lang == "ko" else "Next >")
+
         self.btn_prev_vol.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_next_vol.setCursor(Qt.CursorShape.PointingHandCursor)
         
@@ -908,17 +909,17 @@ class Tab3Metadata(QWidget):
                 item_layout.setSpacing(1)
                 
                 lbl_title = QLabel(f"📄 {title}")
-                lbl_title.setStyleSheet("color: #ffffff; font-size: 13px;")
+                lbl_title.setStyleSheet("color: #ffffff; font-size: 13px;margin-bottom:0")
                 lbl_title.setWordWrap(True) 
                 
-                date_str = f"🕒 {mod_date}" if mod_date else "(데이터 없음)"
+                date_str = f"🕒 {mod_date}" if mod_date else "(데이터 없음)" if self.main_app.lang == "ko" else "(No Data)"
                 lbl_date = QLabel(date_str)
-                lbl_date.setStyleSheet("color: #aaaaaa; font-size: 10px;") 
+                lbl_date.setStyleSheet("color: #aaaaaa;  font-size: 10px; margin-left:20px;margin-top:0;") 
                 
                 item_layout.addWidget(lbl_title)
                 item_layout.addWidget(lbl_date)
                 
-                child_item.setSizeHint(0, QSize(200, 48))
+                child_item.setSizeHint(0, QSize(200, 40))
                 self.tree_meta_files.setItemWidget(child_item, 0, item_widget)
                 
         self.tree_meta_files.expandAll()
