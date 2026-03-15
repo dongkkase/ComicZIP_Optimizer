@@ -2,6 +2,7 @@ build/
 dist/
 ComicZIP_Optimizer.spec
 ComicZIP_Optimizer.zip
+config.json
 .vscode/
 .bak/
 .gitignore
