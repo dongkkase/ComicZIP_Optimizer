@@ -18,3 +18,4 @@ __pycache__/
 *.DS_Store
 Thumbs.db
 config.json
+api_cache.db

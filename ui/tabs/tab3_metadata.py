@@ -8,6 +8,7 @@ import concurrent.futures
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
+from ui.api_search_dialog import ApiSearchDialog
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit, 
@@ -210,6 +211,17 @@ class Tab3Metadata(QWidget):
         
         self.setup_ui()
 
+    # 🌟 테스트용 임시 자동 로드 (앱 실행 후 0.5초 뒤에 실행됨)
+        QTimer.singleShot(500, self._temp_auto_load)
+
+    # 🌟 임시 로드 함수 추가
+    def _temp_auto_load(self):
+        test_path = r"C:\Users\eyeca\Downloads\temp\(미완)나의 백합은 일입니다!"
+        if os.path.exists(test_path):
+            self.load_paths([test_path])
+
+            QTimer.singleShot(500, self.btn_meta_search.click)
+
     def setup_ui(self):
         t = self.main_app.i18n[self.main_app.lang]
         
@@ -288,6 +300,7 @@ class Tab3Metadata(QWidget):
         self.btn_meta_search.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_meta_search.setStyleSheet("QPushButton { padding: 6px 14px; font-size: 12px; background-color: #333333; color: white; border: 1px solid #555; border-radius: 4px; } QPushButton:hover { background-color: #444444; }")
         search_layout.addWidget(self.btn_meta_search)
+        self.btn_meta_search.clicked.connect(self.action_search_api) # 이 줄 추가
         right_layout.addLayout(search_layout)
 
         self.btn_goto_basic = QPushButton(t.get("t3_nav_basic", "기본\n정보"))
@@ -834,12 +847,39 @@ class Tab3Metadata(QWidget):
             if first_root.childCount() > 0: self.tree_meta_files.setCurrentItem(first_root.child(0))
 
     def on_tree_select(self):
-        self._save_ui_to_dict(); selected = self.tree_meta_files.selectedItems()
-        if not selected: self.set_right_panel_active(False); return
+        self._save_ui_to_dict()
+        selected = self.tree_meta_files.selectedItems()
+        if not selected:
+            self.set_right_panel_active(False)
+            return
+            
         fp = selected[0].data(0, Qt.ItemDataRole.UserRole)
-        if not fp: self.set_right_panel_active(False); return
-        self.set_right_panel_active(True); self.current_meta_file = fp
-        self._load_dict_to_ui(fp); self.cover_timer.start(150)
+        if not fp:
+            self.set_right_panel_active(False)
+            return
+            
+        self.set_right_panel_active(True)
+        self.current_meta_file = fp
+        self._load_dict_to_ui(fp)
+        self.cover_timer.start(150)
+        
+        # 🌟 파일명에서 말머리와 권/화수를 완벽히 제거하여 순수 제목 추출
+        title = Path(fp).stem
+        
+        # 1. 괄호 말머리 제거 (예: [미노리], (미완) 등)
+        clean_title = re.sub(r'^\[.*?\]\s*', '', title)
+        clean_title = re.sub(r'^\(.*?\(?\)?\)\s*', '', clean_title)
+        
+        # 2. 뒤에 붙은 권/화수 및 숫자 패턴 제거 (예: 01권, 제1화, vol.1 등)
+        series_name = re.sub(r'\s*제?\d+\s*(?:권|화|편).*$', '', clean_title)
+        series_name = re.sub(r'(?i)\s*(?:vol\.|v\.|ch\.|chapter)\s*\d+.*$', '', series_name)
+        series_name = re.sub(r'\s*(?:-\s*)?\d+\s*$', '', series_name)
+        
+        series_name = series_name.strip()
+        
+        # 3. 추출된 제목이 있으면 검색어 칸에 자동 세팅
+        if series_name:
+            self.le_meta_search.setText(series_name)
 
     def _process_cover_load(self):
         if not self.current_meta_file: return
@@ -997,6 +1037,29 @@ class Tab3Metadata(QWidget):
         for f in self.meta_data.get(parent_dir, []):
             fp = str(f); title = f.stem
             
+            clean_title = re.sub(r'^\[.*?\]\s*', '', title)
+            clean_title = re.sub(r'^\(.*?\(?\)?\)\s*', '', clean_title)
+            
+            v_match = re.search(r'(?i)(?:vol\.|v\.)\s*(\d+)', title) or re.search(r'제?\s*(\d+)\s*권', title) or re.search(r'\b(\d+)\s*$', title.strip())
+            c_match = re.search(r'(?i)(?:ch\.|chapter)\s*(\d+)', title) or re.search(r'제?\s*(\d+)\s*화', title)
+            
+            series_name = re.sub(r'\s*제?\d+\s*(?:권|화|편).*$', '', clean_title)
+            series_name = re.sub(r'(?i)\s*(?:vol\.|v\.|ch\.|chapter)\s*\d+.*$', '', series_name)
+            series_name = re.sub(r'\s*(?:-\s*)?\d+\s*$', '', series_name)
+            series_name = series_name.strip()
+            
+            if series_name: self.book_meta[fp]['Title'] = series_name
+            if v_match: self.book_meta[fp]['Volume'] = str(int(v_match.group(1)))
+            if c_match: self.book_meta[fp]['Number'] = str(int(c_match.group(1)))
+            
+        self._load_dict_to_ui(self.current_meta_file)
+        QMessageBox.information(self, t.get("msg_done", ""), t.get("t3_msg_auto_title_done", ""))
+        t = self.main_app.i18n[self.main_app.lang]
+        if not self.current_meta_file: return
+        parent_dir = str(Path(self.current_meta_file).parent)
+        for f in self.meta_data.get(parent_dir, []):
+            fp = str(f); title = f.stem
+            
             clean_title = re.sub(r'^\[.*?\]\s*|^\(.*??\)\s*', '', title)
             v_match = re.search(r'(?i)(?:vol\.|v\.|권)\s*(\d+)', title) or re.search(r'(\d+)\s*권', title) or re.search(r'\b(\d+)\s*$', title.strip())
             c_match = re.search(r'(?i)(?:ch\.|chapter|화)\s*(\d+)', title) or re.search(r'(\d+)\s*화', title)
@@ -1019,12 +1082,30 @@ class Tab3Metadata(QWidget):
         parent_dir = str(Path(self.current_meta_file).parent)
         for f in self.meta_data.get(parent_dir, []):
             fp = str(f); title = f.name
+            match = re.search(r'(?i)(?:vol\.|v\.)\s*(\d+)', title) or re.search(r'제?\s*(\d+)\s*권', title) or re.search(r'\b(\d+)\s*$', title.strip())
+            if match: self.book_meta[fp]['Volume'] = str(int(match.group(1)))
+        self._load_dict_to_ui(self.current_meta_file)
+        QMessageBox.information(self, t.get("msg_done", ""), t.get("t3_msg_auto_vol_done", ""))
+        t = self.main_app.i18n[self.main_app.lang]
+        if not self.current_meta_file: return
+        parent_dir = str(Path(self.current_meta_file).parent)
+        for f in self.meta_data.get(parent_dir, []):
+            fp = str(f); title = f.name
             match = re.search(r'(?i)(?:vol\.|v\.|권)\s*(\d+)', title) or re.search(r'(\d+)\s*권', title) or re.search(r'\b(\d+)\s*$', title.strip())
             if match: self.book_meta[fp]['Volume'] = str(int(match.group(1)))
         self._load_dict_to_ui(self.current_meta_file)
         QMessageBox.information(self, t.get("msg_done", ""), t.get("t3_msg_auto_vol_done", ""))
 
     def action_auto_chapter(self):
+        t = self.main_app.i18n[self.main_app.lang]
+        if not self.current_meta_file: return
+        parent_dir = str(Path(self.current_meta_file).parent)
+        for f in self.meta_data.get(parent_dir, []):
+            fp = str(f); title = f.name
+            match = re.search(r'(?i)(?:ch\.|chapter)\s*(\d+)', title) or re.search(r'제?\s*(\d+)\s*화', title)
+            if match: self.book_meta[fp]['Number'] = str(int(match.group(1)))
+        self._load_dict_to_ui(self.current_meta_file)
+        QMessageBox.information(self, t.get("msg_done", ""), t.get("t3_msg_auto_chap_done", ""))
         t = self.main_app.i18n[self.main_app.lang]
         if not self.current_meta_file: return
         parent_dir = str(Path(self.current_meta_file).parent)
@@ -1234,3 +1315,47 @@ class Tab3Metadata(QWidget):
         msg = t.get("t3_msg_save_all_done", "").format(success_count=success_count, fail_count=fail_count)
         QMessageBox.information(self, t.get("t3_msg_save_all_title", ""), msg)
         self.refresh_tree()
+
+    def action_search_api(self):
+        t = self.main_app.i18n[self.main_app.lang]
+        api_name = self.cb_meta_api.currentText()
+        query = self.le_meta_search.text().strip()
+        
+        if not query:
+            QMessageBox.warning(self, t.get("msg_notice", "안내"), "검색어를 입력해주세요.")
+            return
+            
+        # 🌟 1. 최상단 큰 글씨용 H1 텍스트 추출 (시리즈명이 빈 값이면 제목으로 대체)
+        series_val = self.meta_ui_fields['Series']['my'].text().strip()
+        title_val = self.meta_ui_fields['Title']['my'].text().strip()
+        
+        h1_text = series_val if series_val else title_val
+        if not h1_text: 
+            h1_text = query # 둘 다 없으면 검색어 사용
+            
+        # 🌟 2. 다이얼로그 호출 (h1_text 인자가 추가되었습니다!)
+        dialog = ApiSearchDialog(api_name, query, h1_text, self, t)
+        if dialog.exec():
+            # 3. 사용자가 '선택'을 누르면 숨겨진 원본 데이터를 가져와 일괄 편집(res) 칸에 매핑
+            result_data = dialog.get_selected_data()
+            if result_data:
+                self._apply_api_data_to_res(result_data)
+
+    def _apply_api_data_to_res(self, data):
+        # 가져온 데이터를 일괄 편집 필드 우측 텍스트박스(res)에 밀어넣기
+        for d_key, val in data.items():
+            if not val: continue
+            
+            if d_key in self.meta_ui_fields:
+                res_widget = self.meta_ui_fields[d_key]['res']
+                
+                if isinstance(res_widget, QComboBox):
+                    if res_widget.isEditable():
+                        res_widget.setCurrentText(val)
+                    else:
+                        idx = res_widget.findText(val)
+                        if idx >= 0: res_widget.setCurrentIndex(idx)
+                elif isinstance(res_widget, QTextEdit):
+                    res_widget.setPlainText(val)
+                elif isinstance(res_widget, QLineEdit):
+                    res_widget.setText(val)
