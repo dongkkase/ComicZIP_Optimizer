@@ -170,8 +170,8 @@ class Tab2Renamer(QWidget):
         self.lbl_total_count.setText(t["total_files"].format(count=len(self.archive_data)))
         
         if not self.current_archive_path:
-            self.render_image("cover", None)
-            self.render_image("inner", None)
+            self.render_image("cover", None, None)
+            self.render_image("inner", None, None)
 
     def on_pattern_change(self, value):
         t = self.main_app.i18n[self.main_app.lang]["patterns"]
@@ -190,8 +190,8 @@ class Tab2Renamer(QWidget):
             self.stacked_archives.setCurrentIndex(0)
             self.table_inner.setRowCount(0)
             self.lbl_image = self.lbl_cover_img
-            self.render_image("cover", None)
-            self.render_image("inner", None)
+            self.render_image("cover", None, None)
+            self.render_image("inner", None, None)
             self.lbl_total_count.setText(self.main_app.i18n[self.main_app.lang]["total_files"].format(count=0))
             return
             
@@ -293,8 +293,9 @@ class Tab2Renamer(QWidget):
         if cover: entries.remove(cover); entries.insert(0, cover)
         target = next((e for e in entries if Path(e['filename']).suffix.lower() in img_exts), None)
         
-        if target: threading.Thread(target=bg_load_image, args=(fp, target['original_name'], self.archive_data[fp]['ext'], "cover", self.main_app.seven_zip_path, self.main_app.signals), daemon=True).start()
-        else: self.render_image("cover", None)
+        if target: 
+            threading.Thread(target=bg_load_image, args=(fp, target['original_name'], self.archive_data[fp]['ext'], "cover", self.main_app.seven_zip_path, self.main_app.signals), daemon=True).start()
+        else: self.render_image("cover", fp, None)
 
     def _process_inner_select(self):
         selected = self.table_inner.selectedItems()
@@ -303,7 +304,11 @@ class Tab2Renamer(QWidget):
         ext = self.archive_data[self.current_archive_path]['ext']
         threading.Thread(target=bg_load_image, args=(self.current_archive_path, orig_fp, ext, "inner", self.main_app.seven_zip_path, self.main_app.signals), daemon=True).start()
 
-    def render_image(self, target_id, img_data):
+    def render_image(self, target_id, arc_path, img_data):
+        # 🌟 레이스 컨디션 방지: 로딩 완료된 이미지가 현재 선택된 파일이 아니면 화면에 그리지 않고 버림
+        if arc_path and getattr(self, 'current_archive_path', None) != arc_path:
+            return
+
         label_widget = self.lbl_cover_img if target_id == "cover" else self.lbl_inner_img
         cw = max(200, label_widget.width() - 10)
         ch = max(250, label_widget.height() - 10)
@@ -327,7 +332,7 @@ class Tab2Renamer(QWidget):
             path = QPainterPath(); path.addRoundedRect(0, 0, target.width(), target.height(), 10, 10)
             painter.setClipPath(path); painter.drawPixmap(0, 0, pixmap); painter.end()
             label_widget.setPixmap(target)
-        except:
+        except Exception:
             label_widget.setText(self.main_app.i18n[self.main_app.lang]["no_image"])
 
     def toggle_all_checkboxes(self):
@@ -343,7 +348,7 @@ class Tab2Renamer(QWidget):
         self.refresh_list()
         if self.table_archives.rowCount() > 0: self.table_archives.selectRow(0) 
         else: 
-            self.table_inner.setRowCount(0); self.render_image("cover", None); self.render_image("inner", None)
+            self.table_inner.setRowCount(0); self.render_image("cover", None, None); self.render_image("inner", None, None)
             self.current_archive_path = None
 
     def remove_highlighted(self):
@@ -368,7 +373,7 @@ class Tab2Renamer(QWidget):
         total_rows = self.table_archives.rowCount()
         if total_rows > 0: self.table_archives.selectRow(min(next_select_row, total_rows - 1)) 
         else: 
-            self.table_inner.setRowCount(0); self.render_image("cover", None); self.render_image("inner", None)
+            self.table_inner.setRowCount(0); self.render_image("cover", None, None); self.render_image("inner", None, None)
             self.current_archive_path = None
 
     def clear_list(self):
@@ -377,7 +382,7 @@ class Tab2Renamer(QWidget):
         self.archive_data.clear()
         self.refresh_list()
         self.table_inner.setRowCount(0)
-        self.render_image("cover", None); self.render_image("inner", None)
+        self.render_image("cover", None, None); self.render_image("inner", None, None)
         self.current_archive_path = None
 
     def get_targets(self):

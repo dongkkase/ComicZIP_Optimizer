@@ -77,10 +77,11 @@ class RenamerApp(QMainWindow):
         last_tab_index = self.config.get("last_tab_index", 0)
         self.tabs.setCurrentIndex(last_tab_index)
 
-    def route_image_loaded(self, target_id, img_data):
+    # 🌟 arc_path 매개변수 추가
+    def route_image_loaded(self, target_id, arc_path, img_data):
         current_tab = self.tabs.currentWidget()
         if hasattr(current_tab, 'render_image'):
-            current_tab.render_image(target_id, img_data)
+            current_tab.render_image(target_id, arc_path, img_data)
 
     def check_for_updates(self):
         threading.Thread(target=VersionCheckTask(self.signals).run, daemon=True).start()

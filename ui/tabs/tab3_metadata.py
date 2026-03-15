@@ -859,12 +859,17 @@ class Tab3Metadata(QWidget):
                 entries.sort(key=natural_keys); cover = next((e for e in entries if os.path.basename(e).lower().startswith('cover')), None)
                 target_img = cover if cover else (entries[0] if entries else None)
             except: pass
+            
         if target_img:
             from core.archive_utils import bg_load_image
             threading.Thread(target=bg_load_image, args=(fp, target_img, ext, "cover", self.main_app.seven_zip_path, self.main_app.signals), daemon=True).start()
-        else: self.render_image("cover", None)
+        else: self.render_image("cover", fp, None)
 
-    def render_image(self, target_id, img_data):
+    def render_image(self, target_id, arc_path, img_data):
+        # 🌟 레이스 컨디션 방지
+        if arc_path and getattr(self, 'current_meta_file', None) != arc_path:
+            return
+            
         label_widget = self.lbl_meta_cover; cw = max(200, label_widget.width() - 10); ch = 340
         t = self.main_app.i18n[self.main_app.lang]
         if not img_data:
@@ -881,7 +886,8 @@ class Tab3Metadata(QWidget):
             target = QPixmap(pixmap.size()); target.fill(Qt.GlobalColor.transparent); painter = QPainter(target)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing); path = QPainterPath(); path.addRoundedRect(0, 0, target.width(), target.height(), 10, 10)
             painter.setClipPath(path); painter.drawPixmap(0, 0, pixmap); painter.end(); label_widget.setPixmap(target)
-        except: label_widget.setText(t.get("no_image", ""))
+        except Exception: 
+            label_widget.setText(t.get("no_image", ""))
 
     def _save_ui_to_dict(self):
         if self.current_meta_file and self.current_meta_file in self.book_meta:
