@@ -80,17 +80,32 @@ class TagLineEdit(QLineEdit):
         if event.key() == Qt.Key.Key_Backspace and not self.text(): self.parent_area.remove_last_tag()
         super().keyPressEvent(event)
 
+# 🌟 수정됨: 다국어(i18n) 적용을 위해 초기화 및 갱신 함수에 i18n_dict 인자 추가
 class TagInputArea(QFrame):
-    def __init__(self, on_change_cb=None):
-        super().__init__(); self.tags = []; self.on_change_cb = on_change_cb
-        self.setMinimumHeight(45); self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+    def __init__(self, i18n_dict, on_change_cb=None):
+        super().__init__()
+        self.i18n = i18n_dict
+        self.tags = []
+        self.on_change_cb = on_change_cb
+        
+        self.setMinimumHeight(45)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         self.setStyleSheet("TagInputArea { background-color: #1a1a1a; border: 1px solid #555; border-radius: 4px; }")
+        
         self.flow_layout = FlowLayout(self, margin=10, spacing=8)
-        self.line_edit = TagLineEdit(self); self.line_edit.setStyleSheet("background: transparent; border: none; color: white; padding-left: 2px;")
-        self.line_edit.setMinimumWidth(80); self.line_edit.setPlaceholderText("입력 후 Enter...")
-        self.line_edit.returnPressed.connect(self.add_tag_from_input); self.line_edit.editingFinished.connect(self.add_tag_from_input)
+        self.line_edit = TagLineEdit(self)
+        self.line_edit.setStyleSheet("background: transparent; border: none; color: white; width:130px; padding-left: 2px;")
+        self.line_edit.setMinimumWidth(80)
+        
+        # 언어 텍스트 적용
+        self.line_edit.setPlaceholderText(self.i18n.get("enter_after_input", "입력 후 Enter..."))
+        
+        self.line_edit.returnPressed.connect(self.add_tag_from_input)
+        self.line_edit.editingFinished.connect(self.add_tag_from_input)
         self.flow_layout.addWidget(self.line_edit)
+        
     def mousePressEvent(self, event): self.line_edit.setFocus()
+    
     def add_tag_from_input(self):
         text = self.line_edit.text().strip()
         if text:
@@ -98,21 +113,25 @@ class TagInputArea(QFrame):
                 t = t.strip()
                 if t and t not in self.tags: self._add_tag_ui(t)
         self.line_edit.clear()
+        
     def _add_tag_ui(self, text):
         if text in self.tags: return
         self.tags.append(text); tag_widget = TagWidget(text, self.remove_tag)
         self.flow_layout.removeWidget(self.line_edit); self.flow_layout.addWidget(tag_widget); self.flow_layout.addWidget(self.line_edit)
         if self.on_change_cb: self.on_change_cb()
+        
     def remove_tag(self, tag_widget):
         if tag_widget.text_val in self.tags: self.tags.remove(tag_widget.text_val)
         self.flow_layout.removeWidget(tag_widget); tag_widget.deleteLater()
         if self.on_change_cb: self.on_change_cb()
+        
     def remove_last_tag(self):
         if self.tags:
             last_tag = self.tags[-1]
             for i in reversed(range(self.flow_layout.count())):
                 w = self.flow_layout.itemAt(i).widget()
                 if isinstance(w, TagWidget) and w.text_val == last_tag: self.remove_tag(w); break
+                
     def set_tags(self, text_list):
         for i in reversed(range(self.flow_layout.count())):
             w = self.flow_layout.itemAt(i).widget()
@@ -121,12 +140,18 @@ class TagInputArea(QFrame):
         for t in text_list:
             if t: self._add_tag_ui(t)
         if self.on_change_cb: self.on_change_cb()
+        
     def text(self): return ", ".join(self.tags)
     def setText(self, txt): 
         temp_cb = self.on_change_cb; self.on_change_cb = None
         self.set_tags([x.strip() for x in txt.split(',') if x.strip()])
         self.on_change_cb = temp_cb
         if self.on_change_cb: self.on_change_cb()
+
+    # 🌟 추가됨: 언어 변경을 실시간 갱신하는 함수
+    def update_i18n(self, i18n_dict):
+        self.i18n = i18n_dict
+        self.line_edit.setPlaceholderText(self.i18n.get("enter_after_input", "입력 후 Enter..."))
 
 class SaveWorker(QThread):
     progress = pyqtSignal(int, int)          
@@ -261,7 +286,6 @@ class Tab3Metadata(QWidget):
         search_layout.addWidget(self.btn_meta_search)
         right_layout.addLayout(search_layout)
 
-        # 네비게이션 버튼
         self.btn_goto_basic = QPushButton(t.get("t3_nav_basic", "기본\n정보"))
         self.btn_goto_crew = QPushButton(t.get("t3_nav_crew", "작가 및\n제작진"))
         self.btn_goto_publish = QPushButton(t.get("t3_nav_publish", "출판\n정보"))
@@ -270,8 +294,8 @@ class Tab3Metadata(QWidget):
         
         self.btn_prev_vol = QPushButton(t.get("t3_btn_prev", "◁ 이전 권"))
         self.btn_next_vol = QPushButton(t.get("t3_btn_next", "다음 권 ▷"))
-        self.btn_apply_all = QPushButton(t.get("t3_btn_apply_all", "전체적용"))
-        self.btn_apply_series = QPushButton(t.get("t3_btn_apply_series", "시리즈전체적용"))
+        self.btn_apply_all = QPushButton(t.get("t3_btn_apply_all", "편집 적용"))
+        self.btn_apply_series = QPushButton(t.get("t3_btn_apply_series", "시리즈 편집 적용"))
 
         self.btn_apply_all.setToolTip(t.get("t3_tt_apply_all", ""))
         self.btn_apply_series.setToolTip(t.get("t3_tt_apply_series", ""))
@@ -440,7 +464,9 @@ class Tab3Metadata(QWidget):
                 cb = QCheckBox(loc); checkboxes[loc] = cb; cb_layout.addWidget(cb, r, c); c += 1
                 if c >= 5: c = 0; r += 1
             layout.addWidget(cb_container, start_row, 1, 1, 3); start_row += 1
-            le_my = TagInputArea(); btn_map = QPushButton("<"); btn_map.setFixedWidth(35)
+            
+            # 🌟 수정됨: t를 전달하여 생성
+            le_my = TagInputArea(t); btn_map = QPushButton("<"); btn_map.setFixedWidth(35)
             le_res = QTextEdit(); le_res.setMaximumHeight(80); le_res.setStyleSheet("background-color: #1a1a1a; color: #888888;")
             layout.addWidget(le_my, start_row, 1); layout.addWidget(btn_map, start_row, 2, alignment=Qt.AlignmentFlag.AlignCenter); layout.addWidget(le_res, start_row, 3); start_row += 1
             btn_series = QPushButton(t.get("t3_btn_apply_series_tag", ""))
@@ -493,11 +519,13 @@ class Tab3Metadata(QWidget):
         add_row(gl_publish, 4, 'Year', 't3_f_year', is_num=True, is_date=True, date_type='Y'); add_row(gl_publish, 5, 'Month', 't3_f_month', is_num=True, is_date=True, date_type='M')
         add_row(gl_publish, 6, 'Day', 't3_f_day', is_num=True, is_date=True, date_type='D'); scroll_layout.addWidget(self.group_publish)
 
-        self.group_genre_tags, gl_genre_tags = create_group_box(t.get("t3_nav_genre", "").replace("\n","/"))
+        self.group_genre_tags, gl_genre_tags = create_group_box(t.get("t3_nav_genre", "").replace("\n"," "))
         r = add_checkbox_group(gl_genre_tags, 0, 'Genre', 't3_f_genre', t.get("meta_genres", {}))
         r = add_checkbox_group(gl_genre_tags, r, 'Tags', 't3_f_tags', t.get("meta_tags", {}))
         lbl_char = QLabel(t.get('t3_f_char', '')); lbl_char.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop); gl_genre_tags.addWidget(lbl_char, r, 0)
-        le_char_my = TagInputArea(); le_char_res = QTextEdit(); le_char_res.setMaximumHeight(80); le_char_res.setStyleSheet("background-color: #1a1a1a; color: #888888;")
+        
+        # 🌟 수정됨: t를 전달하여 생성
+        le_char_my = TagInputArea(t); le_char_res = QTextEdit(); le_char_res.setMaximumHeight(80); le_char_res.setStyleSheet("background-color: #1a1a1a; color: #888888;")
         btn_char_map = QPushButton("<"); btn_char_map.setFixedWidth(35); gl_genre_tags.addWidget(le_char_my, r, 1); gl_genre_tags.addWidget(btn_char_map, r, 2, alignment=Qt.AlignmentFlag.AlignCenter); gl_genre_tags.addWidget(le_char_res, r, 3)
         r += 1
         btn_char_series = QPushButton(t.get("t3_btn_apply_series_tag", ""))
@@ -582,7 +610,7 @@ class Tab3Metadata(QWidget):
         self.group_basic.setTitle(t.get("t3_nav_basic", "").replace("\n"," "))
         self.group_crew.setTitle(t.get("t3_nav_crew", "").replace("\n"," "))
         self.group_publish.setTitle(t.get("t3_nav_publish", "").replace("\n"," "))
-        self.group_genre_tags.setTitle(t.get("t3_nav_genre", "").replace("\n","/"))
+        self.group_genre_tags.setTitle(t.get("t3_nav_genre", "").replace("\n"," "))
         self.group_etc.setTitle(t.get("t3_nav_etc", "").replace("\n"," "))
         
         self.btn_auto_vol.setText(t.get("t3_auto_vol", ""))
@@ -591,8 +619,8 @@ class Tab3Metadata(QWidget):
         self.btn_meta_save.setText(t.get("t3_save", ""))
         self.btn_meta_save_all.setText(t.get("t3_save_all", ""))
         
-        self.btn_prev_vol.setText(t.get("t3_btn_prev", ""))
-        self.btn_next_vol.setText(t.get("t3_btn_next", ""))
+        self.btn_prev_vol.setText("◁ 이전 권" if lang == "ko" else "◁ Prev Vol")
+        self.btn_next_vol.setText("다음 권 ▷" if lang == "ko" else "Next Vol ▷")
         
         self.btn_apply_all.setToolTip(t.get("t3_tt_apply_all", ""))
         self.btn_apply_series.setToolTip(t.get("t3_tt_apply_series", ""))
@@ -608,6 +636,9 @@ class Tab3Metadata(QWidget):
         for key, field in self.meta_ui_fields.items():
             if field.get('is_cb'): field['lbl'].setText(f"<b>{t.get(field['t_key'], field['t_key'])}</b>")
             else: field['lbl'].setText(t.get(field['t_key'], field['t_key']))
+            # 🌟 수정됨: 실시간 언어 업데이트 전달
+            if isinstance(field.get('my'), TagInputArea):
+                field['my'].update_i18n(t)
 
     def set_right_panel_active(self, active):
         self.scroll_area.setEnabled(active); self.cb_meta_api.setEnabled(active)
@@ -681,24 +712,36 @@ class Tab3Metadata(QWidget):
             except: pass
         return None
 
+    # 🌟 수정됨: 선택을 유지하도록 보강된 함수
     def refresh_tree(self):
         t = self.main_app.i18n[self.main_app.lang]
+        
+        # 선택 유지 기능 추가: 현재 파일을 기억해둔다
+        saved_selection = self.current_meta_file
+        
         self.tree_meta_files.clear()
         if not self.meta_data:
             self.meta_stacked.setCurrentIndex(0); self.set_right_panel_active(False); return
+            
         self.meta_stacked.setCurrentIndex(1); self.set_right_panel_active(False)
+        target_item_to_select = None
+        
         for folder_path, files in self.meta_data.items():
             folder_name = os.path.basename(folder_path) or folder_path
             root_item = QTreeWidgetItem([f"📁 {folder_name}"]); self.tree_meta_files.addTopLevelItem(root_item)
             sorted_files = sorted(files, key=lambda x: natural_keys(x.name))
+            
             for f in sorted_files:
                 fp = str(f); b_meta = self.book_meta.get(fp, {})
-                
                 title = f.name 
                 mod_date = b_meta.get('ComicZipModifiedDate')
                 
                 child_item = QTreeWidgetItem(); child_item.setData(0, Qt.ItemDataRole.UserRole, fp)
                 child_item.setToolTip(0, title); root_item.addChild(child_item)
+                
+                if fp == saved_selection:
+                    target_item_to_select = child_item
+                    
                 item_widget = QWidget(); item_widget.setStyleSheet("background: transparent;")
                 item_layout = QVBoxLayout(item_widget); item_layout.setContentsMargins(4, 2, 4, 2); item_layout.setSpacing(1)
                 
@@ -712,8 +755,12 @@ class Tab3Metadata(QWidget):
                 
                 item_layout.addWidget(lbl_title); item_layout.addWidget(lbl_date)
                 child_item.setSizeHint(0, QSize(200, 48)); self.tree_meta_files.setItemWidget(child_item, 0, item_widget)
+                
         self.tree_meta_files.expandAll()
-        if self.tree_meta_files.topLevelItemCount() > 0:
+        
+        if target_item_to_select:
+            self.tree_meta_files.setCurrentItem(target_item_to_select)
+        elif self.tree_meta_files.topLevelItemCount() > 0:
             first_root = self.tree_meta_files.topLevelItem(0)
             if first_root.childCount() > 0: self.tree_meta_files.setCurrentItem(first_root.child(0))
 
@@ -974,7 +1021,6 @@ class Tab3Metadata(QWidget):
             
             return False, "업데이트에 실패했습니다."
 
-    # 🌟 저장 시 상태창에 엔진 표시 ([WinRAR] 또는 [7z])
     def action_save_single(self):
         t = self.main_app.i18n[self.main_app.lang]
         if not self.current_meta_file: return
@@ -1008,7 +1054,6 @@ class Tab3Metadata(QWidget):
             QMessageBox.warning(self, t.get("msg_failed", ""), t.get("t3_msg_save_failed_reason", "").format(msg=msg))
             self.set_right_panel_active(True)
 
-    # 🌟 모두 저장 시 상태창에 엔진 표시 ([WinRAR] 또는 [7z])
     def action_save_all(self):
         t = self.main_app.i18n[self.main_app.lang]
         self._save_ui_to_dict()

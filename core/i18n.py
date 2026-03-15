@@ -116,28 +116,25 @@ def get_i18n():
             "t3_search_api": "검색 API :", "t3_search_query": "검색어 :",
             "t3_search_ph": "작품 제목을 입력하세요...", "t3_btn_search": "🔍 검색",
             
-            # 🌟 5개 네비게이션 버튼에만 줄바꿈(\n) 적용
             "t3_nav_basic": "기본\n정보",
             "t3_nav_crew": "작가 및\n제작진",
             "t3_nav_publish": "출판\n정보",
             "t3_nav_genre": "장르/태그\n등장인물",
             "t3_nav_etc": "기타\n정보",
             
-            # 나머지 버튼은 기존대로 1줄 유지
             "t3_btn_prev": "◁ 이전 권",
             "t3_btn_next": "다음 권 ▷",
-            "t3_btn_apply_all": "전체적용",
-            "t3_btn_apply_series": "시리즈전체적용",
-            "t3_col_orig": "원본", "t3_col_res": "검색 결과",
+            "t3_btn_apply_all": "편집 적용", # 수정됨
+            "t3_btn_apply_series": "시리즈 편집 적용", # 수정됨
+            "t3_col_orig": "원본", "t3_col_res": "일괄 편집", # 수정됨
             "t3_cb_ph": "선택 시 자동 추가되며, 쉼표(,)로 직접 입력할 수 있습니다.",
             "t3_auto_vol": "자동 권수 입력",
             "t3_auto_chap": "자동 화 입력",
             "t3_auto_pages": "자동 페이지 수 입력",
             "t3_save": "저장", "t3_save_all": "모두 저장",
             
-            # 🌟 마우스 오버 툴팁 메시지
-            "t3_tt_apply_all": "검색 결과에서 작성된 내용이 원본 값으로 카피됩니다.",
-            "t3_tt_apply_series": "검색 결과에서 작성된 내용이 해당 시리즈의 모든 책의 원본 값으로 카피됩니다.",
+            "t3_tt_apply_all": "일괄 편집에서 작성된 내용이 원본 값으로 카피됩니다.", # 수정됨
+            "t3_tt_apply_series": "일괄 편집에서 작성된 내용이 해당 시리즈의 모든 책의 원본 값으로 카피됩니다.", # 수정됨
             "t3_tt_auto_vol": "해당 시리즈에 포함된 모든 책에서 제목의 권수를 추출하여 숫자만 입력됩니다.",
             "t3_tt_auto_chap": "해당 시리즈에 포함된 모든 책에서 제목의 화를 추출하여 숫자만 입력됩니다.",
             "t3_tt_auto_pages": "해당 시리즈에 포함된 모든 책의 이미지 개수를 추출하여 입력됩니다.",
@@ -153,15 +150,14 @@ def get_i18n():
             "t3_f_genre": "장르", "t3_f_tags": "태그", "t3_f_char": "등장인물",
             "t3_f_age": "연령 등급", "t3_f_rate": "커뮤니티 평점", "t3_f_iso": "언어 코드 (ISO)", "t3_f_dir": "읽기 방향",
             
-            # 메시지 처리
             "t3_msg_sel": "왼쪽 리스트에서 작업할 책을 선택해주세요.",
             "t3_btn_apply_series_tag": "시리즈 전체 일괄 덮어쓰기",
             "t3_msg_applied_series_tag": "입력된 값이 시리즈 내 {count}권에 일괄 적용되었습니다.",
             "t3_msg_applied_char_series": "입력된 등장인물이 시리즈 내 {count}권에 일괄 적용되었습니다.",
             "t3_msg_analyzing": "메타데이터 분석 중...",
             "t3_msg_saving": "저장 중...",
-            "t3_msg_no_data_copy": "복사할 검색 결과 데이터가 없습니다.",
-            "t3_msg_applied_series_all": "검색 결과가 시리즈 내의 모든 책에 일괄 적용되었습니다.",
+            "t3_msg_no_data_copy": "복사할 일괄 편집 데이터가 없습니다.", # 수정됨
+            "t3_msg_applied_series_all": "일괄 편집 결과가 시리즈 내의 모든 책에 일괄 적용되었습니다.", # 수정됨
             "t3_msg_auto_vol_done": "시리즈의 모든 책에 자동 권수가 입력되었습니다.",
             "t3_msg_auto_chap_done": "시리즈의 모든 책에 자동 화가 입력되었습니다.",
             "t3_msg_auto_pages_done": "시리즈의 모든 책에 자동 페이지 수가 입력되었습니다.",
@@ -173,7 +169,7 @@ def get_i18n():
             "t3_msg_7z_error": "7z 오류",
             "t3_no_data": "(데이터 없음)",
             "msg_done": "완료", "msg_notice": "안내", "msg_failed": "실패", "msg_success": "성공",
-            "enter_after_input":"입력 후 Enter...",
+            "enter_after_input":"입력 후 Enter...", # 추가됨
         },
         "en": {
             "title": f"ComicZIP Optimizer v{CURRENT_VERSION}",
@@ -215,7 +211,6 @@ def get_i18n():
             "meta_formats": en_formats, "meta_genres": en_genres, "meta_tags": en_tags,
             "meta_age": en_age, "meta_manga": en_manga,
 
-            # 🌟 Tab 3 전용 UI 텍스트 (영어 줄바꿈)
             "t3_empty": "📂 Drag and drop folders or files to this screen",
             "t3_cover": "Cover Preview",
             "t3_search_api": "Search API :", "t3_search_query": "Search :",
@@ -229,15 +224,15 @@ def get_i18n():
             
             "t3_btn_prev": "◁ Prev Vol",
             "t3_btn_next": "Next Vol ▷",
-            "t3_btn_apply_all": "Apply All",
-            "t3_btn_apply_series": "Apply Series",
-            "t3_col_orig": "Original", "t3_col_res": "Search Result",
+            "t3_btn_apply_all": "Apply Edit", # 수정됨
+            "t3_btn_apply_series": "Apply Edit to Series", # 수정됨
+            "t3_col_orig": "Original", "t3_col_res": "Batch Edit", # 수정됨
             "t3_cb_ph": "Checked items added automatically, or type with commas (,)",
             "t3_auto_vol": "Auto Vol.", "t3_auto_chap": "Auto Chap.", "t3_auto_pages": "Auto Pages",
             "t3_save": "Save", "t3_save_all": "Save All",
             
-            "t3_tt_apply_all": "Copies the content from the search results to the original values.",
-            "t3_tt_apply_series": "Copies the content from the search results to the original values of all books in the series.",
+            "t3_tt_apply_all": "Copies the content from the batch edit to the original values.", # 수정됨
+            "t3_tt_apply_series": "Copies the content from the batch edit to the original values of all books in the series.", # 수정됨
             "t3_tt_auto_vol": "Extracts the volume number from the titles of all books in the series and inputs only the number.",
             "t3_tt_auto_chap": "Extracts the chapter number from the titles of all books in the series and inputs only the number.",
             "t3_tt_auto_pages": "Extracts and inputs the image count for all books in the series.",
@@ -258,8 +253,8 @@ def get_i18n():
             "t3_msg_applied_series_tag": "Applied to {count} books in the series.",
             "t3_msg_applied_char_series": "Characters applied to {count} books in the series.",
             "t3_msg_analyzing": "Analyzing metadata...", "t3_msg_saving": "Saving...",
-            "t3_msg_no_data_copy": "No search result data to copy.",
-            "t3_msg_applied_series_all": "Search results applied to all books in the series.",
+            "t3_msg_no_data_copy": "No batch edit data to copy.", # 수정됨
+            "t3_msg_applied_series_all": "Batch edit results applied to all books in the series.", # 수정됨
             "t3_msg_auto_vol_done": "Auto volume applied to all books in the series.",
             "t3_msg_auto_chap_done": "Auto chapter applied to all books in the series.",
             "t3_msg_auto_pages_done": "Auto page count applied to all books in the series.",
@@ -269,6 +264,6 @@ def get_i18n():
             "t3_msg_save_failed_reason": "Reason: {msg}",
             "t3_msg_unsupported_format": "Unsupported format", "t3_msg_7z_error": "7z error",
             "t3_no_data": "(No Data)", "msg_done": "Done", "msg_notice": "Notice", "msg_failed": "Failed", "msg_success": "Success",
-            "enter_after_input":"Type and press Enter...",
+            "enter_after_input":"Type and press Enter...", # 추가됨
         }
     }
