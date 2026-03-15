@@ -173,6 +173,7 @@ def get_i18n():
             "t3_msg_7z_error": "7z 오류",
             "t3_no_data": "(데이터 없음)",
             "msg_done": "완료", "msg_notice": "안내", "msg_failed": "실패", "msg_success": "성공",
+            "enter_after_input":"입력 후 Enter...",
         },
         "en": {
             "title": f"ComicZIP Optimizer v{CURRENT_VERSION}",
@@ -268,5 +269,6 @@ def get_i18n():
             "t3_msg_save_failed_reason": "Reason: {msg}",
             "t3_msg_unsupported_format": "Unsupported format", "t3_msg_7z_error": "7z error",
             "t3_no_data": "(No Data)", "msg_done": "Done", "msg_notice": "Notice", "msg_failed": "Failed", "msg_success": "Success",
+            "enter_after_input":"Type and press Enter...",
         }
     }
