@@ -19,8 +19,8 @@ if (Get-Process -Name $APP_NAME -ErrorAction SilentlyContinue) {
 }
 # -----------------------------------------
 
-Remove-Item -Recurse -Force build, dist
-Remove-Item -Force *.spec
+# Remove-Item -Recurse -Force build, dist
+# Remove-Item -Force *.spec
 
 Write-Host "`n[1/2] PyInstaller 빌드 시작..." -ForegroundColor Cyan
 
