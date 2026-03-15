@@ -124,17 +124,19 @@ def get_i18n():
             
             "t3_btn_prev": "◁ 이전 권",
             "t3_btn_next": "다음 권 ▷",
-            "t3_btn_apply_all": "편집 적용", # 수정됨
-            "t3_btn_apply_series": "시리즈 편집 적용", # 수정됨
-            "t3_col_orig": "원본", "t3_col_res": "일괄 편집", # 수정됨
+            "t3_btn_copy_orig": "원본 카피 편집",
+            "t3_btn_apply_all": "편집 적용",
+            "t3_btn_apply_series": "시리즈 편집 적용",
+            "t3_col_orig": "원본", "t3_col_res": "일괄 편집",
             "t3_cb_ph": "선택 시 자동 추가되며, 쉼표(,)로 직접 입력할 수 있습니다.",
             "t3_auto_vol": "자동 권수 입력",
             "t3_auto_chap": "자동 화 입력",
             "t3_auto_pages": "자동 페이지 수 입력",
             "t3_save": "저장", "t3_save_all": "모두 저장",
             
-            "t3_tt_apply_all": "일괄 편집에서 작성된 내용이 원본 값으로 카피됩니다.", # 수정됨
-            "t3_tt_apply_series": "일괄 편집에서 작성된 내용이 해당 시리즈의 모든 책의 원본 값으로 카피됩니다.", # 수정됨
+            "t3_tt_copy_orig": "원본의 데이터를 일괄 편집 칸으로 복사합니다.\n(권, 화, 페이지수 제외)",
+            "t3_tt_apply_all": "일괄 편집에서 작성된 내용이 원본 값으로 카피됩니다.",
+            "t3_tt_apply_series": "일괄 편집에서 작성된 내용이 해당 시리즈의 모든 책의 원본 값으로 카피됩니다.",
             "t3_tt_auto_vol": "해당 시리즈에 포함된 모든 책에서 제목의 권수를 추출하여 숫자만 입력됩니다.",
             "t3_tt_auto_chap": "해당 시리즈에 포함된 모든 책에서 제목의 화를 추출하여 숫자만 입력됩니다.",
             "t3_tt_auto_pages": "해당 시리즈에 포함된 모든 책의 이미지 개수를 추출하여 입력됩니다.",
@@ -156,8 +158,8 @@ def get_i18n():
             "t3_msg_applied_char_series": "입력된 등장인물이 시리즈 내 {count}권에 일괄 적용되었습니다.",
             "t3_msg_analyzing": "메타데이터 분석 중...",
             "t3_msg_saving": "저장 중...",
-            "t3_msg_no_data_copy": "복사할 일괄 편집 데이터가 없습니다.", # 수정됨
-            "t3_msg_applied_series_all": "일괄 편집 결과가 시리즈 내의 모든 책에 일괄 적용되었습니다.", # 수정됨
+            "t3_msg_no_data_copy": "복사할 일괄 편집 데이터가 없습니다.",
+            "t3_msg_applied_series_all": "일괄 편집 결과가 시리즈 내의 모든 책에 일괄 적용되었습니다.",
             "t3_msg_auto_vol_done": "시리즈의 모든 책에 자동 권수가 입력되었습니다.",
             "t3_msg_auto_chap_done": "시리즈의 모든 책에 자동 화가 입력되었습니다.",
             "t3_msg_auto_pages_done": "시리즈의 모든 책에 자동 페이지 수가 입력되었습니다.",
@@ -169,7 +171,7 @@ def get_i18n():
             "t3_msg_7z_error": "7z 오류",
             "t3_no_data": "(데이터 없음)",
             "msg_done": "완료", "msg_notice": "안내", "msg_failed": "실패", "msg_success": "성공",
-            "enter_after_input":"입력 후 Enter...", # 추가됨
+            "enter_after_input":"입력 후 Enter...",
         },
         "en": {
             "title": f"ComicZIP Optimizer v{CURRENT_VERSION}",
@@ -224,15 +226,17 @@ def get_i18n():
             
             "t3_btn_prev": "◁ Prev Vol",
             "t3_btn_next": "Next Vol ▷",
-            "t3_btn_apply_all": "Apply Edit", # 수정됨
-            "t3_btn_apply_series": "Apply Edit to Series", # 수정됨
-            "t3_col_orig": "Original", "t3_col_res": "Batch Edit", # 수정됨
+            "t3_btn_copy_orig": "Copy Original",
+            "t3_btn_apply_all": "Apply Edit",
+            "t3_btn_apply_series": "Apply Edit to Series",
+            "t3_col_orig": "Original", "t3_col_res": "Batch Edit",
             "t3_cb_ph": "Checked items added automatically, or type with commas (,)",
             "t3_auto_vol": "Auto Vol.", "t3_auto_chap": "Auto Chap.", "t3_auto_pages": "Auto Pages",
             "t3_save": "Save", "t3_save_all": "Save All",
             
-            "t3_tt_apply_all": "Copies the content from the batch edit to the original values.", # 수정됨
-            "t3_tt_apply_series": "Copies the content from the batch edit to the original values of all books in the series.", # 수정됨
+            "t3_tt_copy_orig": "Copies original data to the batch edit fields.\n(Excludes Vol, Chap, Pages)",
+            "t3_tt_apply_all": "Copies the content from the batch edit to the original values.",
+            "t3_tt_apply_series": "Copies the content from the batch edit to the original values of all books in the series.",
             "t3_tt_auto_vol": "Extracts the volume number from the titles of all books in the series and inputs only the number.",
             "t3_tt_auto_chap": "Extracts the chapter number from the titles of all books in the series and inputs only the number.",
             "t3_tt_auto_pages": "Extracts and inputs the image count for all books in the series.",
@@ -253,8 +257,8 @@ def get_i18n():
             "t3_msg_applied_series_tag": "Applied to {count} books in the series.",
             "t3_msg_applied_char_series": "Characters applied to {count} books in the series.",
             "t3_msg_analyzing": "Analyzing metadata...", "t3_msg_saving": "Saving...",
-            "t3_msg_no_data_copy": "No batch edit data to copy.", # 수정됨
-            "t3_msg_applied_series_all": "Batch edit results applied to all books in the series.", # 수정됨
+            "t3_msg_no_data_copy": "No batch edit data to copy.",
+            "t3_msg_applied_series_all": "Batch edit results applied to all books in the series.",
             "t3_msg_auto_vol_done": "Auto volume applied to all books in the series.",
             "t3_msg_auto_chap_done": "Auto chapter applied to all books in the series.",
             "t3_msg_auto_pages_done": "Auto page count applied to all books in the series.",
@@ -264,6 +268,6 @@ def get_i18n():
             "t3_msg_save_failed_reason": "Reason: {msg}",
             "t3_msg_unsupported_format": "Unsupported format", "t3_msg_7z_error": "7z error",
             "t3_no_data": "(No Data)", "msg_done": "Done", "msg_notice": "Notice", "msg_failed": "Failed", "msg_success": "Success",
-            "enter_after_input":"Type and press Enter...", # 추가됨
+            "enter_after_input":"Type and press Enter...",
         }
     }
