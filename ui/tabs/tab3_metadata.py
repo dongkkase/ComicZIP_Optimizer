@@ -128,9 +128,6 @@ class TagInputArea(QFrame):
         self.on_change_cb = temp_cb
         if self.on_change_cb: self.on_change_cb()
 
-# =========================================================
-# 백그라운드 Worker: 병렬 처리 최적화 클래스
-# =========================================================
 class SaveWorker(QThread):
     progress = pyqtSignal(int, int)          
     finished_all = pyqtSignal(int, int)      
@@ -169,9 +166,6 @@ class SaveWorker(QThread):
                     
             self.finished_all.emit(success_count, fail_count)
 
-# =========================================================
-# 메인 탭 3 클래스
-# =========================================================
 class Tab3Metadata(QWidget):
     def __init__(self, main_app):
         super().__init__()
@@ -198,7 +192,7 @@ class Tab3Metadata(QWidget):
 
         page_empty = QWidget()
         layout_empty = QVBoxLayout(page_empty)
-        self.lbl_empty = QLabel(t.get("t3_empty", ""))
+        self.lbl_empty = QLabel(t.get("t3_empty", "📂 폴더 및 파일을 이 화면으로 드래그 앤 드롭하세요"))
         self.lbl_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_empty.setStyleSheet("color: #aaaaaa; font-size: 16px; font-weight: bold;")
         layout_empty.addWidget(self.lbl_empty)
@@ -213,7 +207,7 @@ class Tab3Metadata(QWidget):
         left_frame.setObjectName("panelFrame")
         left_layout = QVBoxLayout(left_frame)
 
-        self.lbl_meta_cover = QLabel(t.get("t3_cover", ""))
+        self.lbl_meta_cover = QLabel(t.get("t3_cover", "표지 미리보기"))
         self.lbl_meta_cover.setObjectName("imageLabel")
         self.lbl_meta_cover.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_meta_cover.setFixedHeight(350)
@@ -235,7 +229,7 @@ class Tab3Metadata(QWidget):
         self.right_overlay = QWidget(self.right_frame)
         self.right_overlay.setStyleSheet("background: rgba(0, 0, 0, 80);")
         def overlay_click(event):
-            QMessageBox.information(self, t.get("msg_notice", ""), t.get("t3_msg_sel", ""))
+            QMessageBox.information(self, t.get("msg_notice", "안내"), t.get("t3_msg_sel", "왼쪽 리스트에서 작업할 책을 선택해주세요."))
             event.accept()
         self.right_overlay.mousePressEvent = overlay_click
         
@@ -245,7 +239,7 @@ class Tab3Metadata(QWidget):
         self.right_frame.resizeEvent = right_frame_resize
 
         search_layout = QHBoxLayout()
-        self.lbl_search_api = QLabel(t.get("t3_search_api", ""))
+        self.lbl_search_api = QLabel(t.get("t3_search_api", "검색 API :"))
         search_layout.addWidget(self.lbl_search_api)
         
         self.cb_meta_api = QComboBox()
@@ -253,32 +247,32 @@ class Tab3Metadata(QWidget):
         self.cb_meta_api.setStyleSheet("padding: 5px; border: 1px solid #555; border-radius: 4px; background-color: #2b2b2b;")
         search_layout.addWidget(self.cb_meta_api)
         
-        self.lbl_search_query = QLabel(t.get("t3_search_query", ""))
+        self.lbl_search_query = QLabel(t.get("t3_search_query", "검색어 :"))
         search_layout.addWidget(self.lbl_search_query)
         
         self.le_meta_search = QLineEdit()
-        self.le_meta_search.setPlaceholderText(t.get("t3_search_ph", ""))
+        self.le_meta_search.setPlaceholderText(t.get("t3_search_ph", "작품 제목을 입력하세요..."))
         self.le_meta_search.setStyleSheet("padding: 6px; border: 1px solid #555; border-radius: 4px; background-color: #2b2b2b;")
         search_layout.addWidget(self.le_meta_search, 1)
         
-        self.btn_meta_search = QPushButton(t.get("t3_btn_search", ""))
+        self.btn_meta_search = QPushButton(t.get("t3_btn_search", "🔍 검색"))
         self.btn_meta_search.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_meta_search.setStyleSheet("QPushButton { padding: 6px 14px; font-size: 12px; background-color: #333333; color: white; border: 1px solid #555; border-radius: 4px; } QPushButton:hover { background-color: #444444; }")
         search_layout.addWidget(self.btn_meta_search)
         right_layout.addLayout(search_layout)
 
-        # 네비게이션 버튼 사전 생성
-        self.btn_goto_basic = QPushButton(t.get("t3_nav_basic", ""))
-        self.btn_goto_crew = QPushButton(t.get("t3_nav_crew", ""))
-        self.btn_goto_publish = QPushButton(t.get("t3_nav_publish", ""))
-        self.btn_goto_genre = QPushButton(t.get("t3_nav_genre", ""))
-        self.btn_goto_etc = QPushButton(t.get("t3_nav_etc", ""))
-        self.btn_prev_vol = QPushButton(t.get("t3_btn_prev", ""))
-        self.btn_next_vol = QPushButton(t.get("t3_btn_next", ""))
-        self.btn_apply_all = QPushButton(t.get("t3_btn_apply_all", ""))
-        self.btn_apply_series = QPushButton(t.get("t3_btn_apply_series", ""))
+        # 네비게이션 버튼
+        self.btn_goto_basic = QPushButton(t.get("t3_nav_basic", "기본\n정보"))
+        self.btn_goto_crew = QPushButton(t.get("t3_nav_crew", "작가 및\n제작진"))
+        self.btn_goto_publish = QPushButton(t.get("t3_nav_publish", "출판\n정보"))
+        self.btn_goto_genre = QPushButton(t.get("t3_nav_genre", "장르/태그\n등장인물"))
+        self.btn_goto_etc = QPushButton(t.get("t3_nav_etc", "기타\n정보"))
+        
+        self.btn_prev_vol = QPushButton(t.get("t3_btn_prev", "◁ 이전 권"))
+        self.btn_next_vol = QPushButton(t.get("t3_btn_next", "다음 권 ▷"))
+        self.btn_apply_all = QPushButton(t.get("t3_btn_apply_all", "전체적용"))
+        self.btn_apply_series = QPushButton(t.get("t3_btn_apply_series", "시리즈전체적용"))
 
-        # 🌟 툴팁 설정
         self.btn_apply_all.setToolTip(t.get("t3_tt_apply_all", ""))
         self.btn_apply_series.setToolTip(t.get("t3_tt_apply_series", ""))
 
@@ -294,8 +288,8 @@ class Tab3Metadata(QWidget):
                     background-color: {bg};
                     color: {text_color};
                     border: 1px solid {border};
-                    padding: 7px 12px;
-                    font-size: 12px;
+                    padding: 5px 8px;
+                    font-size: 11px;
                     border-radius: 0px;
                     margin-top: 10px;
                     {'font-weight: bold;' if is_primary else ''}
@@ -477,7 +471,7 @@ class Tab3Metadata(QWidget):
                     fp = str(f)
                     if fp in self.book_meta: self.book_meta[fp][key] = val; count += 1
                 t_now = self.main_app.i18n[self.main_app.lang]
-                QMessageBox.information(self, t_now.get("msg_done", ""), t_now.get("t3_msg_applied_char_series", "").format(count=count))
+                QMessageBox.information(self, t_now.get("msg_done", ""), t_now.get("t3_msg_applied_series_tag", "").format(count=count))
             btn_series.clicked.connect(apply_to_series)
             self.meta_ui_fields[key] = {'my': le_my, 'res': le_res, 'is_text': False, 'is_combo': False, 'is_tag': True, 'lbl': lbl_widget, 't_key': t_key, 'is_cb': True}
             return start_row + 1
@@ -499,7 +493,7 @@ class Tab3Metadata(QWidget):
         add_row(gl_publish, 4, 'Year', 't3_f_year', is_num=True, is_date=True, date_type='Y'); add_row(gl_publish, 5, 'Month', 't3_f_month', is_num=True, is_date=True, date_type='M')
         add_row(gl_publish, 6, 'Day', 't3_f_day', is_num=True, is_date=True, date_type='D'); scroll_layout.addWidget(self.group_publish)
 
-        self.group_genre_tags, gl_genre_tags = create_group_box(t.get("t3_nav_genre", "").replace("\n"," "))
+        self.group_genre_tags, gl_genre_tags = create_group_box(t.get("t3_nav_genre", "").replace("\n","/"))
         r = add_checkbox_group(gl_genre_tags, 0, 'Genre', 't3_f_genre', t.get("meta_genres", {}))
         r = add_checkbox_group(gl_genre_tags, r, 'Tags', 't3_f_tags', t.get("meta_tags", {}))
         lbl_char = QLabel(t.get('t3_f_char', '')); lbl_char.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop); gl_genre_tags.addWidget(lbl_char, r, 0)
@@ -585,11 +579,10 @@ class Tab3Metadata(QWidget):
         self.lbl_col_orig.setText(f"<b>{t.get('t3_col_orig', '')}</b>")
         self.lbl_col_res.setText(f"<b>{t.get('t3_col_res', '')}</b>")
         
-        # QGroupBox title needs spaces instead of newlines
         self.group_basic.setTitle(t.get("t3_nav_basic", "").replace("\n"," "))
         self.group_crew.setTitle(t.get("t3_nav_crew", "").replace("\n"," "))
         self.group_publish.setTitle(t.get("t3_nav_publish", "").replace("\n"," "))
-        self.group_genre_tags.setTitle(t.get("t3_nav_genre", "").replace("\n"," "))
+        self.group_genre_tags.setTitle(t.get("t3_nav_genre", "").replace("\n","/"))
         self.group_etc.setTitle(t.get("t3_nav_etc", "").replace("\n"," "))
         
         self.btn_auto_vol.setText(t.get("t3_auto_vol", ""))
@@ -701,7 +694,6 @@ class Tab3Metadata(QWidget):
             for f in sorted_files:
                 fp = str(f); b_meta = self.book_meta.get(fp, {})
                 
-                # 🌟 파일명 표기
                 title = f.name 
                 mod_date = b_meta.get('ComicZipModifiedDate')
                 
@@ -920,55 +912,84 @@ class Tab3Metadata(QWidget):
         data['ComicZipAddedDate'] = ET.SubElement(root, 'ComicZipAddedDate').text; data['ComicZipModifiedDate'] = now_str
         return '<?xml version="1.0" encoding="utf-8"?>\n' + ET.tostring(root, encoding='utf-8').decode('utf-8')
 
-    # 🌟 속도 개선: 7z에 -mx=0 옵션 추가 (압축 없이 빠른 추가)
     def _inject_xml_to_archive(self, archive_path, xml_str):
         t = self.main_app.i18n[self.main_app.lang]
         ext = Path(archive_path).suffix.lower()
-        if ext not in ['.zip', '.cbz', '.7z']: 
-            return False, t.get("t3_msg_unsupported_format", "Unsupported format")
+        if ext not in ['.zip', '.cbz', '.7z', '.rar', '.cbr']: 
+            return False, t.get("t3_msg_unsupported_format", "미지원 포맷입니다.")
             
-        # 🚀 [속도 개선 핵심 1] 초고속 덧붙이기 (Fast Append)
-        # ZIP, CBZ 포맷일 경우 Python 내장 라이브러리를 사용해 속도를 극대화합니다.
         if ext in ['.zip', '.cbz']:
             try:
-                # 1. 압축 파일 내에 이미 ComicInfo.xml이 있는지 0.1초만에 스캔
                 has_xml = False
                 with zipfile.ZipFile(archive_path, 'r') as zf:
                     has_xml = any(name.lower() == 'comicinfo.xml' for name in zf.namelist())
 
-                # 2. 기존 파일이 '없다면', 7z을 거치지 않고 압축 파일 맨 끝에 1KB만 덧붙임!
-                # 전체 파일을 재작성(Rewrite)하지 않으므로 0.01초 만에 저장이 완료됩니다.
                 if not has_xml:
                     with zipfile.ZipFile(archive_path, 'a', compression=zipfile.ZIP_DEFLATED) as zf:
                         zf.writestr('ComicInfo.xml', xml_str)
-                    return True, t.get("msg_success", "Success")
-            except Exception as e:
-                print(f"Fast append fallback: {e}")
-                pass # 예외 발생 시 안전을 위해 기존 7z 방식으로 폴백(Fallback)
+                    return True, t.get("msg_success", "성공")
+            except Exception:
+                pass 
 
-        # 🚀 [속도 개선 핵심 2] ComicInfo.xml이 이미 존재해서 덮어써야 하거나 7z 포맷인 경우
+        winrar_paths = [
+            r"C:\Program Files\WinRAR\WinRAR.exe",
+            r"C:\Program Files (x86)\WinRAR\WinRAR.exe"
+        ]
+        winrar_exe = next((p for p in winrar_paths if os.path.exists(p)), None)
+
+        if ext in ['.rar', '.cbr'] and not winrar_exe:
+            error_msg = "RAR/CBR 파일에 메타데이터를 저장하려면 PC에 WinRAR가 설치되어 있어야 합니다.\n(안정성을 위해 CBZ 포맷으로 변환 후 사용을 권장합니다.)" if self.main_app.lang == "ko" else "WinRAR is required to update RAR/CBR files.\n(Converting to CBZ format is highly recommended.)"
+            return False, error_msg
+
+        temp_ssd_dir = tempfile.gettempdir() 
         with tempfile.TemporaryDirectory() as tmp_dir:
             xml_path = os.path.join(tmp_dir, "ComicInfo.xml")
             with open(xml_path, "w", encoding="utf-8") as f:
                 f.write(xml_str)
             
-            # -mx=0 옵션을 통해 재압축에 들어가는 CPU 연산을 없애고 단순 병합만 수행
-            cmd = [self.main_app.seven_zip_path, 'u', archive_path, "ComicInfo.xml", "-mx=0"]
-            try:
-                res = subprocess.run(cmd, cwd=tmp_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=subprocess.CREATE_NO_WINDOW)
-                if res.returncode == 0: return True, t.get("msg_success", "Success")
-                else: return False, t.get("t3_msg_7z_error", "7z error")
-            except Exception as e: 
-                return False, str(e)
+            if winrar_exe and ext != '.7z':
+                cmd_rar = [winrar_exe, 'u', '-ibck', '-inul', '-m0', '-ep', archive_path, "ComicInfo.xml"]
+                try:
+                    res = subprocess.run(cmd_rar, cwd=tmp_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=subprocess.CREATE_NO_WINDOW)
+                    if res.returncode == 0:
+                        return True, t.get("msg_success", "성공")
+                except Exception:
+                    pass 
 
-    # 🌟 스레드 적용 저장 함수
+            if ext in ['.zip', '.cbz', '.7z']:
+                cmd_7z = [
+                    self.main_app.seven_zip_path, 'u', archive_path, "ComicInfo.xml", 
+                    "-mx=0", 
+                    f"-w{temp_ssd_dir}", 
+                    "-mmt=on"
+                ]
+                try:
+                    res = subprocess.run(cmd_7z, cwd=tmp_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=subprocess.CREATE_NO_WINDOW)
+                    if res.returncode == 0: 
+                        return True, t.get("msg_success", "성공")
+                    else: 
+                        return False, t.get("t3_msg_7z_error", "7z 에러 발생")
+                except Exception as e: 
+                    return False, str(e)
+            
+            return False, "업데이트에 실패했습니다."
+
+    # 🌟 저장 시 상태창에 엔진 표시 ([WinRAR] 또는 [7z])
     def action_save_single(self):
         t = self.main_app.i18n[self.main_app.lang]
         if not self.current_meta_file: return
         self._save_ui_to_dict(); fp = self.current_meta_file
+        
         self.set_right_panel_active(False)
-        self.main_app.progress_bar.show(); self.main_app.progress_bar.setRange(0, 0)
-        self.main_app.lbl_status.setText(t.get("t3_msg_saving", ""))
+        self.main_app.progress_bar.show()
+        self.main_app.progress_bar.setRange(0, 0)
+        
+        winrar_paths = [r"C:\Program Files\WinRAR\WinRAR.exe", r"C:\Program Files (x86)\WinRAR\WinRAR.exe"]
+        has_winrar = any(os.path.exists(p) for p in winrar_paths)
+        ext = Path(fp).suffix.lower()
+        engine = "7z" if ext == '.7z' or not has_winrar else "WinRAR"
+        
+        self.main_app.lbl_status.setText(f'{t.get("t3_msg_saving", "저장 중...")} [{engine}]')
         
         targets = {fp: self.book_meta[fp]}
         self.save_worker = SaveWorker(targets, self, is_single=True)
@@ -977,7 +998,9 @@ class Tab3Metadata(QWidget):
 
     def _on_save_single_finished(self, success, msg):
         t = self.main_app.i18n[self.main_app.lang]
-        self.main_app.progress_bar.hide(); self.main_app.lbl_status.setText(t.get("status_wait", ""))
+        self.main_app.progress_bar.hide()
+        self.main_app.lbl_status.setText(t.get("status_wait", ""))
+        
         if success: 
             QMessageBox.information(self, t.get("msg_done", ""), t.get("t3_msg_save_single_done", ""))
             self.refresh_tree() 
@@ -985,28 +1008,29 @@ class Tab3Metadata(QWidget):
             QMessageBox.warning(self, t.get("msg_failed", ""), t.get("t3_msg_save_failed_reason", "").format(msg=msg))
             self.set_right_panel_active(True)
 
+    # 🌟 모두 저장 시 상태창에 엔진 표시 ([WinRAR] 또는 [7z])
     def action_save_all(self):
         t = self.main_app.i18n[self.main_app.lang]
         self._save_ui_to_dict()
+        
         targets = {fp: data for fp, data in self.book_meta.items() if os.path.exists(fp)}
         if not targets:
             QMessageBox.information(self, t.get("msg_notice", ""), t.get("t3_msg_no_data_copy", ""))
             return
-            
+
         self.set_right_panel_active(False)
         self.main_app.progress_bar.show()
         self.main_app.progress_bar.setRange(0, len(targets))
         self.main_app.progress_bar.setValue(0)
-        self.main_app.lbl_status.setText(t.get("t3_msg_saving", "저장 중..."))
         
-        # 🚀 [속도 개선 핵심 3] 디스크 I/O 병목 제어
-        # 저장 작업은 디스크 속도의 한계를 받습니다. 스레드가 4~8개로 너무 많으면
-        # 디스크 헤더가 꼬여(Thrashing) 속도가 수십 배 느려지고 PC가 멈춥니다.
-        # 안정적이고 지속적인 쓰기 속도를 위해 저장 스레드는 최대 2개로 제한합니다.
+        winrar_paths = [r"C:\Program Files\WinRAR\WinRAR.exe", r"C:\Program Files (x86)\WinRAR\WinRAR.exe"]
+        has_winrar = any(os.path.exists(p) for p in winrar_paths)
+        engine = "WinRAR" if has_winrar else "7z"
+        
+        self.main_app.lbl_status.setText(f'{t.get("t3_msg_saving", "저장 중...")} [{engine}]')
+
         max_threads = self.main_app.config.get("max_threads", 4)
-        io_safe_threads = min(2, max_threads) 
-        
-        self.save_worker = SaveWorker(targets, self, is_single=False, max_workers=io_safe_threads)
+        self.save_worker = SaveWorker(targets, self, is_single=False, max_workers=max_threads)
         self.save_worker.progress.connect(self._on_save_progress)
         self.save_worker.finished_all.connect(self._on_save_all_finished)
         self.save_worker.start()
@@ -1016,7 +1040,9 @@ class Tab3Metadata(QWidget):
 
     def _on_save_all_finished(self, success_count, fail_count):
         t = self.main_app.i18n[self.main_app.lang]
-        self.main_app.progress_bar.hide(); self.main_app.lbl_status.setText(t.get("status_wait", ""))
+        self.main_app.progress_bar.hide()
+        self.main_app.lbl_status.setText(t.get("status_wait", ""))
+        
         msg = t.get("t3_msg_save_all_done", "").format(success_count=success_count, fail_count=fail_count)
         QMessageBox.information(self, t.get("t3_msg_save_all_title", ""), msg)
         self.refresh_tree()

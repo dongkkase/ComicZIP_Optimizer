@@ -155,7 +155,7 @@ def get_i18n():
             
             # 메시지 처리
             "t3_msg_sel": "왼쪽 리스트에서 작업할 책을 선택해주세요.",
-            "t3_btn_apply_series_tag": "시리즈 전체\n일괄 덮어쓰기",
+            "t3_btn_apply_series_tag": "시리즈 전체 일괄 덮어쓰기",
             "t3_msg_applied_series_tag": "입력된 값이 시리즈 내 {count}권에 일괄 적용되었습니다.",
             "t3_msg_applied_char_series": "입력된 등장인물이 시리즈 내 {count}권에 일괄 적용되었습니다.",
             "t3_msg_analyzing": "메타데이터 분석 중...",
