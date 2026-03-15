@@ -3,7 +3,7 @@ import threading
 import zipfile
 from pathlib import Path
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
-                             QLabel, QComboBox, QLineEdit, QFrame, QTableWidgetItem, QAbstractItemView, QHeaderView, QSizePolicy, QTableWidget, QMessageBox)
+                             QLabel, QComboBox, QLineEdit, QFrame, QTableWidgetItem, QAbstractItemView, QHeaderView, QSizePolicy, QTableWidget, QMessageBox, QStackedWidget)
 from PyQt6.QtCore import Qt, QTimer, QSize
 from PyQt6.QtGui import QImage, QPixmap, QPainter, QPainterPath, QColor
 
@@ -32,6 +32,7 @@ class Tab2Renamer(QWidget):
         self.setup_ui()
 
     def setup_ui(self):
+        t = self.main_app.i18n[self.main_app.lang]
         layout = QHBoxLayout(self)
         left_frame = QFrame()
         left_layout = QVBoxLayout(left_frame)
@@ -94,6 +95,16 @@ class Tab2Renamer(QWidget):
         self.lbl_target.setObjectName("boldLabel")
         right_layout.addWidget(self.lbl_target)
 
+        # 🌟 드래그 앤 드롭 문구를 위한 QStackedWidget 추가
+        self.stacked_archives = QStackedWidget()
+        page_empty = QWidget()
+        layout_empty = QVBoxLayout(page_empty)
+        self.lbl_empty_arch = QLabel(t.get("drag_drop", ""))
+        self.lbl_empty_arch.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_empty_arch.setStyleSheet("color: #aaaaaa; font-size: 16px; font-weight: bold;")
+        layout_empty.addWidget(self.lbl_empty_arch)
+        self.stacked_archives.addWidget(page_empty)
+
         self.table_archives = ArchiveTableWidget(0, 3)
         self.table_archives.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table_archives.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -102,6 +113,7 @@ class Tab2Renamer(QWidget):
         self.table_archives.itemSelectionChanged.connect(self.on_archive_select)
         self.table_archives.itemChanged.connect(self.on_table_item_changed)
         self.table_archives.delete_pressed.connect(self.remove_highlighted)
+        self.stacked_archives.addWidget(self.table_archives)
         
         header_arch = self.table_archives.horizontalHeader()
         header_arch.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
@@ -110,7 +122,8 @@ class Tab2Renamer(QWidget):
         header_arch.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
         self.table_archives.setColumnWidth(2, 90)
         self.table_archives.setMinimumHeight(150)
-        right_layout.addWidget(self.table_archives, 1) 
+        
+        right_layout.addWidget(self.stacked_archives, 1) 
 
         self.lbl_total_count = QLabel()
         self.lbl_total_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -142,6 +155,7 @@ class Tab2Renamer(QWidget):
         self.lbl_cover_title.setText(t["cover_preview"])
         self.lbl_inner_title.setText(t["inner_preview"])
         self.lbl_pattern.setText(t["pattern_lbl"])
+        self.lbl_empty_arch.setText(t.get("drag_drop", ""))
         
         self.cb_pattern.blockSignals(True)
         self.cb_pattern.clear()
@@ -172,6 +186,16 @@ class Tab2Renamer(QWidget):
                 self.archive_data[fp]['checked'] = (item.checkState() == Qt.CheckState.Checked)
 
     def refresh_list(self):
+        if not self.archive_data:
+            self.stacked_archives.setCurrentIndex(0)
+            self.table_inner.setRowCount(0)
+            self.lbl_image = self.lbl_cover_img
+            self.render_image("cover", None)
+            self.render_image("inner", None)
+            self.lbl_total_count.setText(self.main_app.i18n[self.main_app.lang]["total_files"].format(count=0))
+            return
+            
+        self.stacked_archives.setCurrentIndex(1)
         self.table_archives.setUpdatesEnabled(False)
         self.table_archives.blockSignals(True)
         self.table_archives.clearContents()

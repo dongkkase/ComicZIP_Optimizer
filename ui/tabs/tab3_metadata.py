@@ -83,7 +83,7 @@ class TagLineEdit(QLineEdit):
             self.parent_area.remove_last_tag()
         elif event.text() == ',':
             self.parent_area.add_tag_from_input()
-            return # 콤마가 실제로 입력되지 않도록 막음
+            return
         super().keyPressEvent(event)
 
 class TagInputArea(QFrame):
@@ -271,7 +271,8 @@ class Tab3Metadata(QWidget):
         search_layout.addWidget(self.lbl_search_api)
         
         self.cb_meta_api = QComboBox()
-        self.cb_meta_api.addItems(["리디북스", "알라딘", "코믹박스", "Google Books"])
+        # 🌟 검색 API 추가: Anilist, Vine
+        self.cb_meta_api.addItems(["리디북스", "알라딘", "코믹박스", "Google Books", "Anilist", "Vine"])
         self.cb_meta_api.setStyleSheet("padding: 5px; border: 1px solid #555; border-radius: 4px; background-color: #2b2b2b;")
         search_layout.addWidget(self.cb_meta_api)
         
@@ -448,27 +449,36 @@ class Tab3Metadata(QWidget):
             elif is_num:
                 le_my_widget, le_my = create_number_input(is_date=is_date, date_type=date_type); le_res = QLineEdit()
             elif combo_items is not None:
+                # 🌟 일괄 편집(res) 영역도 QComboBox로 생성
                 le_my_widget = le_my = QComboBox(); le_my.setEditable(editable_combo); le_my.addItem("", "")
-                # 내부적으로 key값을 data로 저장합니다. (Manga 등 값 저장을 위함)
-                for k, v in combo_items.items(): le_my.addItem(v, k)
-                le_res = QLineEdit()
+                le_res = QComboBox(); le_res.setEditable(editable_combo); le_res.addItem("", "")
+                for k, v in combo_items.items(): 
+                    le_my.addItem(v, k)
+                    le_res.addItem(v, k)
+                le_res.setStyleSheet("background-color: #1a1a1a; color: #888888; border: 1px solid #444;")
             else:
                 le_my_widget = le_my = QLineEdit(); le_res = QLineEdit()
+                
             if not is_num: le_my_widget = le_my
-            if isinstance(le_res, (QLineEdit, QTextEdit)): le_res.setStyleSheet("background-color: #1a1a1a; color: #888888;")
+            if isinstance(le_res, (QLineEdit, QTextEdit)) and combo_items is None: 
+                le_res.setStyleSheet("background-color: #1a1a1a; color: #888888;")
             btn_map = QPushButton("<"); btn_map.setFixedWidth(35)
+            
             def do_map():
-                val = le_res.toPlainText() if is_text else le_res.text()
-                if is_num and val.isdigit(): val = str(int(val))
                 if combo_items is not None:
+                    val = le_res.currentText()
                     if editable_combo: le_my.setCurrentText(val)
                     else:
                         # 콤보박스가 편집 불가일 경우 (텍스트 일치 또는 Data 일치 모두 찾음)
                         idx = le_my.findText(val)
                         if idx < 0: idx = le_my.findData(val)
                         if idx >= 0: le_my.setCurrentIndex(idx)
-                elif is_text: le_my.setPlainText(val)
-                else: le_my.setText(val)
+                        else: le_my.setCurrentIndex(0)
+                else:
+                    val = le_res.toPlainText() if is_text else le_res.text()
+                    if is_num and val.isdigit(): val = str(int(val))
+                    if is_text: le_my.setPlainText(val)
+                    else: le_my.setText(val)
             btn_map.clicked.connect(do_map)
             layout.addWidget(le_my_widget, row, 1); layout.addWidget(btn_map, row, 2, alignment=Qt.AlignmentFlag.AlignCenter); layout.addWidget(le_res, row, 3)
             self.meta_ui_fields[key] = {'my': le_my, 'res': le_res, 'is_text': is_text, 'is_combo': combo_items is not None, 'lbl': lbl_widget, 't_key': t_key}
@@ -579,30 +589,35 @@ class Tab3Metadata(QWidget):
         self.btn_goto_etc.clicked.connect(lambda: scroll_to(self.group_etc))
 
         bottom_btn_layout = QHBoxLayout()
+        # 🌟 자동 제목 입력 버튼 추가
+        self.btn_auto_title = QPushButton(t.get("t3_auto_title", ""))
         self.btn_auto_vol = QPushButton(t.get("t3_auto_vol", ""))
         self.btn_auto_chap = QPushButton(t.get("t3_auto_chap", ""))
         self.btn_auto_pages = QPushButton(t.get("t3_auto_pages", ""))
         self.btn_meta_save = QPushButton(t.get("t3_save", ""))
         self.btn_meta_save_all = QPushButton(t.get("t3_save_all", ""))
 
+        self.btn_auto_title.setToolTip(t.get("t3_tt_auto_title", ""))
         self.btn_auto_vol.setToolTip(t.get("t3_tt_auto_vol", ""))
         self.btn_auto_chap.setToolTip(t.get("t3_tt_auto_chap", ""))
         self.btn_auto_pages.setToolTip(t.get("t3_tt_auto_pages", ""))
         self.btn_meta_save.setToolTip(t.get("t3_tt_save", ""))
         self.btn_meta_save_all.setToolTip(t.get("t3_tt_save_all", ""))
         
-        for btn in [self.btn_auto_vol, self.btn_auto_chap, self.btn_auto_pages, self.btn_meta_save, self.btn_meta_save_all]:
+        for btn in [self.btn_auto_title, self.btn_auto_vol, self.btn_auto_chap, self.btn_auto_pages, self.btn_meta_save, self.btn_meta_save_all]:
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_meta_save_all.setStyleSheet("background-color: #27AE60; color: white; font-weight: bold;")
         self.btn_meta_save.setStyleSheet("background-color: #3498DB; color: white; font-weight: bold;")
         
+        self.btn_auto_title.clicked.connect(self.action_auto_title)
         self.btn_auto_vol.clicked.connect(self.action_auto_volume)
         self.btn_auto_chap.clicked.connect(self.action_auto_chapter)
         self.btn_auto_pages.clicked.connect(self.action_auto_pages)
         self.btn_meta_save.clicked.connect(self.action_save_single)
         self.btn_meta_save_all.clicked.connect(self.action_save_all)
         
-        bottom_btn_layout.addWidget(self.btn_auto_vol); bottom_btn_layout.addWidget(self.btn_auto_chap); bottom_btn_layout.addWidget(self.btn_auto_pages)
+        bottom_btn_layout.addWidget(self.btn_auto_title); bottom_btn_layout.addWidget(self.btn_auto_vol)
+        bottom_btn_layout.addWidget(self.btn_auto_chap); bottom_btn_layout.addWidget(self.btn_auto_pages)
         bottom_btn_layout.addStretch(); bottom_btn_layout.addWidget(self.btn_meta_save); bottom_btn_layout.addWidget(self.btn_meta_save_all)
         right_layout.addLayout(bottom_btn_layout)
 
@@ -633,6 +648,7 @@ class Tab3Metadata(QWidget):
         self.group_genre_tags.setTitle(t.get("t3_nav_genre", "").replace("\n"," "))
         self.group_etc.setTitle(t.get("t3_nav_etc", "").replace("\n"," "))
         
+        self.btn_auto_title.setText(t.get("t3_auto_title", ""))
         self.btn_auto_vol.setText(t.get("t3_auto_vol", ""))
         self.btn_auto_chap.setText(t.get("t3_auto_chap", ""))
         self.btn_auto_pages.setText(t.get("t3_auto_pages", ""))
@@ -645,6 +661,7 @@ class Tab3Metadata(QWidget):
         self.btn_copy_orig.setToolTip(t.get("t3_tt_copy_orig", ""))
         self.btn_apply_all.setToolTip(t.get("t3_tt_apply_all", ""))
         self.btn_apply_series.setToolTip(t.get("t3_tt_apply_series", ""))
+        self.btn_auto_title.setToolTip(t.get("t3_tt_auto_title", ""))
         self.btn_auto_vol.setToolTip(t.get("t3_tt_auto_vol", ""))
         self.btn_auto_chap.setToolTip(t.get("t3_tt_auto_chap", ""))
         self.btn_auto_pages.setToolTip(t.get("t3_tt_auto_pages", ""))
@@ -664,7 +681,7 @@ class Tab3Metadata(QWidget):
     def set_right_panel_active(self, active):
         self.scroll_area.setEnabled(active); self.cb_meta_api.setEnabled(active)
         self.le_meta_search.setEnabled(active); self.btn_meta_search.setEnabled(active)
-        for b in [self.btn_auto_vol, self.btn_auto_chap, self.btn_auto_pages, self.btn_meta_save, self.btn_meta_save_all]: b.setEnabled(active)
+        for b in [self.btn_auto_title, self.btn_auto_vol, self.btn_auto_chap, self.btn_auto_pages, self.btn_meta_save, self.btn_meta_save_all]: b.setEnabled(active)
         if active: self.right_overlay.hide()
         else: self.right_overlay.show(); self.right_overlay.raise_()
 
@@ -689,9 +706,10 @@ class Tab3Metadata(QWidget):
             if key in exclude_keys: continue
             
             # 원본 필드('my')에서 값을 가져옵니다.
+            val = None
             if field.get('is_combo'):
                 if field['my'].isEditable(): val = field['my'].currentText()
-                else: val = field['my'].currentText() # 일괄편집 QLineEdit에 넣기 위해 표시용 텍스트를 가져옴
+                else: val = field['my'].currentData()
             elif field.get('is_text'):
                 val = field['my'].toPlainText()
             elif field.get('is_tag'):
@@ -701,7 +719,14 @@ class Tab3Metadata(QWidget):
                 
             # 일괄 편집 필드('res')에 값을 넣습니다.
             res_widget = field['res']
-            if isinstance(res_widget, QTextEdit):
+            if isinstance(res_widget, QComboBox):
+                if res_widget.isEditable():
+                    res_widget.setCurrentText(val)
+                else:
+                    idx = res_widget.findData(val)
+                    if idx >= 0: res_widget.setCurrentIndex(idx)
+                    else: res_widget.setCurrentIndex(0)
+            elif isinstance(res_widget, QTextEdit):
                 res_widget.setPlainText(val)
             else:
                 res_widget.setText(val)
@@ -901,19 +926,27 @@ class Tab3Metadata(QWidget):
 
     def action_apply_all(self):
         for key, field in self.meta_ui_fields.items():
-            res_widget = field['res']; val = res_widget.toPlainText() if isinstance(res_widget, QTextEdit) else res_widget.text()
-            val = val.strip()
-            if val: 
-                if field.get('is_combo'):
-                    if field['my'].isEditable(): field['my'].setCurrentText(val)
-                    else:
-                        # 텍스트와 데이터 모두 지원하여 적용
-                        idx = field['my'].findText(val)
-                        if idx < 0: idx = field['my'].findData(val)
+            res_widget = field['res']
+            
+            # 🌟 ComboBox 지원 대응
+            if field.get('is_combo'):
+                if res_widget.isEditable():
+                    val = res_widget.currentText().strip()
+                    if val: field['my'].setCurrentText(val)
+                else:
+                    val = res_widget.currentData()
+                    if val:
+                        idx = field['my'].findData(val)
                         if idx >= 0: field['my'].setCurrentIndex(idx)
-                elif field.get('is_text'): field['my'].setPlainText(val)
-                elif field.get('is_tag'): field['my'].setText(val)
-                else: field['my'].setText(val)
+            elif field.get('is_text'):
+                val = res_widget.toPlainText().strip()
+                if val: field['my'].setPlainText(val)
+            elif field.get('is_tag'):
+                val = res_widget.toPlainText().strip()
+                if val: field['my'].setText(val)
+            else:
+                val = res_widget.text().strip()
+                if val: field['my'].setText(val)
 
     def action_apply_series(self):
         t = self.main_app.i18n[self.main_app.lang]
@@ -923,19 +956,23 @@ class Tab3Metadata(QWidget):
         exclude_keys = {'Volume', 'Number', 'PageCount'}; results_to_copy = {}
         for key, field in self.meta_ui_fields.items():
             if key not in exclude_keys:
-                res_widget = field['res']; val = res_widget.toPlainText() if isinstance(res_widget, QTextEdit) else res_widget.text()
-                val = val.strip()
-                if val: 
-                    # Manga 등의 콤보는 표시용 텍스트를 입력했을 수 있으므로 내부 Data로 변환하여 저장 준비
-                    if field.get('is_combo') and not field['my'].isEditable():
-                        idx = field['my'].findText(val)
-                        if idx < 0: idx = field['my'].findData(val)
-                        if idx >= 0: val = field['my'].itemData(idx)
+                res_widget = field['res']
+                
+                # 🌟 ComboBox 지원 대응
+                if field.get('is_combo'):
+                    if res_widget.isEditable():
+                        val = res_widget.currentText().strip()
+                    else:
+                        val = res_widget.currentData()
+                elif isinstance(res_widget, QTextEdit):
+                    val = res_widget.toPlainText().strip()
+                else:
+                    val = res_widget.text().strip()
                     
+                if val: 
                     # Web 은 적용 시에도 \n을 ,로 변경
                     if key == 'Web':
                         val = ','.join([x.strip() for x in val.split('\n') if x.strip()])
-                        
                     results_to_copy[key] = val
                     
         if not results_to_copy: QMessageBox.information(self, t.get("msg_notice", ""), t.get("t3_msg_no_data_copy", "")); return
@@ -945,6 +982,30 @@ class Tab3Metadata(QWidget):
                 for k, v in results_to_copy.items(): self.book_meta[fp][k] = v
         self._load_dict_to_ui(self.current_meta_file)
         QMessageBox.information(self, t.get("msg_done", ""), t.get("t3_msg_applied_series_all", ""))
+
+    # 🌟 새 기능: 자동 제목 입력 (시리즈와 권/화를 동시 추출)
+    def action_auto_title(self):
+        t = self.main_app.i18n[self.main_app.lang]
+        if not self.current_meta_file: return
+        parent_dir = str(Path(self.current_meta_file).parent)
+        for f in self.meta_data.get(parent_dir, []):
+            fp = str(f); title = f.stem
+            
+            clean_title = re.sub(r'^\[.*?\]\s*|^\(.*??\)\s*', '', title)
+            v_match = re.search(r'(?i)(?:vol\.|v\.|권)\s*(\d+)', title) or re.search(r'(\d+)\s*권', title) or re.search(r'\b(\d+)\s*$', title.strip())
+            c_match = re.search(r'(?i)(?:ch\.|chapter|화)\s*(\d+)', title) or re.search(r'(\d+)\s*화', title)
+            
+            series_name = re.sub(r'(?i)(?:vol\.|v\.|권)\s*\d+.*', '', clean_title)
+            series_name = re.sub(r'(?i)(?:ch\.|chapter|화)\s*\d+.*', '', series_name)
+            series_name = re.sub(r'\s*(?:-\s*)?\d+\s*$', '', series_name)
+            series_name = series_name.strip()
+            
+            if series_name: self.book_meta[fp]['Title'] = series_name
+            if v_match: self.book_meta[fp]['Volume'] = str(int(v_match.group(1)))
+            if c_match: self.book_meta[fp]['Number'] = str(int(c_match.group(1)))
+            
+        self._load_dict_to_ui(self.current_meta_file)
+        QMessageBox.information(self, t.get("msg_done", ""), t.get("t3_msg_auto_title_done", ""))
 
     def action_auto_volume(self):
         t = self.main_app.i18n[self.main_app.lang]

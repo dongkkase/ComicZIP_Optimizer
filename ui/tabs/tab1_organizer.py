@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
-                             QLabel, QLineEdit, QAbstractItemView, QHeaderView, QTreeWidgetItem)
+                             QLabel, QLineEdit, QAbstractItemView, QHeaderView, QTreeWidgetItem, QStackedWidget)
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QColor
 
@@ -17,6 +17,7 @@ class Tab1Organizer(QWidget):
         self.setup_ui()
 
     def setup_ui(self):
+        t = self.main_app.i18n[self.main_app.lang]
         layout = QVBoxLayout(self)
         
         ctrl_layout = QHBoxLayout()
@@ -37,6 +38,16 @@ class Tab1Organizer(QWidget):
         ctrl_layout.addStretch()
         layout.addLayout(ctrl_layout)
         
+        # 🌟 드래그 앤 드롭 문구를 위한 QStackedWidget 추가
+        self.stacked_org = QStackedWidget()
+        page_empty = QWidget()
+        layout_empty = QVBoxLayout(page_empty)
+        self.lbl_empty_org = QLabel(t.get("drag_drop", ""))
+        self.lbl_empty_org.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_empty_org.setStyleSheet("color: #aaaaaa; font-size: 16px; font-weight: bold;")
+        layout_empty.addWidget(self.lbl_empty_org)
+        self.stacked_org.addWidget(page_empty)
+
         self.tree_org = OrgTreeWidget()
         self.tree_org.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.tree_org.setHeaderLabels(["", "", "", ""])
@@ -49,17 +60,19 @@ class Tab1Organizer(QWidget):
         
         self.tree_org.itemChanged.connect(self.on_item_changed)
         self.tree_org.delete_pressed.connect(self.remove_highlighted)
+        self.stacked_org.addWidget(self.tree_org)
         
         self.lbl_count = QLabel()
         self.lbl_count.setObjectName("infoLabel")
         
-        layout.addWidget(self.tree_org, 1)
+        layout.addWidget(self.stacked_org, 1)
         layout.addWidget(self.lbl_count, alignment=Qt.AlignmentFlag.AlignCenter)
 
     def retranslate_ui(self, t, lang):
         self.btn_toggle_expand.setText("↕ 전체 펼치기 / 접기" if lang == "ko" else "↕ Expand / Collapse All")
         self.btn_batch_default.setText(t["batch_default"])
         self.btn_batch_title.setText(t["batch_title"])
+        self.lbl_empty_org.setText(t.get("drag_drop", ""))
         self.tree_org.setHeaderLabels([t["col_org_name"], t["col_org_path"], t["col_org_count"], t["col_org_size"]])
         self.lbl_count.setText(t["total_files"].format(count=len(self.org_data)))
 
@@ -97,6 +110,12 @@ class Tab1Organizer(QWidget):
                 self.org_data[fp]['checked'] = (item.checkState(0) == Qt.CheckState.Checked)
 
     def refresh_list(self):
+        if not self.org_data:
+            self.stacked_org.setCurrentIndex(0)
+            self.lbl_count.setText(self.main_app.i18n[self.main_app.lang]["total_files"].format(count=0))
+            return
+            
+        self.stacked_org.setCurrentIndex(1)
         self.tree_org.setUpdatesEnabled(False)
         self.tree_org.blockSignals(True)
         self.tree_org.clear()
