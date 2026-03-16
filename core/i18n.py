@@ -1,7 +1,6 @@
 from config import CURRENT_VERSION, get_safe_thread_limits
 
 def get_i18n():
-    """다국어 및 메타데이터 선택지 딕셔너리를 반환합니다."""
     total_c, safe_c, _ = get_safe_thread_limits()
     
     ko_formats = {
@@ -13,6 +12,14 @@ def get_i18n():
         "Webtoon": "웹툰", "WebComic": "웹코믹", "Digital": "디지털판"
     }
     en_formats = {k: k for k in ko_formats.keys()}
+    ja_formats = {
+        "Tankobon": "単行本", "Bunkoban": "文庫版", "Kanzenban": "完全版",
+        "Aizoban": "愛蔵版", "Shinsoban": "新装版", "Omnibus": "オムニバス",
+        "Deluxe": "デラックス版", "SpecialEdition": "特別版", "LimitedEdition": "限定版",
+        "CollectorEdition": "コレクターズ版", "Hardcover": "ハードカバー",
+        "TradePaperback": "トレードペーパーバック", "GraphicNovel": "グラフィックノベル",
+        "Webtoon": "ウェブトゥーン", "WebComic": "ウェブコミック", "Digital": "デジタル版"
+    }
 
     ko_genres = {
         "Action": "액션", "Adventure": "모험", "Comedy": "코미디", "Drama": "드라마",
@@ -22,12 +29,25 @@ def get_i18n():
         "Historical": "역사", "Military": "군사", "Crime": "범죄", "Detective": "추리",
         "Supernatural": "초자연", "Magic": "마법", "Isekai": "이세계",
         "Post-Apocalyptic": "포스트 아포칼립스", "Cyberpunk": "사이버펑크", "Mecha": "메카",
-        "Martial Arts": "무협", "Samurai": "사무라이", "Ninja": "닌자",
+        "Martial Arts": "무협", "Samurai": "사무라이", "닌자": "닌자",
         "Cooking": "요리", "Medical": "의료", "Music": "음악", "Game": "게임",
         "Gambling": "도박", "Survival": "생존", "Tragedy": "비극", "Parody": "패러디",
         "Satire": "풍자"
     }
     en_genres = {k: k for k in ko_genres.keys()}
+    ja_genres = {
+        "Action": "アクション", "Adventure": "アドベンチャー", "Comedy": "コメディ", "Drama": "ドラマ",
+        "Fantasy": "ファンタジー", "Sci-Fi": "SF", "Mystery": "ミステリー", "Horror": "ホラー",
+        "Thriller": "スリラー", "Psychological": "サイコ", "Romance": "ロマンス",
+        "Slice of Life": "日常", "School": "学園", "Sports": "スポーツ",
+        "Historical": "歴史", "Military": "ミリタリー", "Crime": "犯罪", "Detective": "推理",
+        "Supernatural": "超自然", "Magic": "魔法", "Isekai": "異世界",
+        "Post-Apocalyptic": "ポストアポカリプス", "Cyberpunk": "サイバーパンク", "Mecha": "メカ",
+        "Martial Arts": "武侠", "Samurai": "サムライ", "Ninja": "忍者",
+        "Cooking": "料理", "Medical": "医療", "Music": "音楽", "Game": "ゲーム",
+        "Gambling": "ギャンブル", "Survival": "サバイバル", "Tragedy": "悲劇", "Parody": "パロディ",
+        "Satire": "風刺"
+    }
 
     ko_tags = {
         "Revenge": "복수", "Tournament": "토너먼트", "Quest": "퀘스트", "Journey": "여행",
@@ -45,6 +65,21 @@ def get_i18n():
         "Betrayal": "배신", "Love Triangle": "삼각관계", "Unrequited Love": "짝사랑"
     }
     en_tags = {k: k for k in ko_tags.keys()}
+    ja_tags = {
+        "Revenge": "復讐", "Tournament": "トーナメント", "Quest": "クエスト", "Journey": "旅",
+        "Investigation": "捜査", "Heist": "強盗", "Survival": "サバイバル",
+        "Time Travel": "タイムトラベル", "Time Loop": "タイムループ", "Parallel World": "平行世界",
+        "Reincarnation": "転生", "Regression": "回帰", "Possession": "憑依",
+        "Anti-Hero": "アンチヒーロー", "Villain Protagonist": "悪役主人公",
+        "Genius Protagonist": "天才主人公", "Strong Protagonist": "最強主人公",
+        "Underdog": "弱者成長", "Chosen One": "選ばれし者", "Mentor": "師匠",
+        "Rivalry": "ライバル", "Teamwork": "チームワーク", "Brotherhood": "義兄弟",
+        "Family": "家族", "Magic System": "魔法体系", "Guild": "ギルド",
+        "Dungeon": "ダンジョン", "Academy": "アカデミー", "Kingdom": "王国", "Empire": "帝国",
+        "Cultivation": "修練", "Martial World": "武林", "Post-Apocalypse": "終末世界",
+        "Cybernetics": "サイボーグ", "Space Travel": "宇宙旅行", "Friendship": "友情",
+        "Betrayal": "裏切り", "Love Triangle": "三角関係", "Unrequited Love": "片思い"
+    }
 
     ko_age = {
         "All Ages": "전체이용가",
@@ -60,6 +95,13 @@ def get_i18n():
         "Older Teen / Mature": "Older Teen / Mature",
         "Adult / Mature Audiences": "Adult / Mature Audiences"
     }
+    ja_age = {
+        "All Ages": "全年齢",
+        "Kids / Children": "12歳以上対象",
+        "Young Adult / Teen": "15歳以上対象",
+        "Older Teen / Mature": "18歳以上対象",
+        "Adult / Mature Audiences": "成人向け"
+    }
 
     ko_manga = {
         "No": "일반(No)",
@@ -69,18 +111,27 @@ def get_i18n():
     en_manga = {
         "No": "No", "Yes": "Yes", "YesAndRightToLeft": "YesAndRightToLeft"
     }
+    ja_manga = {
+        "No": "一般 (No)",
+        "Yes": "漫画 (Yes)",
+        "YesAndRightToLeft": "日本式 右→左 (YesAndRightToLeft)"
+    }
 
     return {
         "ko": {
             "title": f"ComicZIP Optimizer v{CURRENT_VERSION}",
             "tab1": "압축 파일 구조 정리(평탄화)", "tab2": "내부 파일명 변경", 
             "tab3": "메타데이터 관리", "tab4": "릴리스 노트",
-            "cover_preview": "📚 표지 미리보기", "inner_preview": "🖼️ 내부 파일 미리보기",
-            "add_folder": "📂 폴더 추가", "add_file": "📄 파일 추가",
-            "remove_sel": "🗑️ 선택 삭제", "clear_all": "🧹 전체 비우기",
-            "toggle_all": "☑ 전체 선택/해제",
-            "settings_btn": "⚙️ 환경 설정", "settings_title": "환경 설정",
-            "lang_lbl": "🌐 언어 (Language) :", "format_lbl": "📦 변환 포맷 :",
+            "cover_preview": "표지 미리보기", "inner_preview": "내부 파일 미리보기",
+            "add_folder": "폴더 추가", "add_file": "파일 추가",
+            "remove_sel": "선택 삭제", "clear_all": "전체 비우기",
+            "toggle_all": "전체 선택/해제",
+            "settings_btn": "환경 설정", "settings_title": "환경 설정",
+            
+            "tab_basic": "기본 설정",
+            "tab_api": "API 검색 설정",
+            
+            "lang_lbl": "언어 (Language) :", "format_lbl": "변환 포맷 :",
             "play_sound": "작업 완료 알림음 재생", 
             "backup": "원본 백업 (bak 폴더 생성)",
             "flatten": "폴더 구조 평탄화 (하위 폴더 제거)",
@@ -88,20 +139,20 @@ def get_i18n():
             "webp": "모든 이미지를 WebP로 일괄 변환",
             "webp_desc": "모든 이미지를 고효율 WebP 포맷으로 변환하여 확장자 통일성을 보장합니다.",
             "webp_quality": "WebP 품질 (Quality) :", "max_threads": "다중 스레드 (Threads) :",
-            "threads_desc": f"⚠️ 수치가 높을수록 변환 속도가 빨라지지만 PC가 느려질 수 있습니다.\n시스템 안정을 위해 전체 {total_c}코어 중 여유분을 남긴 안전 수치({safe_c}코어)까지만 올릴 수 있습니다.",
+            "threads_desc": f"수치가 높을수록 변환 속도가 빨라지지만 PC가 느려질 수 있습니다.\n시스템 안정을 위해 전체 {total_c}코어 중 여유분을 남긴 안전 수치({safe_c}코어)까지만 올릴 수 있습니다.",
             "btn_save": "저장", "btn_cancel": "취소", "btn_close": "닫기",
-            "btn_continue_tab2": "🚀 내부 파일명 변경 (Tab 2) 이어서 하기",
+            "btn_continue_tab2": "내부 파일명 변경 (Tab 2) 이어서 하기",
             "log_title": "상세 작업 결과 로그",
-            "pattern_lbl": "💡 파일명 패턴 :",
+            "pattern_lbl": "파일명 패턴 :",
             "target_lbl": " 대상 압축파일 (ZIP, CBZ, CBR, 7Z 지원) ",
             "inner_lbl": " 내부 파일 리스트 (패턴 실시간 미리보기) ",
             "col_org_name": "작업 대상 및 구조", "col_org_path": "완료 저장 경로 (직접 수정 가능)", "col_org_count": "항목수", "col_org_size": "용량",
             "batch_default": "일괄 기본값", "batch_title": "일괄 책제목",
             "col_name": "파일명 (포맷 변경 반영)", "col_count": "항목 수", "col_size": "용량 (MB)",
             "col_old": "원본 파일명", "col_new": "변경될 파일명", "col_fsize": "크기",
-            "drag_drop": "📂 폴더 및 파일을 이 화면으로 드래그 앤 드롭하세요",
-            "run_btn": "🚀 최적화 실행", "cancel_btn": "🛑 작업 중단",
-            "cancel_wait": "⏳ 중단 처리 중...", "status_wait": "대기 중...",
+            "drag_drop": "폴더 및 파일을 이 화면으로 드래그 앤 드롭하세요",
+            "run_btn": "최적화 실행", "cancel_btn": "작업 중단",
+            "cancel_wait": "중단 처리 중...", "status_wait": "대기 중...",
             "no_preview": "미리보기 없음", "no_image": "미리볼 수 없는 이미지입니다.",
             "loading": "로딩 중...",
             "total_files": "총 {count}개 리스트",
@@ -112,17 +163,32 @@ def get_i18n():
             "meta_formats": ko_formats, "meta_genres": ko_genres, "meta_tags": ko_tags,
             "meta_age": ko_age, "meta_manga": ko_manga,
             
-            # 🌟 검색 다이얼로그용 라벨 (충돌 방지를 위해 meta_tags -> meta_tags_lbl 로 변경)
             "meta_search_title": "메타데이터 검색",
             "btn_search": "검색",
             "btn_select": "선택",
             "search_result_prefix": "검색 결과:",
             "search_result_suffix": "건",
-            "btn_translate_web": "🌐 번역",
-            "btn_original_web": "🌐 원문",
+            "btn_translate_web": "번역",
+            "btn_original_web": "원문",
+            "btn_translating": "번역 중...", 
             "translated_prefix": "번역됨",
             "api_manual_title": "API 발급 매뉴얼",
-            "btn_api_manual": "❓ API 발급 매뉴얼",
+            "btn_api_manual": "API 발급 매뉴얼",
+            
+            "api_key_missing": "환경설정에서 API 키를 입력해주세요.",
+            "api_cache_notice": "빠른 표시를 위해 검색 결과는 7일간 캐싱됩니다.",
+            "api_page_prev": "이전",
+            "api_page_next": "다음",
+            "api_page_info": "{page} 페이지",
+            
+            "btn_clear_cache": "검색 캐시 비우기",
+            "msg_cache_cleared": "검색 캐시 및 표지 이미지가 모두 초기화되었습니다.\n다음에 검색할 때 서버에서 최신 데이터를 가져옵니다.",
+            
+            "ai_trans_group": "AI 검색어 최적화 (해외 DB 전용)",
+            "ai_trans_enable": "AI를 활용한 공식 영문명 스마트 변환 사용",
+            "ai_provider": "AI 모델 선택:",
+            "ai_api_key": "API Key:",
+            "ai_notice": "해외 DB(Vine, Anilist 등) 검색 시, 한글을 공식 발매명으로 치환하여 정확도를 대폭 높입니다.",
             
             "meta_writer": "작가",
             "meta_publisher": "출판사",
@@ -132,13 +198,13 @@ def get_i18n():
             "meta_age_rating": "연령등급",
             "meta_pub_date": "출간일",
             "meta_summary": "줄거리",
-            "meta_tags_lbl": "태그", # 🌟 충돌 해결
+            "meta_tags_lbl": "태그", 
             "meta_link": "링크",
 
-            "t3_empty": "📂 폴더 및 파일을 이 화면으로 드래그 앤 드롭하세요",
+            "t3_empty": "폴더 및 파일을 이 화면으로 드래그 앤 드롭하세요",
             "t3_cover": "표지 미리보기",
             "t3_search_api": "검색 API :", "t3_search_query": "검색어 :",
-            "t3_search_ph": "작품 제목을 입력하세요...", "t3_btn_search": "🔍 검색",
+            "t3_search_ph": "작품 제목을 입력하세요...", "t3_btn_search": "검색",
             
             "t3_nav_basic": "기본\n정보",
             "t3_nav_crew": "작가 및\n제작진",
@@ -146,8 +212,8 @@ def get_i18n():
             "t3_nav_genre": "장르/태그\n등장인물",
             "t3_nav_etc": "기타\n정보",
             
-            "t3_btn_prev": "◁ 이전 권",
-            "t3_btn_next": "다음 권 ▷",
+            "t3_btn_prev": "이전 권",
+            "t3_btn_next": "다음 권",
             "t3_btn_copy_orig": "원본 카피 편집",
             "t3_btn_apply_all": "편집 적용",
             "t3_btn_apply_series": "시리즈 편집 적용",
@@ -204,12 +270,16 @@ def get_i18n():
             "title": f"ComicZIP Optimizer v{CURRENT_VERSION}",
             "tab1": "Archive Organizer", "tab2": "Inner Renamer", 
             "tab3": "Metadata Management", "tab4": "Release Notes",
-            "cover_preview": "📚 Cover Preview", "inner_preview": "🖼️ Inner Preview",
-            "add_folder": "📂 Add Folder", "add_file": "📄 Add File",
-            "remove_sel": "🗑️ Remove Sel", "clear_all": "🧹 Clear All",
-            "toggle_all": "☑ Toggle All",
-            "settings_btn": "⚙️ Settings", "settings_title": "Preferences",
-            "lang_lbl": "🌐 Language :", "format_lbl": "📦 Output Format :",
+            "cover_preview": "Cover Preview", "inner_preview": "Inner Preview",
+            "add_folder": "Add Folder", "add_file": "Add File",
+            "remove_sel": "Remove Sel", "clear_all": "Clear All",
+            "toggle_all": "Toggle All",
+            "settings_btn": "Settings", "settings_title": "Preferences",
+            
+            "tab_basic": "Basic Settings",
+            "tab_api": "API Settings",
+            
+            "lang_lbl": "Language :", "format_lbl": "Output Format :",
             "play_sound": "Play completion sound",  
             "backup": "Backup Original (bak folder)",
             "flatten": "Flatten Folders (Remove Sub-folders)",
@@ -217,21 +287,21 @@ def get_i18n():
             "webp": "Convert all images to WebP",
             "webp_desc": "Converts all images strictly to WebP format.",
             "webp_quality": "WebP Quality :", "max_threads": "Multi-threads :",
-            "threads_desc": f"⚠️ Higher values increase speed but consume more CPU.\nFor system stability, the maximum is capped at {safe_c} cores (Total: {total_c}).",
+            "threads_desc": f"Higher values increase speed but consume more CPU.\nFor system stability, the maximum is capped at {safe_c} cores (Total: {total_c}).",
             "btn_save": "Save", "btn_cancel": "Cancel", "btn_close": "Close",
-            "btn_continue_tab2": "🚀 Continue to Inner Renamer (Tab 2)",
+            "btn_continue_tab2": "Continue to Inner Renamer (Tab 2)",
             "log_title": "Detailed Job Log",
-            "pattern_lbl": "💡 Naming Pattern :",
+            "pattern_lbl": "Naming Pattern :",
             "target_lbl": " Target Archives (ZIP, CBZ, CBR, 7Z) ",
             "inner_lbl": " Inner Files (Real-time Preview) ",
             "col_org_name": "Original Name & Structure", "col_org_path": "Output Save Path", "col_org_count": "Items", "col_org_size": "Size",
             "batch_default": "Batch Default", "batch_title": "Batch Title",
             "col_name": "File Name", "col_count": "Items", "col_size": "Size",
             "col_old": "Original Name", "col_new": "New Name", "col_fsize": "Size",
-            "drag_drop": "📂 Drag and drop folders or files to this screen",
-            "run_btn": "🚀 Execute Process", "cancel_btn": "🛑 Cancel Process",
-            "cancel_wait": "⏳ Cancelling...", "status_wait": "Waiting...",
-            "no_preview": "No Preview", "no_image": "No Image",
+            "drag_drop": "Drag and drop folders or files to this screen",
+            "run_btn": "Execute Process", "cancel_btn": "Cancel Process",
+            "cancel_wait": "Cancelling...", "status_wait": "Waiting...",
+            "no_preview": "No Preview", "no_image": "Cannot preview this image.",
             "loading": "Loading...",
             "total_files": "Total {count} items",
             "format_opts": ["No Change", "zip", "cbz", "cbr", "7z"],
@@ -241,17 +311,32 @@ def get_i18n():
             "meta_formats": en_formats, "meta_genres": en_genres, "meta_tags": en_tags,
             "meta_age": en_age, "meta_manga": en_manga,
             
-            # 🌟 검색 다이얼로그용 라벨 (충돌 방지를 위해 meta_tags -> meta_tags_lbl 로 변경)
             "meta_search_title": "Metadata Search",
             "btn_search": "Search",
             "btn_select": "Select",
             "search_result_prefix": "Search Results:",
             "search_result_suffix": " items",
-            "btn_translate_web": "🌐 Translate",
-            "btn_original_web": "🌐 Original",
+            "btn_translate_web": "Translate",
+            "btn_original_web": "Original",
+            "btn_translating": "Translating...", 
             "translated_prefix": "Translated",
             "api_manual_title": "API Key Manual",
-            "btn_api_manual": "❓ API Manual",
+            "btn_api_manual": "API Manual",
+            
+            "api_key_missing": "API key is required. Please set it in Settings.",
+            "api_cache_notice": "Results are cached for 7 days.",
+            "api_page_prev": "Prev",
+            "api_page_next": "Next",
+            "api_page_info": "Page {page}",
+            
+            "btn_clear_cache": "Clear API Cache",
+            "msg_cache_cleared": "Search cache and cover images have been cleared.\nFresh data will be fetched on your next search.",
+            
+            "ai_trans_group": "AI Search Optimizer (Foreign DBs)",
+            "ai_trans_enable": "Enable AI Smart Translation for Official Titles",
+            "ai_provider": "AI Provider:",
+            "ai_api_key": "API Key:",
+            "ai_notice": "Transforms Korean titles to official English titles (e.g. '귀멸의 칼날' -> 'Demon Slayer') for better search accuracy.",
 
             "meta_writer": "Writer",
             "meta_publisher": "Publisher",
@@ -261,13 +346,13 @@ def get_i18n():
             "meta_age_rating": "Age Rating",
             "meta_pub_date": "Pub. Date",
             "meta_summary": "Summary",
-            "meta_tags_lbl": "Tags", # 🌟 충돌 해결
+            "meta_tags_lbl": "Tags",
             "meta_link": "Link",
 
-            "t3_empty": "📂 Drag and drop folders or files to this screen",
+            "t3_empty": "Drag and drop folders or files to this screen",
             "t3_cover": "Cover Preview",
             "t3_search_api": "Search API :", "t3_search_query": "Search :",
-            "t3_search_ph": "Enter title to search...", "t3_btn_search": "🔍 Search",
+            "t3_search_ph": "Enter title to search...", "t3_btn_search": "Search",
             
             "t3_nav_basic": "Basic\nInfo",
             "t3_nav_crew": "Crew\nInfo",
@@ -275,8 +360,8 @@ def get_i18n():
             "t3_nav_genre": "Genre/Tags\nCharacters",
             "t3_nav_etc": "Etc\nInfo",
             
-            "t3_btn_prev": "◁ Prev Vol",
-            "t3_btn_next": "Next Vol ▷",
+            "t3_btn_prev": "Prev Vol",
+            "t3_btn_next": "Next Vol",
             "t3_btn_copy_orig": "Copy Original",
             "t3_btn_apply_all": "Apply Edit",
             "t3_btn_apply_series": "Apply Edit to Series",
@@ -323,5 +408,153 @@ def get_i18n():
             "t3_msg_unsupported_format": "Unsupported format", "t3_msg_7z_error": "7z error",
             "t3_no_data": "(No Data)", "msg_done": "Done", "msg_notice": "Notice", "msg_failed": "Failed", "msg_success": "Success",
             "enter_after_input":"Type and press Enter...",
+        },
+        "ja": {
+            "title": f"ComicZIP Optimizer v{CURRENT_VERSION}",
+            "tab1": "アーカイブ構成整理 (フラット化)", "tab2": "内部ファイル名変更", 
+            "tab3": "メタデータ管理", "tab4": "リリースノート",
+            "cover_preview": "表紙プレビュー", "inner_preview": "内部ファイルプレビュー",
+            "add_folder": "フォルダ追加", "add_file": "ファイル追加",
+            "remove_sel": "選択削除", "clear_all": "全てクリア",
+            "toggle_all": "全て選択/解除",
+            "settings_btn": "環境設定", "settings_title": "環境設定",
+            
+            "tab_basic": "基本設定",
+            "tab_api": "API 検索設定",
+            
+            "lang_lbl": "言語 (Language) :", "format_lbl": "変換フォーマット :",
+            "play_sound": "作業完了時にアラームを鳴らす", 
+            "backup": "元ファイルをバックアップ (bak フォルダを作成)",
+            "flatten": "フォルダ構成をフラット化 (サブフォルダを削除)",
+            "flatten_desc": "アーカイブ内のフォルダをすべて無視し、画像を最上位に移動させます。",
+            "webp": "すべての画像をWebPに一括変換",
+            "webp_desc": "すべての画像を高効率なWebPフォーマットに変換し、拡張子を統一します。",
+            "webp_quality": "WebP 品質 (Quality) :", "max_threads": "マルチスレッド (Threads) :",
+            "threads_desc": f"数値が高いほど変換速度が速くなりますが、PCが遅くなる場合があります。\nシステム安定化のため、全 {total_c} コアのうち余裕を残した安全な数値 ({safe_c} コア) までしか設定できません。",
+            "btn_save": "保存", "btn_cancel": "キャンセル", "btn_close": "閉じる",
+            "btn_continue_tab2": "内部ファイル名変更 (Tab 2) を続ける",
+            "log_title": "詳細作業結果ログ",
+            "pattern_lbl": "ファイル名パターン :",
+            "target_lbl": " 対象アーカイブ (ZIP, CBZ, CBR, 7Z 対応) ",
+            "inner_lbl": " 内部ファイルリスト (パターン リアルタイムプレビュー) ",
+            "col_org_name": "対象および構造", "col_org_path": "完了保存パス (直接修正可能)", "col_org_count": "項目数", "col_org_size": "サイズ",
+            "batch_default": "一括デフォルト", "batch_title": "一括タイトル",
+            "col_name": "ファイル名 (フォーマット変更反映)", "col_count": "項目数", "col_size": "サイズ (MB)",
+            "col_old": "元のファイル名", "col_new": "変更後のファイル名", "col_fsize": "サイズ",
+            "drag_drop": "フォルダやファイルをこの画面にドラッグ＆ドロップしてください",
+            "run_btn": "最適化を実行", "cancel_btn": "作業を中止",
+            "cancel_wait": "中止処理中...", "status_wait": "待機中...",
+            "no_preview": "プレビューなし", "no_image": "プレビューできない画像です。",
+            "loading": "読み込み中...",
+            "total_files": "合計 {count} 件のリスト",
+            "format_opts": ["変更なし", "zip", "cbz", "cbr", "7z"],
+            "patterns": ["基本数字パディング (000, 001...)", "英語書籍スタイル (Cover, Page_001...)",
+                         "アーカイブ名と同期 (ファイル名_000...)", "アーカイブ名 + 書籍 (ファイル名_Cover...) - 推奨", "カスタム (直接入力_000...)"],
+            
+            "meta_formats": ja_formats, "meta_genres": ja_genres, "meta_tags": ja_tags,
+            "meta_age": ja_age, "meta_manga": ja_manga,
+            
+            "meta_search_title": "メタデータ検索",
+            "btn_search": "検索",
+            "btn_select": "選択",
+            "search_result_prefix": "検索結果:",
+            "search_result_suffix": "件",
+            "btn_translate_web": "翻訳",
+            "btn_original_web": "原文",
+            "btn_translating": "翻訳中...", 
+            "translated_prefix": "翻訳済み",
+            "api_manual_title": "API 発行マニュアル",
+            "btn_api_manual": "API 発行マニュアル",
+            
+            "api_key_missing": "環境設定でAPIキーを入力してください。",
+            "api_cache_notice": "高速表示のため検索結果は7日間キャッシュされます。",
+            "api_page_prev": "前へ",
+            "api_page_next": "次へ",
+            "api_page_info": "{page} ページ",
+            
+            "btn_clear_cache": "検索キャッシュをクリア",
+            "msg_cache_cleared": "検索キャッシュと表紙画像がすべて初期化されました。\n次回の検索時にサーバーから最新データを取得します。",
+            
+            "ai_trans_group": "AI 検索語最適化 (海外DB専用)",
+            "ai_trans_enable": "AIを活用した公式英語名へのスマート変換を使用",
+            "ai_provider": "AIモデル選択:",
+            "ai_api_key": "API Key:",
+            "ai_notice": "海外DB (Vineなど) 検索に使用され、「鬼滅の刃」などのタイトルを「Demon Slayer」のような最も正確な公式英語発売名で検索します。",
+
+            "meta_writer": "作家",
+            "meta_publisher": "出版社",
+            "meta_genre": "ジャンル",
+            "meta_count": "全巻数",
+            "meta_rating": "評価",
+            "meta_age_rating": "年齢制限",
+            "meta_pub_date": "発売日",
+            "meta_summary": "あらすじ",
+            "meta_tags_lbl": "タグ",
+            "meta_link": "リンク",
+
+            "t3_empty": "フォルダやファイルをこの画面にドラッグ＆ドロップしてください",
+            "t3_cover": "表紙プレビュー",
+            "t3_search_api": "検索 API :", "t3_search_query": "検索語 :",
+            "t3_search_ph": "作品タイトルを入力してください...", "t3_btn_search": "検索",
+            
+            "t3_nav_basic": "基本\n情報",
+            "t3_nav_crew": "作家及び\n制作陣",
+            "t3_nav_publish": "出版\n情報",
+            "t3_nav_genre": "ジャンル/タグ\n登場人物",
+            "t3_nav_etc": "その他\n情報",
+            
+            "t3_btn_prev": "前の巻",
+            "t3_btn_next": "次の巻",
+            "t3_btn_copy_orig": "原本をコピーして編集",
+            "t3_btn_apply_all": "編集を適用",
+            "t3_btn_apply_series": "シリーズに編集を適用",
+            "t3_col_orig": "原本", "t3_col_res": "一括編集",
+            "t3_cb_ph": "選択時に自動追加され、カンマ(,)で直接入力できます。",
+            "t3_auto_title": "タイトル自動入力",
+            "t3_auto_vol": "巻数自動入力",
+            "t3_auto_chap": "話数自動入力",
+            "t3_auto_pages": "ページ数自動入力",
+            "t3_save": "保存", "t3_save_all": "全て保存",
+            
+            "t3_tt_copy_orig": "原本のデータを一括編集フィールドにコピーします。\n(巻、話、ページ数を除く)",
+            "t3_tt_apply_all": "一括編集で作成された内容が原本の値としてコピーされます。",
+            "t3_tt_apply_series": "一括編集で作成された内容が、そのシリーズのすべての書籍の原本の値としてコピーされます。",
+            "t3_tt_auto_title": "該当シリーズに含まれるすべての書籍からタイトルと巻/話を抽出して入力します。",
+            "t3_tt_auto_vol": "該当シリーズに含まれるすべての書籍からタイトルの巻数を抽出して数字のみ入力します。",
+            "t3_tt_auto_chap": "該当シリーズに含まれるすべての書籍からタイトルの話数を抽出して数字のみ入力します。",
+            "t3_tt_auto_pages": "該当シリーズに含まれるすべての書籍の画像枚数を抽出して入力します。",
+            "t3_tt_save": "作成されたメタデータを comicinfo.xml として保存します。",
+            "t3_tt_save_all": "各書籍のメタデータを comicinfo.xml として保存します。",
+            
+            "t3_f_title": "タイトル", "t3_f_series": "シリーズ", "t3_f_sgroup": "シリーズグループ\n(世界観のまとめ等)",
+            "t3_f_count": "全巻数", "t3_f_vol": "巻", "t3_f_num": "話", "t3_f_page": "ページ数", "t3_f_sum": "あらすじ",
+            "t3_f_writer": "作家", "t3_f_pen": "作画", "t3_f_inker": "インク", "t3_f_color": "彩色",
+            "t3_f_letter": "レタリング", "t3_f_cover": "表紙", "t3_f_editor": "編集",
+            "t3_f_pub": "出版社", "t3_f_imp": "レーベル", "t3_f_web": "Webサイト", "t3_f_format": "フォーマット",
+            "t3_f_year": "年", "t3_f_month": "月", "t3_f_day": "日",
+            "t3_f_genre": "ジャンル", "t3_f_tags": "タグ", "t3_f_char": "登場人物",
+            "t3_f_age": "年齢制限", "t3_f_rate": "コミュニティ評価", "t3_f_iso": "言語コード (ISO)", "t3_f_dir": "読む方向",
+            
+            "t3_msg_sel": "左のリストから作業する書籍を選択してください。",
+            "t3_btn_apply_series_tag": "シリーズ全体に一括上書き",
+            "t3_msg_applied_series_tag": "入力された値がシリーズ内の {count} 巻に一括適用されました。",
+            "t3_msg_applied_char_series": "入力された登場人物がシリーズ内の {count} 巻に一括適用されました。",
+            "t3_msg_analyzing": "メタデータを分析中...",
+            "t3_msg_saving": "保存中...",
+            "t3_msg_no_data_copy": "コピーする一括編集データがありません。",
+            "t3_msg_applied_series_all": "一括編集の結果がシリーズ内のすべての書籍に一括適用されました。",
+            "t3_msg_auto_title_done": "シリーズのすべての書籍に自動タイトルと巻/話が入力されました。",
+            "t3_msg_auto_vol_done": "シリーズのすべての書籍に自動巻数が入力されました。",
+            "t3_msg_auto_chap_done": "シリーズのすべての書籍に自動話数が入力されました。",
+            "t3_msg_auto_pages_done": "シリーズのすべての書籍に自動ページ数が入力されました。",
+            "t3_msg_save_single_done": "ComicInfo.xml 保存成功。",
+            "t3_msg_save_all_done": "合計 {success_count} 件成功、{fail_count} 件失敗。",
+            "t3_msg_save_all_title": "一括保存完了",
+            "t3_msg_save_failed_reason": "失敗の理由: {msg}",
+            "t3_msg_unsupported_format": "サポートされていないフォーマット",
+            "t3_msg_7z_error": "7z エラー",
+            "t3_no_data": "(データなし)",
+            "msg_done": "完了", "msg_notice": "案内", "msg_failed": "失敗", "msg_success": "成功",
+            "enter_after_input":"入力して Enter...",
         }
     }

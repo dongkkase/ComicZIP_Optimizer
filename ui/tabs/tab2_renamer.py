@@ -2,6 +2,7 @@ import os
 import threading
 import zipfile
 from pathlib import Path
+import qtawesome as qta
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                              QLabel, QComboBox, QLineEdit, QFrame, QTableWidgetItem, QAbstractItemView, QHeaderView, QSizePolicy, QTableWidget, QMessageBox, QStackedWidget)
 from PyQt6.QtCore import Qt, QTimer, QSize
@@ -95,14 +96,23 @@ class Tab2Renamer(QWidget):
         self.lbl_target.setObjectName("boldLabel")
         right_layout.addWidget(self.lbl_target)
 
-        # 🌟 드래그 앤 드롭 문구를 위한 QStackedWidget 추가
         self.stacked_archives = QStackedWidget()
         page_empty = QWidget()
         layout_empty = QVBoxLayout(page_empty)
+        
+        # 🌟 folder-open 아이콘 적용
+        self.icon_empty_arch = QLabel()
+        self.icon_empty_arch.setPixmap(qta.icon('fa5s.folder-open', color='#aaaaaa').pixmap(64, 64))
+        self.icon_empty_arch.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
         self.lbl_empty_arch = QLabel(t.get("drag_drop", ""))
         self.lbl_empty_arch.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_empty_arch.setStyleSheet("color: #aaaaaa; font-size: 16px; font-weight: bold;")
+        
+        layout_empty.addStretch()
+        layout_empty.addWidget(self.icon_empty_arch)
         layout_empty.addWidget(self.lbl_empty_arch)
+        layout_empty.addStretch()
         self.stacked_archives.addWidget(page_empty)
 
         self.table_archives = ArchiveTableWidget(0, 3)
@@ -305,7 +315,6 @@ class Tab2Renamer(QWidget):
         threading.Thread(target=bg_load_image, args=(self.current_archive_path, orig_fp, ext, "inner", self.main_app.seven_zip_path, self.main_app.signals), daemon=True).start()
 
     def render_image(self, target_id, arc_path, img_data):
-        # 🌟 레이스 컨디션 방지: 로딩 완료된 이미지가 현재 선택된 파일이 아니면 화면에 그리지 않고 버림
         if arc_path and getattr(self, 'current_archive_path', None) != arc_path:
             return
 

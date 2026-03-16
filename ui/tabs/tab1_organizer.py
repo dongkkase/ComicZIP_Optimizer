@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import qtawesome as qta
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                              QLabel, QLineEdit, QAbstractItemView, QHeaderView, QTreeWidgetItem, QStackedWidget)
 from PyQt6.QtCore import Qt, QSize
@@ -38,14 +39,23 @@ class Tab1Organizer(QWidget):
         ctrl_layout.addStretch()
         layout.addLayout(ctrl_layout)
         
-        # 🌟 드래그 앤 드롭 문구를 위한 QStackedWidget 추가
         self.stacked_org = QStackedWidget()
         page_empty = QWidget()
         layout_empty = QVBoxLayout(page_empty)
+        
+        # 🌟 folder-open 아이콘 적용
+        self.icon_empty_org = QLabel()
+        self.icon_empty_org.setPixmap(qta.icon('fa5s.folder-open', color='#aaaaaa').pixmap(64, 64))
+        self.icon_empty_org.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
         self.lbl_empty_org = QLabel(t.get("drag_drop", ""))
         self.lbl_empty_org.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_empty_org.setStyleSheet("color: #aaaaaa; font-size: 16px; font-weight: bold;")
+        
+        layout_empty.addStretch()
+        layout_empty.addWidget(self.icon_empty_org)
         layout_empty.addWidget(self.lbl_empty_org)
+        layout_empty.addStretch()
         self.stacked_org.addWidget(page_empty)
 
         self.tree_org = OrgTreeWidget()

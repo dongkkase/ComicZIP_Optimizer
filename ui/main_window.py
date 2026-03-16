@@ -10,6 +10,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QIcon
 
+import qtawesome as qta # 🌟 아이콘 라이브러리 추가
+
 from config import load_config, save_config, get_resource_path, CURRENT_VERSION
 from utils import play_complete_sound
 from ui.signals import WorkerSignals
@@ -23,7 +25,6 @@ from ui.tabs.tab1_organizer import Tab1Organizer
 from ui.tabs.tab2_renamer import Tab2Renamer
 from ui.tabs.tab3_metadata import Tab3Metadata
 
-# 🌟 [핵심 변경] 새로 만든 다국어/데이터 파일을 불러옵니다!
 from core.i18n import get_i18n
 
 class RenamerApp(QMainWindow):
@@ -52,6 +53,9 @@ class RenamerApp(QMainWindow):
         self.seven_zip_path = get_resource_path('7za.exe')
         self.format_keys = ["none", "zip", "cbz", "cbr", "7z"]
         
+        # 전체 선택/해제 상태 관리용 변수
+        self.is_all_checked = True 
+        
         window_width = self.config.get("width", 1150)
         window_height = self.config.get("height", 800)
         self.setWindowTitle(f"ComicZIP Optimizer v{CURRENT_VERSION}")
@@ -62,8 +66,6 @@ class RenamerApp(QMainWindow):
         icon_path = get_resource_path('app.ico')
         if os.path.exists(icon_path): self.setWindowIcon(QIcon(icon_path))
         
-        # 🌟 [핵심 변경] 예전의 수백 줄 하드코딩 코드를 지우고, core/i18n.py에서 데이터를 당겨옵니다.
-        # 이 한 줄 덕분에 장르, 태그, 포맷 데이터가 Tab3로 정상적으로 넘어가게 됩니다!
         self.i18n = get_i18n()
 
         self.setup_ui()
@@ -77,7 +79,6 @@ class RenamerApp(QMainWindow):
         last_tab_index = self.config.get("last_tab_index", 0)
         self.tabs.setCurrentIndex(last_tab_index)
 
-    # 🌟 arc_path 매개변수 추가
     def route_image_loaded(self, target_id, arc_path, img_data):
         current_tab = self.tabs.currentWidget()
         if hasattr(current_tab, 'render_image'):
@@ -99,14 +100,16 @@ class RenamerApp(QMainWindow):
 
     def update_version_button_ui(self):
         if self.latest_version_found:
-            update_msg = f"🎉 Update Available: v{CURRENT_VERSION} ➔ v{self.latest_version_found}" if self.lang == "en" else f"🎉 업데이트 가능: v{CURRENT_VERSION} ➔ v{self.latest_version_found}"
+            update_msg = f" Update Available: v{CURRENT_VERSION} ➔ v{self.latest_version_found}" if self.lang == "en" else f" 업데이트 가능: v{CURRENT_VERSION} ➔ v{self.latest_version_found}"
             self.btn_version.setText(update_msg)
+            self.btn_version.setIcon(qta.icon('fa5s.gift', color='white'))
             self.btn_version.setObjectName("versionBtnUpdate")
             self.btn_version.setStyleSheet(self.styleSheet()) 
             self.latest_version_url = f"https://github.com/dongkkase/ComicZIP_Optimizer/releases/download/v{self.latest_version_found}/ComicZIP_Optimizer.zip"
         else:
-            latest_msg = f"✅ v{CURRENT_VERSION} (Latest)" if self.lang == "en" else f"✅ v{CURRENT_VERSION} (최신 버전)"
+            latest_msg = f" v{CURRENT_VERSION} (Latest)" if self.lang == "en" else f" v{CURRENT_VERSION} (최신 버전)"
             self.btn_version.setText(latest_msg)
+            self.btn_version.setIcon(qta.icon('fa5s.check-circle', color='white'))
             self.btn_version.setObjectName("versionBtn")
             self.btn_version.setStyleSheet(self.styleSheet())
             self.latest_version_url = "https://github.com/dongkkase/ComicZIP_Optimizer/releases"
@@ -122,25 +125,32 @@ class RenamerApp(QMainWindow):
         main_layout.setContentsMargins(15, 15, 15, 15)
 
         toolbar_layout = QHBoxLayout()
+        
+        # 🌟 qtawesome 아이콘 적용 (하드코딩 이모지 제거)
         self.btn_add_folder = QPushButton()
+        self.btn_add_folder.setIcon(qta.icon('fa5s.folder-open', color='white'))
         self.btn_add_folder.setCursor(Qt.CursorShape.PointingHandCursor) 
         self.btn_add_folder.clicked.connect(self.add_folder)
         
         self.btn_add_file = QPushButton()
+        self.btn_add_file.setIcon(qta.icon('fa5s.file-signature', color='white')) # file-pen 호환
         self.btn_add_file.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_add_file.clicked.connect(self.add_file)
         
         self.btn_remove_sel = QPushButton()
+        self.btn_remove_sel.setIcon(qta.icon('fa5s.minus-circle', color='white')) # file-circle-minus 호환
         self.btn_remove_sel.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_remove_sel.setObjectName("dangerBtn")
         self.btn_remove_sel.clicked.connect(self.remove_selected)
         
         self.btn_clear_all = QPushButton()
+        self.btn_clear_all.setIcon(qta.icon('fa5s.folder-minus', color='white'))
         self.btn_clear_all.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_clear_all.setObjectName("dangerBtn")
         self.btn_clear_all.clicked.connect(self.clear_list)
 
         self.btn_toggle_all = QPushButton()
+        self.btn_toggle_all.setIcon(qta.icon('fa5s.check-square', color='white')) # solid 기본값
         self.btn_toggle_all.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_toggle_all.clicked.connect(self.toggle_all_checkboxes)
 
@@ -158,6 +168,7 @@ class RenamerApp(QMainWindow):
         toolbar_layout.addWidget(self.btn_version)
 
         self.btn_settings = QPushButton()
+        self.btn_settings.setIcon(qta.icon('fa5s.cog', color='white')) # gear 호환
         self.btn_settings.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_settings.setObjectName("settingsBtn")
         self.btn_settings.clicked.connect(self.open_settings)
@@ -199,6 +210,7 @@ class RenamerApp(QMainWindow):
         status_v_layout.addWidget(self.progress_bar)
 
         self.btn_run = QPushButton()
+        self.btn_run.setIcon(qta.icon('fa5s.rocket', color='white')) # rocket
         self.btn_run.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_run.setObjectName("actionBtn")
         self.btn_run.setFixedHeight(45)
@@ -274,21 +286,21 @@ class RenamerApp(QMainWindow):
         self.tabs.setTabText(2, t["tab3"])
         self.tabs.setTabText(3, t["tab4"])
         
-        self.btn_add_folder.setText(t["add_folder"])
-        self.btn_add_file.setText(t["add_file"])
-        self.btn_remove_sel.setText(t["remove_sel"])
-        self.btn_clear_all.setText(t["clear_all"])
-        self.btn_toggle_all.setText(t["toggle_all"])
-        self.btn_settings.setText(t["settings_btn"]) 
+        self.btn_add_folder.setText(f" {t['add_folder']}")
+        self.btn_add_file.setText(f" {t['add_file']}")
+        self.btn_remove_sel.setText(f" {t['remove_sel']}")
+        self.btn_clear_all.setText(f" {t['clear_all']}")
+        self.btn_toggle_all.setText(f" {t['toggle_all']}")
+        self.btn_settings.setText(f" {t['settings_btn']}") 
         
         if hasattr(self.tab1, 'retranslate_ui'): self.tab1.retranslate_ui(t, self.lang)
         if hasattr(self.tab2, 'retranslate_ui'): self.tab2.retranslate_ui(t, self.lang)
         if hasattr(self.tab3, 'retranslate_ui'): self.tab3.retranslate_ui(t, self.lang)
         
-        if self.btn_run.objectName() == "actionBtn": self.btn_run.setText(t["run_btn"])
-        else: self.btn_run.setText(t["cancel_btn"])
+        if self.btn_run.objectName() == "actionBtn": self.btn_run.setText(f" {t['run_btn']}")
+        else: self.btn_run.setText(f" {t['cancel_btn']}")
         
-        if not self.lbl_status.text() or self.lbl_status.text() in [self.i18n["ko"]["status_wait"], self.i18n["en"]["status_wait"]]:
+        if not self.lbl_status.text() or self.lbl_status.text() in [self.i18n["ko"]["status_wait"], self.i18n["en"]["status_wait"], self.i18n["ja"]["status_wait"]]:
             self.lbl_status.setText(t["status_wait"])
             
         self.update_version_button_ui()
@@ -361,7 +373,14 @@ class RenamerApp(QMainWindow):
         files, _ = QFileDialog.getOpenFileNames(self, "Select Archives", "", "Archive files (*.zip *.cbz *.cbr *.7z *.rar)", options=QFileDialog.Option.DontUseNativeDialog)
         if files: self.process_paths(files)
 
+    # 🌟 토글 방식에 따라 fa5r(Regular) / fa5s(Solid) 아이콘을 실시간으로 변경
     def toggle_all_checkboxes(self):
+        self.is_all_checked = not self.is_all_checked
+        if self.is_all_checked:
+            self.btn_toggle_all.setIcon(qta.icon('fa5s.check-square', color='white'))
+        else:
+            self.btn_toggle_all.setIcon(qta.icon('fa5r.check-square', color='white'))
+            
         current = self.tabs.currentWidget()
         if hasattr(current, 'toggle_all_checkboxes'): current.toggle_all_checkboxes()
 
@@ -464,7 +483,8 @@ class RenamerApp(QMainWindow):
             self.btn_run.clicked.disconnect()
             self.btn_run.clicked.connect(self.cancel_process)
             self.btn_run.setObjectName("actionBtnCancel")
-            self.btn_run.setText(self.i18n[self.lang]["cancel_btn"])
+            self.btn_run.setText(f" {self.i18n[self.lang]['cancel_btn']}")
+            self.btn_run.setIcon(qta.icon('fa5s.stop-circle', color='white')) # 🌟 취소 시 스탑 아이콘
             self.btn_run.setStyleSheet(self.styleSheet()) 
             self.progress_bar.show(); self.progress_bar.setValue(0)
             
@@ -484,7 +504,8 @@ class RenamerApp(QMainWindow):
             self.btn_run.clicked.disconnect()
             self.btn_run.clicked.connect(self.cancel_process)
             self.btn_run.setObjectName("actionBtnCancel")
-            self.btn_run.setText(self.i18n[self.lang]["cancel_btn"])
+            self.btn_run.setText(f" {self.i18n[self.lang]['cancel_btn']}")
+            self.btn_run.setIcon(qta.icon('fa5s.stop-circle', color='white')) # 🌟 취소 시 스탑 아이콘
             self.btn_run.setStyleSheet(self.styleSheet()) 
             self.progress_bar.show(); self.progress_bar.setValue(0)
             
@@ -493,7 +514,7 @@ class RenamerApp(QMainWindow):
             threading.Thread(target=task.run, daemon=True).start()
 
     def cancel_process(self):
-        self.btn_run.setText(self.i18n[self.lang]["cancel_wait"])
+        self.btn_run.setText(f" {self.i18n[self.lang]['cancel_wait']}")
         self.btn_run.setEnabled(False)
         if hasattr(self, 'active_task') and self.active_task and hasattr(self.active_task, 'cancel'):
             self.active_task.cancel()
@@ -505,7 +526,8 @@ class RenamerApp(QMainWindow):
         self.btn_run.clicked.disconnect()
         self.btn_run.clicked.connect(self.start_process)
         self.btn_run.setObjectName("actionBtn") 
-        self.btn_run.setText(self.i18n[self.lang]["run_btn"])
+        self.btn_run.setText(f" {self.i18n[self.lang]['run_btn']}")
+        self.btn_run.setIcon(qta.icon('fa5s.rocket', color='white')) # 🌟 다시 로켓 아이콘
         self.btn_run.setEnabled(True)
         self.btn_run.setStyleSheet(self.styleSheet())
         
@@ -543,7 +565,8 @@ class RenamerApp(QMainWindow):
         self.btn_run.clicked.disconnect()
         self.btn_run.clicked.connect(self.start_process)
         self.btn_run.setObjectName("actionBtn") 
-        self.btn_run.setText(self.i18n[self.lang]["run_btn"])
+        self.btn_run.setText(f" {self.i18n[self.lang]['run_btn']}")
+        self.btn_run.setIcon(qta.icon('fa5s.rocket', color='white')) # 🌟 다시 로켓 아이콘
         self.btn_run.setEnabled(True)
         self.btn_run.setStyleSheet(self.styleSheet())
         

@@ -10,6 +10,8 @@ from datetime import datetime
 from pathlib import Path
 from ui.api_search_dialog import ApiSearchDialog
 
+import qtawesome as qta
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit, 
     QFrame, QSizePolicy, QTreeWidgetItem, QStackedWidget, QGroupBox,
@@ -209,15 +211,6 @@ class Tab3Metadata(QWidget):
         self.cover_timer.timeout.connect(self._process_cover_load)
         
         self.setup_ui()
-        QTimer.singleShot(500, self._temp_auto_load)
-
-    def _temp_auto_load(self):
-        test_path = r"C:\Users\eyeca\Downloads\temp\3월의 라이온"
-        if os.path.exists(test_path):
-            self.load_paths([test_path])
-            idx = self.cb_meta_api.findText("알라딘")
-            if idx >= 0: self.cb_meta_api.setCurrentIndex(idx)
-            QTimer.singleShot(500, self.btn_meta_search.click)
 
     def setup_ui(self):
         t = self.main_app.i18n[self.main_app.lang]
@@ -229,10 +222,20 @@ class Tab3Metadata(QWidget):
 
         page_empty = QWidget()
         layout_empty = QVBoxLayout(page_empty)
-        self.lbl_empty = QLabel(t.get("t3_empty", "📂 폴더 및 파일을 이 화면으로 드래그 앤 드롭하세요"))
+        
+        # 🌟 folder-open 아이콘 적용
+        self.icon_empty_meta = QLabel()
+        self.icon_empty_meta.setPixmap(qta.icon('fa5s.folder-open', color='#aaaaaa').pixmap(64, 64))
+        self.icon_empty_meta.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        self.lbl_empty = QLabel(t.get("t3_empty", "폴더 및 파일을 이 화면으로 드래그 앤 드롭하세요"))
         self.lbl_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_empty.setStyleSheet("color: #aaaaaa; font-size: 16px; font-weight: bold;")
+        
+        layout_empty.addStretch()
+        layout_empty.addWidget(self.icon_empty_meta)
         layout_empty.addWidget(self.lbl_empty)
+        layout_empty.addStretch()
         self.meta_stacked.addWidget(page_empty)
 
         page_content = QWidget()
@@ -280,8 +283,21 @@ class Tab3Metadata(QWidget):
         search_layout.addWidget(self.lbl_search_api)
         
         self.cb_meta_api = QComboBox()
-        self.cb_meta_api.addItems(["리디북스", "알라딘", "코믹박스", "Google Books", "Anilist", "Vine"])
+        self.cb_meta_api.addItems(["리디북스", "알라딘", "Google Books", "Anilist", "Vine"])
         self.cb_meta_api.setStyleSheet("padding: 5px; border: 1px solid #555; border-radius: 4px; background-color: #2b2b2b;")
+        
+        last_api = self.main_app.config.get("last_meta_api", "리디북스")
+        idx = self.cb_meta_api.findText(last_api)
+        if idx >= 0: self.cb_meta_api.setCurrentIndex(idx)
+        
+        def on_meta_api_changed(text):
+            self.main_app.config["last_meta_api"] = text
+            try:
+                from config import save_config
+                save_config(self.main_app.config)
+            except: pass
+        self.cb_meta_api.currentTextChanged.connect(on_meta_api_changed)
+
         search_layout.addWidget(self.cb_meta_api)
         
         self.lbl_search_query = QLabel(t.get("t3_search_query", "검색어 :"))
@@ -292,7 +308,8 @@ class Tab3Metadata(QWidget):
         self.le_meta_search.setStyleSheet("padding: 6px; border: 1px solid #555; border-radius: 4px; background-color: #2b2b2b;")
         search_layout.addWidget(self.le_meta_search, 1)
         
-        self.btn_meta_search = QPushButton(f"🔍 {t.get('btn_search', '검색')}")
+        self.btn_meta_search = QPushButton(f" {t.get('btn_search', '검색')}")
+        self.btn_meta_search.setIcon(qta.icon('fa5s.search', color='white'))
         self.btn_meta_search.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_meta_search.setStyleSheet("QPushButton { padding: 6px 14px; font-size: 12px; background-color: #333333; color: white; border: 1px solid #555; border-radius: 4px; } QPushButton:hover { background-color: #444444; }")
         search_layout.addWidget(self.btn_meta_search)
@@ -306,22 +323,27 @@ class Tab3Metadata(QWidget):
         self.btn_goto_genre = QPushButton(t.get("t3_nav_genre", "장르/태그\n등장인물"))
         self.btn_goto_etc = QPushButton(t.get("t3_nav_etc", "기타\n정보"))
         
-        self.btn_prev_vol = QPushButton(t.get("t3_btn_prev", "◁ 이전 권"))
-        self.btn_next_vol = QPushButton(t.get("t3_btn_next", "다음 권 ▷"))
+        self.btn_prev_vol = QPushButton(t.get("t3_btn_prev", "이전 권"))
+        self.btn_prev_vol.setIcon(qta.icon('fa5s.caret-left', color='white'))
+        self.btn_next_vol = QPushButton(t.get("t3_btn_next", "다음 권"))
+        self.btn_next_vol.setIcon(qta.icon('fa5s.caret-right', color='white'))
         
         self.btn_copy_orig = QPushButton(t.get("t3_btn_copy_orig", "원본 카피 편집"))
+        self.btn_copy_orig.setIcon(qta.icon('fa5s.copy', color='white'))
         self.btn_apply_all = QPushButton(t.get("t3_btn_apply_all", "편집 적용"))
+        self.btn_apply_all.setIcon(qta.icon('fa5s.check', color='white'))
         self.btn_apply_series = QPushButton(t.get("t3_btn_apply_series", "시리즈 편집 적용"))
+        self.btn_apply_series.setIcon(qta.icon('fa5s.layer-group', color='white'))
 
         self.btn_copy_orig.setToolTip(t.get("t3_tt_copy_orig", ""))
         self.btn_apply_all.setToolTip(t.get("t3_tt_apply_all", ""))
         self.btn_apply_series.setToolTip(t.get("t3_tt_apply_series", ""))
 
-        def set_segmented_btn_style(btn, pos, is_primary=False):
-            bg = "#2b5797" if is_primary else "#333333"
-            hover_bg = "#366cb5" if is_primary else "#444444"
+        def set_segmented_btn_style(btn, pos, is_primary=False, is_active=False):
+            bg = "#3498DB" if is_active else ("#2b5797" if is_primary else "#333333")
+            hover_bg = "#2980B9" if is_active else ("#366cb5" if is_primary else "#444444")
             border = "#555555"
-            text_color = "#ffffff" if is_primary else "#dddddd"
+            text_color = "#ffffff" if (is_primary or is_active) else "#dddddd"
             radius = "5px"
             
             style = f"""
@@ -333,7 +355,7 @@ class Tab3Metadata(QWidget):
                     font-size: 11px;
                     border-radius: 0px;
                     margin-top: 10px;
-                    {'font-weight: bold;' if is_primary else ''}
+                    {'font-weight: bold;' if (is_primary or is_active) else ''}
                 }}
                 QPushButton:hover {{
                     background-color: {hover_bg};
@@ -348,6 +370,8 @@ class Tab3Metadata(QWidget):
                 style += "QPushButton { border-left: none; }"
                 
             btn.setStyleSheet(style)
+            
+        self.set_segmented_btn_style = set_segmented_btn_style
 
         nav_layout = QHBoxLayout()
         nav_layout.setSpacing(12) 
@@ -355,20 +379,32 @@ class Tab3Metadata(QWidget):
         group1_layout = QHBoxLayout()
         group1_layout.setSpacing(0)
         
-        section_btns = [self.btn_goto_basic, self.btn_goto_crew, self.btn_goto_publish, self.btn_goto_genre, self.btn_goto_etc]
-        for i, b in enumerate(section_btns):
+        self.section_btns = [self.btn_goto_basic, self.btn_goto_crew, self.btn_goto_publish, self.btn_goto_genre, self.btn_goto_etc]
+        for b in self.section_btns:
             b.setCursor(Qt.CursorShape.PointingHandCursor)
-            if i == 0: set_segmented_btn_style(b, "left_end")
-            elif i == len(section_btns) - 1: set_segmented_btn_style(b, "right_end")
-            else: set_segmented_btn_style(b, "middle")
             group1_layout.addWidget(b)
+            
+        self._current_active_nav_btn = None
+        def update_nav_buttons_state(active_btn):
+            if getattr(self, '_current_active_nav_btn', None) == active_btn: return
+            self._current_active_nav_btn = active_btn
+            
+            for i, b in enumerate(self.section_btns):
+                is_active = (b == active_btn)
+                pos = "middle"
+                if i == 0: pos = "left_end"
+                elif i == len(self.section_btns) - 1: pos = "right_end"
+                self.set_segmented_btn_style(b, pos, is_active=is_active)
+                
+        self.update_nav_buttons_state = update_nav_buttons_state
+        self.update_nav_buttons_state(self.btn_goto_basic)
         
         group2_layout = QHBoxLayout()
         group2_layout.setSpacing(2)
         self.btn_prev_vol.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_next_vol.setCursor(Qt.CursorShape.PointingHandCursor)
-        set_segmented_btn_style(self.btn_prev_vol, "left_end")
-        set_segmented_btn_style(self.btn_next_vol, "right_end")
+        self.set_segmented_btn_style(self.btn_prev_vol, "left_end")
+        self.set_segmented_btn_style(self.btn_next_vol, "right_end")
         self.btn_prev_vol.clicked.connect(self.action_prev_vol)
         self.btn_next_vol.clicked.connect(self.action_next_vol)
         group2_layout.addWidget(self.btn_prev_vol)
@@ -380,9 +416,9 @@ class Tab3Metadata(QWidget):
         self.btn_apply_all.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_apply_series.setCursor(Qt.CursorShape.PointingHandCursor)
         
-        set_segmented_btn_style(self.btn_copy_orig, "left_end")
-        set_segmented_btn_style(self.btn_apply_all, "middle")
-        set_segmented_btn_style(self.btn_apply_series, "right_end", is_primary=True)
+        self.set_segmented_btn_style(self.btn_copy_orig, "left_end")
+        self.set_segmented_btn_style(self.btn_apply_all, "middle")
+        self.set_segmented_btn_style(self.btn_apply_series, "right_end", is_primary=True)
         
         self.btn_copy_orig.clicked.connect(self.action_copy_orig)
         self.btn_apply_all.clicked.connect(self.action_apply_all)
@@ -592,6 +628,23 @@ class Tab3Metadata(QWidget):
         self.btn_goto_publish.clicked.connect(lambda: scroll_to(self.group_publish)); self.btn_goto_genre.clicked.connect(lambda: scroll_to(self.group_genre_tags))
         self.btn_goto_etc.clicked.connect(lambda: scroll_to(self.group_etc))
 
+        def on_scroll(value):
+            if not hasattr(self, 'group_basic'): return
+            groups = [
+                (self.group_basic, self.btn_goto_basic),
+                (self.group_crew, self.btn_goto_crew),
+                (self.group_publish, self.btn_goto_publish),
+                (self.group_genre_tags, self.btn_goto_genre),
+                (self.group_etc, self.btn_goto_etc)
+            ]
+            active_btn = self.btn_goto_basic
+            for group, btn in groups:
+                if group.pos().y() <= value + 80: 
+                    active_btn = btn
+            self.update_nav_buttons_state(active_btn)
+            
+        self.scroll_area.verticalScrollBar().valueChanged.connect(on_scroll)
+
         bottom_btn_layout = QHBoxLayout()
         self.btn_auto_title = QPushButton(t.get("t3_auto_title", ""))
         self.btn_auto_vol = QPushButton(t.get("t3_auto_vol", ""))
@@ -606,6 +659,9 @@ class Tab3Metadata(QWidget):
         self.btn_auto_pages.setToolTip(t.get("t3_tt_auto_pages", ""))
         self.btn_meta_save.setToolTip(t.get("t3_tt_save", ""))
         self.btn_meta_save_all.setToolTip(t.get("t3_tt_save_all", ""))
+        
+        self.btn_meta_save.setIcon(qta.icon('fa5s.save', color='white'))
+        self.btn_meta_save_all.setIcon(qta.icon('fa5s.save', color='white'))
         
         for btn in [self.btn_auto_title, self.btn_auto_vol, self.btn_auto_chap, self.btn_auto_pages, self.btn_meta_save, self.btn_meta_save_all]:
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -633,7 +689,7 @@ class Tab3Metadata(QWidget):
         self.lbl_search_api.setText(t.get("t3_search_api", ""))
         self.lbl_search_query.setText(t.get("t3_search_query", ""))
         self.le_meta_search.setPlaceholderText(t.get("t3_search_ph", ""))
-        self.btn_meta_search.setText(f"🔍 {t.get('btn_search', '검색')}")
+        self.btn_meta_search.setText(f" {t.get('btn_search', '검색')}")
         self.btn_goto_basic.setText(t.get("t3_nav_basic", ""))
         self.btn_goto_crew.setText(t.get("t3_nav_crew", ""))
         self.btn_goto_publish.setText(t.get("t3_nav_publish", ""))
@@ -658,8 +714,8 @@ class Tab3Metadata(QWidget):
         self.btn_meta_save.setText(t.get("t3_save", ""))
         self.btn_meta_save_all.setText(t.get("t3_save_all", ""))
         
-        self.btn_prev_vol.setText("◁ 이전 권" if lang == "ko" else "◁ Prev Vol")
-        self.btn_next_vol.setText("다음 권 ▷" if lang == "ko" else "Next Vol ▷")
+        self.btn_prev_vol.setText(t.get("t3_btn_prev", "이전 권"))
+        self.btn_next_vol.setText(t.get("t3_btn_next", "다음 권"))
         
         self.btn_copy_orig.setToolTip(t.get("t3_tt_copy_orig", ""))
         self.btn_apply_all.setToolTip(t.get("t3_tt_apply_all", ""))
@@ -797,7 +853,9 @@ class Tab3Metadata(QWidget):
         
         for folder_path, files in self.meta_data.items():
             folder_name = os.path.basename(folder_path) or folder_path
-            root_item = QTreeWidgetItem([f"📁 {folder_name}"]); self.tree_meta_files.addTopLevelItem(root_item)
+            root_item = QTreeWidgetItem([folder_name])
+            root_item.setIcon(0, qta.icon('fa5s.folder-open', color='#F39C12'))
+            self.tree_meta_files.addTopLevelItem(root_item)
             sorted_files = sorted(files, key=lambda x: natural_keys(x.name))
             
             for f in sorted_files:
@@ -805,8 +863,10 @@ class Tab3Metadata(QWidget):
                 title = f.name 
                 mod_date = b_meta.get('ComicZipModifiedDate')
                 
-                child_item = QTreeWidgetItem(); child_item.setData(0, Qt.ItemDataRole.UserRole, fp)
-                child_item.setToolTip(0, title); root_item.addChild(child_item)
+                child_item = QTreeWidgetItem()
+                child_item.setData(0, Qt.ItemDataRole.UserRole, fp)
+                child_item.setToolTip(0, title)
+                root_item.addChild(child_item)
                 
                 if fp == saved_selection:
                     target_item_to_select = child_item
@@ -814,15 +874,32 @@ class Tab3Metadata(QWidget):
                 item_widget = QWidget(); item_widget.setStyleSheet("background: transparent;")
                 item_layout = QVBoxLayout(item_widget); item_layout.setContentsMargins(4, 2, 4, 2); item_layout.setSpacing(1)
                 
-                lbl_title = QLabel(f"📄 {title}")
+                title_layout = QHBoxLayout()
+                title_layout.setContentsMargins(0, 0, 0, 0)
+                icon_lbl = QLabel()
+                icon_lbl.setPixmap(qta.icon('fa5s.file-alt', color='#bdc3c7').pixmap(12, 12))
+                lbl_title = QLabel(title)
                 lbl_title.setStyleSheet("color: #ffffff; font-size: 13px; margin-bottom:0;")
                 lbl_title.setWordWrap(True) 
+                title_layout.addWidget(icon_lbl)
+                title_layout.addWidget(lbl_title, 1)
                 
-                date_str = f"🕒 {mod_date}" if mod_date else t.get("t3_no_data", "")
+                date_str = mod_date if mod_date else t.get("t3_no_data", "")
+                
+                date_layout = QHBoxLayout()
+                date_layout.setContentsMargins(0, 0, 0, 0)
+                clock_lbl = QLabel()
+                clock_lbl.setPixmap(qta.icon('fa5s.clock', color='#7f8c8d').pixmap(10, 10))
                 lbl_date = QLabel(date_str)
-                lbl_date.setStyleSheet("color: #aaaaaa; font-size: 10px; margin-left:20px; margin-top:0;") 
+                lbl_date.setStyleSheet("color: #aaaaaa; font-size: 10px; margin-top:0;") 
                 
-                item_layout.addWidget(lbl_title); item_layout.addWidget(lbl_date)
+                date_layout.addSpacing(18)
+                date_layout.addWidget(clock_lbl)
+                date_layout.addWidget(lbl_date, 1)
+                
+                item_layout.addLayout(title_layout)
+                item_layout.addLayout(date_layout)
+                
                 child_item.setSizeHint(0, QSize(200, 48)); self.tree_meta_files.setItemWidget(child_item, 0, item_widget)
                 
         self.tree_meta_files.expandAll()
@@ -1049,7 +1126,6 @@ class Tab3Metadata(QWidget):
         from PyQt6.QtWidgets import QMessageBox
         QMessageBox.information(self, t.get("msg_done", "완료"), t.get("t3_msg_auto_title_done", "자동 입력이 완료되었습니다."))
 
-    # 🌟 중복 버그 수정: action_auto_volume
     def action_auto_volume(self):
         t = self.main_app.i18n[self.main_app.lang]
         if not self.current_meta_file: return
@@ -1061,7 +1137,6 @@ class Tab3Metadata(QWidget):
         self._load_dict_to_ui(self.current_meta_file)
         QMessageBox.information(self, t.get("msg_done", ""), t.get("t3_msg_auto_vol_done", ""))
 
-    # 🌟 중복 버그 수정: action_auto_chapter
     def action_auto_chapter(self):
         t = self.main_app.i18n[self.main_app.lang]
         if not self.current_meta_file: return

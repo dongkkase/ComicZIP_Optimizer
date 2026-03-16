@@ -1,18 +1,24 @@
+import os
+import json
 import difflib
+import sqlite3
 import requests
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, 
     QWidget, QFormLayout, QComboBox, QSplitter, QScrollArea, QFrame,
-    QListWidget, QListWidgetItem, QSizePolicy
+    QListWidget, QListWidgetItem, QSizePolicy, QApplication
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap, QPainter, QPainterPath
+import qtawesome as qta
 
 from core.api_fetcher import MetaApiFetcher
+from config import get_resource_path
 
 def similar(a, b): return difflib.SequenceMatcher(None, a, b).ratio()
 
 _active_image_threads = []
+DB_PATH = ".api_cache.db" 
 
 class ImageLoadThread(QThread):
     finished_data = pyqtSignal(bytes, str)
@@ -21,17 +27,194 @@ class ImageLoadThread(QThread):
         self.url = url
         _active_image_threads.append(self)
         self.finished.connect(self._cleanup)
+        
     def run(self):
+        if not self.url:
+            self.finished_data.emit(b"", self.url)
+            return
+            
         try:
-            if self.url:
-                resp = requests.get(self.url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-                if resp.status_code == 200:
-                    self.finished_data.emit(resp.content, self.url)
+            with sqlite3.connect(DB_PATH) as conn:
+                c = conn.cursor()
+                c.execute("SELECT data FROM img_cache WHERE url=?", (self.url,))
+                row = c.fetchone()
+                if row and row[0]:
+                    self.finished_data.emit(row[0], self.url)
                     return
         except: pass
+
+        try:
+            resp = requests.get(self.url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+            if resp.status_code == 200:
+                img_data = resp.content
+                try:
+                    with sqlite3.connect(DB_PATH) as conn:
+                        c = conn.cursor()
+                        c.execute("INSERT OR REPLACE INTO img_cache (url, data) VALUES (?, ?)", (self.url, img_data))
+                        conn.commit()
+                except: pass
+                self.finished_data.emit(img_data, self.url)
+                return
+        except: pass
         self.finished_data.emit(b"", self.url)
+        
     def _cleanup(self):
         if self in _active_image_threads: _active_image_threads.remove(self)
+
+
+class SearchWorker(QThread):
+    finished_results = pyqtSignal(list, str)
+    def __init__(self, api_name, query, api_keys, page):
+        super().__init__()
+        self.api_name = api_name
+        self.query = query
+        self.api_keys = api_keys
+        self.page = page 
+        
+    def run(self):
+        results, actual_query = MetaApiFetcher.search(self.api_name, self.query, self.api_keys, self.page)
+        self.finished_results.emit(results, actual_query)
+
+
+class TranslateWorker(QThread):
+    finished_translation = pyqtSignal(dict, dict)
+    
+    def __init__(self, raw_data, api_keys, target_lang="ko"):
+        super().__init__()
+        self.raw_data = raw_data
+        self.api_keys = api_keys
+        self.target_lang = target_lang
+        
+    def run(self):
+        translated_data = self.raw_data.copy()
+        fields_to_translate = ["Title", "LocalizedSeries", "Writer", "Penciller", "Publisher", "Genre", "Tags", "Summary", "Characters"]
+        
+        def ensure_string(text):
+            if not text or text == "-": return text
+            if isinstance(text, list): return ", ".join(str(x) for x in text)
+            if isinstance(text, str) and text.startswith('['):
+                import ast
+                try:
+                    parsed = ast.literal_eval(text)
+                    if isinstance(parsed, list): return ", ".join(str(x) for x in parsed)
+                except:
+                    try:
+                        import json
+                        parsed = json.loads(text)
+                        if isinstance(parsed, list): return ", ".join(str(x) for x in parsed)
+                    except: pass
+            return text
+            
+        for f in fields_to_translate:
+            if translated_data.get(f):
+                translated_data[f] = ensure_string(translated_data[f])
+
+        uncached_data = {}
+        
+        try:
+            with sqlite3.connect(DB_PATH) as conn:
+                c = conn.cursor()
+                c.execute("CREATE TABLE IF NOT EXISTS trans_cache (original TEXT PRIMARY KEY, translated TEXT)")
+                for f in fields_to_translate:
+                    original_text = translated_data.get(f)
+                    if not original_text or original_text == "-": continue
+                    
+                    cache_key = f"{original_text}::lang_{self.target_lang}"
+                    c.execute("SELECT translated FROM trans_cache WHERE original=?", (cache_key,))
+                    row = c.fetchone()
+                    if row and row[0]:
+                        translated_data[f] = row[0]
+                    else:
+                        uncached_data[f] = original_text
+        except:
+            uncached_data = {f: translated_data[f] for f in fields_to_translate if translated_data.get(f) and translated_data.get(f) != "-"}
+
+        if not uncached_data:
+            self.finished_translation.emit(self.raw_data, translated_data)
+            return
+
+        ai_enabled = self.api_keys.get("ai_trans_enabled", False)
+        ai_provider = self.api_keys.get("ai_provider", "Gemini")
+        ai_key = self.api_keys.get("ai_key", "").strip()
+
+        ai_success = False
+        
+        lang_map = {"ko": "Korean", "en": "English", "ja": "Japanese"}
+        lang_name = lang_map.get(self.target_lang, "English")
+        
+        if ai_enabled and ai_key:
+            import json
+            prompt = (
+                "You are an expert translator specializing in comic books, manga, and graphic novels. "
+                f"Translate the values of the following JSON object into natural {lang_name}. "
+                "Keep in mind the premise that this is comic book metadata (e.g., Summary is a book synopsis, Tags/Genres are comic genres, Characters are fictional names). "
+                f"Use terminology commonly used in the {lang_name} comic/manga market. "
+                "Preserve the exact JSON keys. Output ONLY valid JSON without Markdown formatting.\n\n"
+                + json.dumps(uncached_data, ensure_ascii=False)
+            )
+            
+            try:
+                res_text = ""
+                if ai_provider == "OpenAI":
+                    url = "https://api.openai.com/v1/chat/completions"
+                    headers = {"Authorization": f"Bearer {ai_key}", "Content-Type": "application/json"}
+                    payload = {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}], "temperature": 0.3}
+                    resp = requests.post(url, headers=headers, json=payload, timeout=15)
+                    if resp.status_code == 200:
+                        res_text = resp.json()["choices"][0]["message"]["content"].strip()
+                elif ai_provider == "Gemini":
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={ai_key}"
+                    headers = {"Content-Type": "application/json"}
+                    payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.3}}
+                    resp = requests.post(url, headers=headers, json=payload, timeout=15)
+                    if resp.status_code == 200:
+                        res_text = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+                        
+                if res_text:
+                    import re
+                    json_match = re.search(r'\{.*\}', res_text, re.DOTALL)
+                    if json_match:
+                        parsed_json = json.loads(json_match.group(0))
+                        try:
+                            with sqlite3.connect(DB_PATH) as conn:
+                                c = conn.cursor()
+                                for k, original_val in uncached_data.items():
+                                    translated_val = parsed_json.get(k)
+                                    if translated_val:
+                                        translated_data[k] = translated_val
+                                        c.execute("INSERT OR REPLACE INTO trans_cache (original, translated) VALUES (?, ?)", (f"{original_val}::lang_{self.target_lang}", translated_val))
+                                conn.commit()
+                            ai_success = True
+                        except: pass
+            except Exception as e:
+                print(f"Detail AI Translation failed: {e}")
+
+        if not ai_success:
+            def fallback_translate(text):
+                try:
+                    url = "https://translate.googleapis.com/translate_a/single"
+                    params = {"client": "gtx", "sl": "auto", "tl": self.target_lang, "dt": "t", "q": text}
+                    resp = requests.get(url, params=params, timeout=5)
+                    if resp.status_code == 200:
+                        return "".join([s[0] for s in resp.json()[0]])
+                except: pass
+                return text
+
+            try:
+                with sqlite3.connect(DB_PATH) as conn:
+                    c = conn.cursor()
+                    for k, original_val in uncached_data.items():
+                        translated_val = fallback_translate(original_val)
+                        translated_data[k] = translated_val
+                        if translated_val != original_val:
+                            c.execute("INSERT OR REPLACE INTO trans_cache (original, translated) VALUES (?, ?)", (f"{original_val}::lang_{self.target_lang}", translated_val))
+                    conn.commit()
+            except:
+                for k, original_val in uncached_data.items():
+                    translated_data[k] = fallback_translate(original_val)
+                    
+        self.finished_translation.emit(self.raw_data, translated_data)
+
 
 class SearchResultWidget(QWidget):
     def __init__(self, data, parent=None):
@@ -41,7 +224,6 @@ class SearchResultWidget(QWidget):
         self.setStyleSheet("background-color: transparent;")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         
-        # 🌟 좌측 리스트 요소들을 위한 안전한 JSON 배열 파싱 헬퍼 함수
         def parse_val(val):
             if val is None or val == "" or val == "-": return ""
             if isinstance(val, list): return ", ".join(str(x) for x in val)
@@ -67,8 +249,10 @@ class SearchResultWidget(QWidget):
         
         self.lbl_thumb = QLabel()
         self.lbl_thumb.setFixedSize(45, 64)
-        self.lbl_thumb.setStyleSheet("background-color: #333; border-radius: 5px;")
+        self.lbl_thumb.setStyleSheet("background-color: transparent;")
         self.lbl_thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._set_default_thumb()
+        
         layout.addWidget(self.lbl_thumb, alignment=Qt.AlignmentFlag.AlignTop)
         
         info_layout = QVBoxLayout()
@@ -125,7 +309,16 @@ class SearchResultWidget(QWidget):
             
         if rating and rating != "-":
             if items_added > 0: add_divider()
-            add_meta_item(f"⭐ {rating}", "#F1C40F")
+            star_layout = QHBoxLayout()
+            star_layout.setContentsMargins(0,0,0,0)
+            star_layout.setSpacing(2)
+            star_icon = QLabel()
+            star_icon.setPixmap(qta.icon('fa5s.star', color='#f1c40f').pixmap(10, 10))
+            star_lbl = QLabel(rating)
+            star_lbl.setStyleSheet("color: #F1C40F; font-size: 11px; background-color: transparent; border: none; outline: none;")
+            star_layout.addWidget(star_icon)
+            star_layout.addWidget(star_lbl)
+            meta_layout.addLayout(star_layout)
             
         meta_layout.addStretch()
         info_layout.addLayout(meta_layout)
@@ -137,6 +330,34 @@ class SearchResultWidget(QWidget):
             self.thread = ImageLoadThread(self.cover_url)
             self.thread.finished_data.connect(self.on_image_loaded)
             self.thread.start()
+
+    def _set_default_thumb(self):
+        p = get_resource_path("previewframe.png")
+        if os.path.exists(p):
+            try:
+                pixmap = QPixmap(p).scaled(45, 64, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
+                crop_x = (pixmap.width() - 45) // 2
+                crop_y = (pixmap.height() - 64) // 2
+                cropped_pixmap = pixmap.copy(crop_x, crop_y, 45, 64)
+                
+                rounded_pixmap = QPixmap(45, 64)
+                rounded_pixmap.fill(Qt.GlobalColor.transparent)
+                
+                painter = QPainter(rounded_pixmap)
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                
+                path = QPainterPath()
+                path.addRoundedRect(0, 0, 45, 64, 5, 5) 
+                
+                painter.setClipPath(path)
+                painter.drawPixmap(0, 0, cropped_pixmap)
+                painter.end()
+                
+                self.lbl_thumb.setPixmap(rounded_pixmap)
+            except:
+                self.lbl_thumb.setStyleSheet("background-color: #333; border-radius: 5px;")
+        else:
+            self.lbl_thumb.setStyleSheet("background-color: #333; border-radius: 5px;")
             
     def on_image_loaded(self, img_data, url):
         try:
@@ -180,11 +401,17 @@ class ApiSearchDialog(QDialog):
         self.t = t if t else {}
         self.api_keys = parent.main_app.config.get("api_keys", {}) if parent and hasattr(parent, "main_app") else {}
         
+        self.target_lang = parent.main_app.lang if parent and hasattr(parent, "main_app") else "ko"
+        
         self.search_results = []
         self.selected_raw_data = None  
         self.translated_data = None 
         self.is_translated = False
         self.current_cover_url = None
+        self.search_worker = None 
+        self.translate_worker = None
+        
+        self.current_page = 1 
         
         self.setWindowTitle(self.t.get("meta_search_title", "메타데이터 검색"))
         self.resize(1050, 750)
@@ -213,22 +440,30 @@ class ApiSearchDialog(QDialog):
         header_layout.addWidget(self.lbl_h1); header_layout.addStretch()
         
         self.cb_api = QComboBox()
-        self.cb_api.addItems(["리디북스", "알라딘", "코믹박스", "Google Books", "Anilist", "Vine"])
+        self.cb_api.addItems(["리디북스", "알라딘", "Google Books", "Anilist", "Vine"])
         self.cb_api.setCurrentText(self.current_api); self.cb_api.setFixedWidth(130)
         self.cb_api.setStyleSheet("padding: 6px; border: 1px solid #555; border-radius: 4px; background-color: #2b2b2b;")
         self.cb_api.setCursor(Qt.CursorShape.PointingHandCursor)
+        
+        self.cb_api.currentTextChanged.connect(self.on_api_combo_changed)
         
         self.le_query = QLineEdit(self.current_query)
         self.le_query.setFixedWidth(200)
         self.le_query.setStyleSheet("padding: 7px; border: 1px solid #555; border-radius: 4px; background-color: #2b2b2b;")
         self.le_query.returnPressed.connect(self.action_manual_search)
         
-        self.btn_search = QPushButton(f"🔍 {self.t.get('btn_search', '검색')}")
+        self.btn_search = QPushButton(f" {self.t.get('btn_search', '검색')}")
+        self.btn_search.setIcon(qta.icon('fa5s.search', color='white'))
         self.btn_search.setStyleSheet("background-color: #444; color: white; border: 1px solid #555; padding: 7px 20px; border-radius: 4px; font-weight: bold;")
         self.btn_search.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_search.clicked.connect(self.action_manual_search)
         
+        self.lbl_api_warning = QLabel(self.t.get("api_key_missing", "환경설정에서 API 키를 입력해주세요."))
+        self.lbl_api_warning.setStyleSheet("color: #E74C3C; font-weight: bold; font-size: 12px; margin-left: 10px;")
+        self.lbl_api_warning.hide()
+        
         header_layout.addWidget(self.cb_api); header_layout.addWidget(self.le_query); header_layout.addWidget(self.btn_search)
+        header_layout.addWidget(self.lbl_api_warning) 
         main_layout.addLayout(header_layout)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -241,7 +476,10 @@ class ApiSearchDialog(QDialog):
         self.list_widget = QListWidget()
         self.list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.list_widget.setResizeMode(QListWidget.ResizeMode.Adjust)
-        self.list_widget.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.list_widget.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.list_widget.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
+        self.list_widget.verticalScrollBar().setSingleStep(10)
+        
         self.list_widget.setStyleSheet("""
             QListWidget { background-color: transparent; border: none; outline: none; }
             QListWidget::item { border-bottom: 1px solid #555; outline: none; }
@@ -251,6 +489,36 @@ class ApiSearchDialog(QDialog):
         self.list_widget.viewport().setCursor(Qt.CursorShape.PointingHandCursor)
         self.list_widget.itemSelectionChanged.connect(self.on_item_selected)
         left_layout.addWidget(self.list_widget)
+        
+        page_layout = QHBoxLayout()
+        self.btn_prev_page = QPushButton(self.t.get("api_page_prev", "이전"))
+        self.btn_prev_page.setIcon(qta.icon('fa5s.chevron-left', color='white'))
+        self.btn_prev_page.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_prev_page.setStyleSheet("""
+            QPushButton { background-color: #555; color: white; border-radius: 4px; padding: 4px; font-weight: bold; }
+            QPushButton:disabled { background-color: #333; color: #777; }
+        """)
+        self.btn_prev_page.clicked.connect(self.action_prev_page)
+        self.btn_prev_page.setEnabled(False)
+        
+        self.lbl_page_info = QLabel("1 페이지")
+        self.lbl_page_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_page_info.setStyleSheet("color: #ddd; font-weight: bold; border: none;")
+        
+        self.btn_next_page = QPushButton(self.t.get("api_page_next", "다음"))
+        self.btn_next_page.setIcon(qta.icon('fa5s.chevron-right', color='white'))
+        self.btn_next_page.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_next_page.setStyleSheet("""
+            QPushButton { background-color: #555; color: white; border-radius: 4px; padding: 4px; font-weight: bold; }
+            QPushButton:disabled { background-color: #333; color: #777; }
+        """)
+        self.btn_next_page.clicked.connect(self.action_next_page)
+        self.btn_next_page.setEnabled(False)
+        
+        page_layout.addWidget(self.btn_prev_page)
+        page_layout.addWidget(self.lbl_page_info, 1)
+        page_layout.addWidget(self.btn_next_page)
+        left_layout.addLayout(page_layout)
         
         self.lbl_result_count = QLabel(f"{self.t.get('search_result_prefix', '검색 결과:')} 0{self.t.get('search_result_suffix', '건')}")
         self.lbl_result_count.setStyleSheet("color: #aaa; font-size: 12px; margin-top: 5px; border: none; outline: none;")
@@ -262,6 +530,7 @@ class ApiSearchDialog(QDialog):
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setStyleSheet("QScrollArea { border: 1px solid #444; border-radius: 6px; background-color: #444; }")
+        self.scroll_area.verticalScrollBar().setSingleStep(15)
         
         scroll_content = QWidget()
         scroll_content.setStyleSheet("background-color: #444; border: none;") 
@@ -275,7 +544,8 @@ class ApiSearchDialog(QDialog):
         self.lbl_detail_title.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.lbl_detail_title.setCursor(Qt.CursorShape.IBeamCursor)
         
-        self.btn_translate = QPushButton(self.t.get("btn_translate_web", "🌐 번역"))
+        self.btn_translate = QPushButton(self.t.get("btn_translate_web", "번역"))
+        self.btn_translate.setIcon(qta.icon('fa5s.language', color='white'))
         self.btn_translate.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_translate.setStyleSheet("background-color: #27AE60; color: white; padding: 5px 15px; border-radius: 4px; font-weight: bold;")
         self.btn_translate.clicked.connect(self.action_translate)
@@ -289,10 +559,12 @@ class ApiSearchDialog(QDialog):
         detail_layout.addWidget(line1)
         
         info_layout = QHBoxLayout()
-        self.lbl_cover = QLabel(self.t.get("no_image", "이미지 없음"))
+        self.lbl_cover = QLabel()
         self.lbl_cover.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_cover.setFixedSize(160, 240)
         self.lbl_cover.setStyleSheet("background-color: transparent; color: #555;")
+        self._set_placeholder_image() 
+        
         info_layout.addWidget(self.lbl_cover, alignment=Qt.AlignmentFlag.AlignTop)
         
         self.form_layout = QFormLayout()
@@ -342,6 +614,7 @@ class ApiSearchDialog(QDialog):
         self.lbl_summary = _add_bottom_section(self.t.get("meta_summary", "줄거리"))
         self.lbl_tags = _add_bottom_section(self.t.get("meta_tags_lbl", "태그"))
         self.lbl_web = _add_bottom_section(self.t.get("meta_link", "링크"))
+        self.lbl_web.setCursor(Qt.CursorShape.PointingHandCursor)
         
         detail_layout.addStretch()
         self.scroll_area.setWidget(scroll_content)
@@ -351,13 +624,20 @@ class ApiSearchDialog(QDialog):
         main_layout.addWidget(splitter, 1)
 
         btn_layout = QHBoxLayout()
+        
+        self.lbl_cache_notice = QLabel(self.t.get("api_cache_notice", "빠른 표시를 위해 검색 결과는 7일간 캐싱됩니다."))
+        self.lbl_cache_notice.setStyleSheet("color: #888; font-size: 11px; border: none;")
+        btn_layout.addWidget(self.lbl_cache_notice)
+        
         btn_layout.addStretch()
         self.btn_close = QPushButton(self.t.get("btn_close", "닫기"))
+        self.btn_close.setIcon(qta.icon('fa5s.times', color='white'))
         self.btn_close.setStyleSheet("background-color: #555; color: white; padding: 8px 25px; border-radius: 4px; font-weight: bold;")
         self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_close.clicked.connect(self.reject)
         
         self.btn_select = QPushButton(self.t.get("btn_select", "선택"))
+        self.btn_select.setIcon(qta.icon('fa5s.check', color='white'))
         self.btn_select.setStyleSheet("background-color: #3498DB; color: white; padding: 8px 25px; border-radius: 4px; font-weight: bold;")
         self.btn_select.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_select.clicked.connect(self.action_apply)
@@ -365,19 +645,106 @@ class ApiSearchDialog(QDialog):
         btn_layout.addWidget(self.btn_close); btn_layout.addWidget(self.btn_select)
         main_layout.addLayout(btn_layout)
 
+    def on_api_combo_changed(self, text):
+        if self.parent() and hasattr(self.parent(), "main_app"):
+            self.parent().main_app.config["last_meta_api"] = text
+            try:
+                from config import save_config
+                save_config(self.parent().main_app.config)
+            except: pass
+            
+            if hasattr(self.parent(), "cb_meta_api"):
+                self.parent().cb_meta_api.blockSignals(True)
+                self.parent().cb_meta_api.setCurrentText(text)
+                self.parent().cb_meta_api.blockSignals(False)
+
+    def _set_placeholder_image(self):
+        p = get_resource_path("previewframe.png")
+        if os.path.exists(p):
+            try:
+                pixmap = QPixmap(p).scaled(160, 240, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                rounded_pixmap = QPixmap(pixmap.size())
+                rounded_pixmap.fill(Qt.GlobalColor.transparent)
+                painter = QPainter(rounded_pixmap)
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                path = QPainterPath()
+                path.addRoundedRect(0, 0, pixmap.width(), pixmap.height(), 5, 5)
+                painter.setClipPath(path)
+                painter.drawPixmap(0, 0, pixmap)
+                painter.end()
+                self.lbl_cover.setPixmap(rounded_pixmap)
+            except:
+                self.lbl_cover.setText(self.t.get("no_image", "이미지 없음"))
+        else:
+            self.lbl_cover.setText(self.t.get("no_image", "이미지 없음"))
+
     def action_manual_search(self):
         self.current_api = self.cb_api.currentText()
         self.current_query = self.le_query.text().strip()
+        self.current_page = 1 
+        self.perform_search()
+        
+    def action_prev_page(self):
+        if self.current_page > 1:
+            self.current_page -= 1
+            self.perform_search()
+
+    def action_next_page(self):
+        self.current_page += 1
         self.perform_search()
 
     def perform_search(self):
-        raw_results = MetaApiFetcher.search(self.current_api, self.current_query, getattr(self, 'api_keys', {}))
-        self.search_results = sorted(raw_results, key=lambda x: similar(self.current_query.lower(), x.get("Title", "").lower()), reverse=True)
+        self.lbl_api_warning.hide()
+        
+        if self.current_api == "알라딘" and not self.api_keys.get("aladin", "").strip():
+            self.lbl_api_warning.show()
+            self._clear_results()
+            return
+            
+        if self.current_api == "Vine" and not self.api_keys.get("vine", "").strip():
+            self.lbl_api_warning.show()
+            self._clear_results()
+            return
+            
+        if self.current_api == "Google Books" and not self.api_keys.get("google", "").strip():
+            self.lbl_api_warning.show()
+            self._clear_results()
+            return
         
         self.list_widget.clear()
+        self.btn_search.setEnabled(False)
+        self.btn_prev_page.setEnabled(False)
+        self.btn_next_page.setEnabled(False)
+        
+        page_str = self.t.get("api_page_info", "{page} 페이지").format(page=self.current_page)
+        self.lbl_page_info.setText(page_str)
+        
+        self.lbl_result_count.setText("⏳ 검색 중... (Loading...)")
+        self._set_placeholder_image()
+        
+        QApplication.processEvents()
+        
+        self.search_worker = SearchWorker(self.current_api, self.current_query, getattr(self, 'api_keys', {}), self.current_page)
+        self.search_worker.finished_results.connect(self._on_search_finished)
+        self.search_worker.start()
+        
+    def _clear_results(self):
+        self.list_widget.clear()
+        self.lbl_result_count.setText(f"{self.t.get('search_result_prefix', '검색 결과:')} 0{self.t.get('search_result_suffix', '건')}")
+        self.btn_prev_page.setEnabled(False)
+        self.btn_next_page.setEnabled(False)
+
+    def _on_search_finished(self, raw_results, actual_query):
+        self.btn_search.setEnabled(True)
+        self.search_results = raw_results 
         
         count = len(self.search_results)
-        self.lbl_result_count.setText(f"{self.t.get('search_result_prefix', '검색 결과:')} {count}{self.t.get('search_result_suffix', '건')}")
+        
+        res_text = f"{self.t.get('search_result_prefix', '검색 결과:')} {count}{self.t.get('search_result_suffix', '건')}"
+        if actual_query and actual_query.lower() != self.current_query.lower():
+            res_text += f" <span style='color:#E67E22;'>(번역된 키워드: {actual_query})</span>"
+            
+        self.lbl_result_count.setText(res_text)
         
         for data in self.search_results:
             item = QListWidgetItem(self.list_widget)
@@ -387,6 +754,10 @@ class ApiSearchDialog(QDialog):
             
         if self.list_widget.count() > 0:
             self.list_widget.setCurrentRow(0)
+            self.list_widget.setFocus() 
+            
+        self.btn_prev_page.setEnabled(self.current_page > 1)
+        self.btn_next_page.setEnabled(count >= 20)
 
     def on_item_selected(self):
         selected_items = self.list_widget.selectedItems()
@@ -396,15 +767,17 @@ class ApiSearchDialog(QDialog):
         self.selected_raw_data = self.search_results[row].copy()
         
         self.is_translated = False
-        self.btn_translate.setText(self.t.get("btn_translate_web", "🌐 번역"))
+        
+        self.btn_translate.setEnabled(True)
+        self.btn_translate.setText(self.t.get("btn_translate_web", "번역"))
+        self.btn_translate.setIcon(qta.icon('fa5s.language', color='white'))
         self.btn_translate.setStyleSheet("background-color: #27AE60; color: white; padding: 5px 15px; border-radius: 4px; font-weight: bold;")
         
-        if self.current_api in ["Anilist", "Vine"]: self.btn_translate.show()
+        if self.current_api in ["Anilist", "Vine", "Google Books"]: self.btn_translate.show()
         else: self.btn_translate.hide()
             
         self.update_detail_panel()
 
-    # 🌟 우측 상세보기 요소들을 위한 안전한 JSON 배열 파싱 헬퍼 함수
     def _parse_list_to_string(self, val):
         if val is None or val == "" or val == "-": return "-"
         if isinstance(val, list): 
@@ -434,7 +807,6 @@ class ApiSearchDialog(QDialog):
         
         data = self.translated_data if self.is_translated else self.selected_raw_data
         
-        # 🌟 모든 필드에 대해 파싱 로직 적용
         self.lbl_detail_title.setText(self._parse_list_to_string(data.get("Title", "-")))
         
         for key, lbl_widget in self.detail_labels.items():
@@ -453,13 +825,12 @@ class ApiSearchDialog(QDialog):
         cover_url = data.get("CoverUrl", "")
         self.current_cover_url = cover_url 
         if cover_url:
-            self.lbl_cover.setText(self.t.get("loading", "로딩 중..."))
+            self._set_placeholder_image() 
             thread = ImageLoadThread(cover_url)
             thread.finished_data.connect(self._on_cover_loaded)
             thread.start()
         else:
-            self.lbl_cover.setText(self.t.get("no_image", "이미지 없음"))
-            self.lbl_cover.setPixmap(QPixmap())
+            self._set_placeholder_image()
 
     def _on_cover_loaded(self, img_data, url):
         try:
@@ -488,7 +859,7 @@ class ApiSearchDialog(QDialog):
                     
                     self.lbl_cover.setPixmap(rounded_pixmap)
                     return
-            self.lbl_cover.setText(self.t.get("no_image", "이미지 없음"))
+            self._set_placeholder_image()
         except RuntimeError: pass
 
     def action_translate(self):
@@ -496,19 +867,29 @@ class ApiSearchDialog(QDialog):
         self.is_translated = not self.is_translated
         
         if self.is_translated:
-            self.btn_translate.setText(self.t.get("btn_original_web", "🌐 원문"))
-            self.btn_translate.setStyleSheet("background-color: #E67E22; color: white; padding: 5px 15px; border-radius: 4px; font-weight: bold;")
+            self.btn_translate.setText(f" {self.t.get('btn_translating', '번역 중...')}")
+            self.btn_translate.setIcon(qta.icon('fa5s.spinner', spin=True, color='white'))
+            self.btn_translate.setEnabled(False)
             
-            self.translated_data = self.selected_raw_data.copy()
-            translate_fields = ["Title", "LocalizedSeries", "Writer", "Penciller", "Publisher", "Genre", "Tags", "Summary", "Characters"]
-            
-            for field in translate_fields:
-                if self.translated_data.get(field):
-                    self.translated_data[field] = f"[{self.t.get('translated_prefix', '번역됨')}] {self.translated_data[field]}"
+            self.translate_worker = TranslateWorker(self.selected_raw_data, getattr(self, 'api_keys', {}), self.target_lang)
+            self.translate_worker.finished_translation.connect(self._on_translation_finished)
+            self.translate_worker.start()
         else:
-            self.btn_translate.setText(self.t.get("btn_translate_web", "🌐 번역"))
+            self.btn_translate.setText(f" {self.t.get('btn_translate_web', '번역')}")
+            self.btn_translate.setIcon(qta.icon('fa5s.language', color='white'))
             self.btn_translate.setStyleSheet("background-color: #27AE60; color: white; padding: 5px 15px; border-radius: 4px; font-weight: bold;")
+            self.update_detail_panel()
             
+    def _on_translation_finished(self, raw_data, translated_data):
+        if self.selected_raw_data != raw_data:
+            return
+            
+        self.btn_translate.setEnabled(True)
+        self.btn_translate.setText(f" {self.t.get('btn_original_web', '원문')}")
+        self.btn_translate.setIcon(qta.icon('fa5s.undo', color='white'))
+        self.btn_translate.setStyleSheet("background-color: #E67E22; color: white; padding: 5px 15px; border-radius: 4px; font-weight: bold;")
+        
+        self.translated_data = translated_data
         self.update_detail_panel()
 
     def action_apply(self):

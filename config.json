@@ -13,9 +13,11 @@
     "last_tab_index": 2,
     "api_keys": {
         "aladin": "ttbeyecandyzero0929001",
-        "vine": "",
-        "google": "",
-        "comicbox_url": "",
-        "comicbox_token": ""
-    }
+        "vine": "92f8b7464993400c7c3777b39e6e9607ae261a86",
+        "google": "AIzaSyAyXCSoIBLC8CbkAIZHWp5cwULv3ijdrvg",
+        "ai_trans_enabled": true,
+        "ai_provider": "OpenAI",
+        "ai_key": "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"
+    },
+    "last_meta_api": "Anilist"
 }
