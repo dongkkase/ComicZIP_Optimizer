@@ -216,7 +216,7 @@ class Tab3Metadata(QWidget):
 
     # 🌟 임시 로드 함수 추가
     def _temp_auto_load(self):
-        test_path = r"C:\Users\eyeca\Downloads\temp\(미완)나의 백합은 일입니다!"
+        test_path = r"C:\Users\eyeca\Downloads\temp\3월의 라이온"
         if os.path.exists(test_path):
             self.load_paths([test_path])
 
@@ -1041,96 +1041,48 @@ class Tab3Metadata(QWidget):
         for f in self.meta_data.get(parent_dir, []):
             fp = str(f); title = f.stem
             
-            # 🌟 문제의 정규식 오류(??)를 수정하여 분리 적용
-            clean_title = re.sub(r'^\[.*?\]\s*', '', title)
-            clean_title = re.sub(r'^\(.*?\)\s*', '', clean_title)
+            # 1. 말머리 제거
+            clean_title = re.sub(r'^\[.*?\]\s*|^\(.*?\)\s*', '', title).strip()
             
-            v_match = re.search(r'(?i)(?:vol\.|v\.)\s*(\d+)', title) or re.search(r'제?\s*(\d+)\s*권', title) or re.search(r'\b(\d+)\s*$', title.strip())
-            c_match = re.search(r'(?i)(?:ch\.|chapter)\s*(\d+)', title) or re.search(r'제?\s*(\d+)\s*화', title)
+            # 🌟 2. 권/화수 추출 (v01, c01, _v01, -c01 등 모든 패턴 대응)
+            v_match = re.search(r'(?i)(?:^|\s|_|-)(?:vol\.?|v)\s*(\d+)', title) or re.search(r'제?\s*(\d+)\s*권', title) or re.search(r'\b(\d+)\s*$', title.strip())
+            c_match = re.search(r'(?i)(?:^|\s|_|-)(?:ch\.?|chapter|c)\s*(\d+)', title) or re.search(r'제?\s*(\d+)\s*화', title)
             
+            # 🌟 3. 순수 시리즈명 추출 (v01, c01 꼬리 자르기)
             series_name = re.sub(r'\s*제?\d+\s*(?:권|화|편).*$', '', clean_title)
-            series_name = re.sub(r'(?i)\s*(?:vol\.|v\.|ch\.|chapter)\s*\d+.*$', '', series_name)
+            series_name = re.sub(r'(?i)(?:\s|_|-)*(?:vol\.?|v|ch\.?|chapter|c)\s*\d+.*$', '', series_name)
             series_name = re.sub(r'\s*(?:-\s*)?\d+\s*$', '', series_name)
             series_name = series_name.strip()
             
-            if series_name: self.book_meta[fp]['Title'] = series_name
+            # 4. 언어 설정에 맞춰 Title 텍스트 재조립
+            final_title = clean_title
+            lang = getattr(self.main_app, 'lang', 'ko')
+            
+            if v_match:
+                vol_str = v_match.group(1) # 원본 숫자 (01 유지)
+                if lang == 'en':
+                    final_title = f"{series_name} Vol. {vol_str}"
+                else:
+                    final_title = f"{series_name} {vol_str}권"
+            elif c_match:
+                ch_str = c_match.group(1)
+                if lang == 'en':
+                    final_title = f"{series_name} Ch. {ch_str}"
+                else:
+                    final_title = f"{series_name} {ch_str}화"
+            
+            # 필드에 값 맵핑
+            if final_title: self.book_meta[fp]['Title'] = final_title
+            if series_name: self.book_meta[fp]['Series'] = series_name 
+            
+            # Volume, Number 메타데이터에는 앞의 0을 뗀 순수 숫자(int)만 들어감
             if v_match: self.book_meta[fp]['Volume'] = str(int(v_match.group(1)))
             if c_match: self.book_meta[fp]['Number'] = str(int(c_match.group(1)))
             
         self._load_dict_to_ui(self.current_meta_file)
-        from PyQt6.QtWidgets import QMessageBox
-        QMessageBox.information(self, t.get("msg_done", "완료"), t.get("t3_msg_auto_title_done", "자동 입력이 완료되었습니다."))
-        t = self.main_app.i18n[self.main_app.lang]
-        if not self.current_meta_file: return
-        parent_dir = str(Path(self.current_meta_file).parent)
         
-        import re
-        for f in self.meta_data.get(parent_dir, []):
-            fp = str(f); title = f.stem
-            
-            # 🌟 정규식 multiple repeat 문법 오류 수정 완료
-            clean_title = re.sub(r'^\[.*?\]\s*', '', title)
-            clean_title = re.sub(r'^\(.*?\(?\)?\)\s*', '', clean_title)
-            
-            v_match = re.search(r'(?i)(?:vol\.|v\.)\s*(\d+)', title) or re.search(r'제?\s*(\d+)\s*권', title) or re.search(r'\b(\d+)\s*$', title.strip())
-            c_match = re.search(r'(?i)(?:ch\.|chapter)\s*(\d+)', title) or re.search(r'제?\s*(\d+)\s*화', title)
-            
-            series_name = re.sub(r'\s*제?\d+\s*(?:권|화|편).*$', '', clean_title)
-            series_name = re.sub(r'(?i)\s*(?:vol\.|v\.|ch\.|chapter)\s*\d+.*$', '', series_name)
-            series_name = re.sub(r'\s*(?:-\s*)?\d+\s*$', '', series_name)
-            series_name = series_name.strip()
-            
-            if series_name: self.book_meta[fp]['Title'] = series_name
-            if v_match: self.book_meta[fp]['Volume'] = str(int(v_match.group(1)))
-            if c_match: self.book_meta[fp]['Number'] = str(int(c_match.group(1)))
-            
-        self._load_dict_to_ui(self.current_meta_file)
         from PyQt6.QtWidgets import QMessageBox
         QMessageBox.information(self, t.get("msg_done", "완료"), t.get("t3_msg_auto_title_done", "자동 입력이 완료되었습니다."))
-        t = self.main_app.i18n[self.main_app.lang]
-        if not self.current_meta_file: return
-        parent_dir = str(Path(self.current_meta_file).parent)
-        for f in self.meta_data.get(parent_dir, []):
-            fp = str(f); title = f.stem
-            
-            clean_title = re.sub(r'^\[.*?\]\s*', '', title)
-            clean_title = re.sub(r'^\(.*?\(?\)?\)\s*', '', clean_title)
-            
-            v_match = re.search(r'(?i)(?:vol\.|v\.)\s*(\d+)', title) or re.search(r'제?\s*(\d+)\s*권', title) or re.search(r'\b(\d+)\s*$', title.strip())
-            c_match = re.search(r'(?i)(?:ch\.|chapter)\s*(\d+)', title) or re.search(r'제?\s*(\d+)\s*화', title)
-            
-            series_name = re.sub(r'\s*제?\d+\s*(?:권|화|편).*$', '', clean_title)
-            series_name = re.sub(r'(?i)\s*(?:vol\.|v\.|ch\.|chapter)\s*\d+.*$', '', series_name)
-            series_name = re.sub(r'\s*(?:-\s*)?\d+\s*$', '', series_name)
-            series_name = series_name.strip()
-            
-            if series_name: self.book_meta[fp]['Title'] = series_name
-            if v_match: self.book_meta[fp]['Volume'] = str(int(v_match.group(1)))
-            if c_match: self.book_meta[fp]['Number'] = str(int(c_match.group(1)))
-            
-        self._load_dict_to_ui(self.current_meta_file)
-        QMessageBox.information(self, t.get("msg_done", ""), t.get("t3_msg_auto_title_done", ""))
-        t = self.main_app.i18n[self.main_app.lang]
-        if not self.current_meta_file: return
-        parent_dir = str(Path(self.current_meta_file).parent)
-        for f in self.meta_data.get(parent_dir, []):
-            fp = str(f); title = f.stem
-            
-            clean_title = re.sub(r'^\[.*?\]\s*|^\(.*??\)\s*', '', title)
-            v_match = re.search(r'(?i)(?:vol\.|v\.|권)\s*(\d+)', title) or re.search(r'(\d+)\s*권', title) or re.search(r'\b(\d+)\s*$', title.strip())
-            c_match = re.search(r'(?i)(?:ch\.|chapter|화)\s*(\d+)', title) or re.search(r'(\d+)\s*화', title)
-            
-            series_name = re.sub(r'(?i)(?:vol\.|v\.|권)\s*\d+.*', '', clean_title)
-            series_name = re.sub(r'(?i)(?:ch\.|chapter|화)\s*\d+.*', '', series_name)
-            series_name = re.sub(r'\s*(?:-\s*)?\d+\s*$', '', series_name)
-            series_name = series_name.strip()
-            
-            if series_name: self.book_meta[fp]['Title'] = series_name
-            if v_match: self.book_meta[fp]['Volume'] = str(int(v_match.group(1)))
-            if c_match: self.book_meta[fp]['Number'] = str(int(c_match.group(1)))
-            
-        self._load_dict_to_ui(self.current_meta_file)
-        QMessageBox.information(self, t.get("msg_done", ""), t.get("t3_msg_auto_title_done", ""))
 
     def action_auto_volume(self):
         t = self.main_app.i18n[self.main_app.lang]

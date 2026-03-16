@@ -10,5 +10,12 @@
     "width": 1100,
     "height": 1120,
     "is_maximized": false,
-    "last_tab_index": 2
+    "last_tab_index": 2,
+    "api_keys": {
+        "aladin": "ttbeyecandyzero0929001",
+        "vine": "",
+        "google": "",
+        "comicbox_url": "",
+        "comicbox_token": ""
+    }
 }
