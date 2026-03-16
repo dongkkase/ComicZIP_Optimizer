@@ -15,14 +15,15 @@ import qtawesome as qta
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit, 
     QFrame, QSizePolicy, QTreeWidgetItem, QStackedWidget, QGroupBox,
-    QTextEdit, QComboBox, QGridLayout, QScrollArea, QMessageBox, QCheckBox, QLayout, QSpacerItem
+    QTextEdit, QComboBox, QGridLayout, QScrollArea, QMessageBox, QCheckBox, QLayout, QSpacerItem, QApplication
 )
 from PyQt6.QtCore import Qt, QTimer, QSize, QRect, QPoint, QThread, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap, QPainter, QPainterPath, QColor
 
 from utils import natural_keys
 from config import get_resource_path
-from ui.widgets import OrgTreeWidget
+from ui.widgets import OrgTreeWidget, Toast
+from core.api_fetcher import MetaApiFetcher
 
 class FlowLayout(QLayout):
     def __init__(self, parent=None, margin=4, spacing=4):
@@ -223,7 +224,6 @@ class Tab3Metadata(QWidget):
         page_empty = QWidget()
         layout_empty = QVBoxLayout(page_empty)
         
-        # 🌟 folder-open 아이콘 적용
         self.icon_empty_meta = QLabel()
         self.icon_empty_meta.setPixmap(qta.icon('fa5s.folder-open', color='#aaaaaa').pixmap(64, 64))
         self.icon_empty_meta.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -566,14 +566,23 @@ class Tab3Metadata(QWidget):
                     fp = str(f)
                     if fp in self.book_meta: self.book_meta[fp][key] = val; count += 1
                 t_now = self.main_app.i18n[self.main_app.lang]
-                QMessageBox.information(self, t_now.get("msg_done", ""), t_now.get("t3_msg_applied_series_tag", "").format(count=count))
+                Toast.show(self.main_app, t_now.get("t3_msg_applied_char_series", "").format(count=count))
             btn_series.clicked.connect(apply_to_series)
             self.meta_ui_fields[key] = {'my': le_my, 'res': le_res, 'is_text': False, 'is_combo': False, 'is_tag': True, 'lbl': lbl_widget, 't_key': t_key, 'is_cb': True}
             return start_row + 1
 
         self.group_basic, gl_basic = create_group_box(t.get("t3_nav_basic", "").replace("\n"," "))
-        self.lbl_col_orig = QLabel(f"<b>{t.get('t3_col_orig', '')}</b>"); self.lbl_col_res = QLabel(f"<b>{t.get('t3_col_res', '')}</b>")
-        gl_basic.addWidget(self.lbl_col_orig, 0, 1, alignment=Qt.AlignmentFlag.AlignCenter); gl_basic.addWidget(self.lbl_col_res, 0, 3, alignment=Qt.AlignmentFlag.AlignCenter)
+        
+        # 🌟 상단 텍스트 라벨 명시적으로 생성 및 스타일(색상) 강제 적용
+        self.lbl_col_orig = QLabel(t.get('t3_col_orig', '원본'))
+        self.lbl_col_res = QLabel(t.get('t3_col_res', '일괄 편집'))
+        
+        self.lbl_col_orig.setStyleSheet("color: #3498DB; font-size: 13px; font-weight: bold;")
+        self.lbl_col_res.setStyleSheet("color: #E67E22; font-size: 13px; font-weight: bold;")
+        
+        gl_basic.addWidget(self.lbl_col_orig, 0, 1, alignment=Qt.AlignmentFlag.AlignCenter)
+        gl_basic.addWidget(self.lbl_col_res, 0, 3, alignment=Qt.AlignmentFlag.AlignCenter)
+        
         add_row(gl_basic, 1, 'Title', 't3_f_title'); add_row(gl_basic, 2, 'Series', 't3_f_series'); add_row(gl_basic, 3, 'SeriesGroup', 't3_f_sgroup')
         add_row(gl_basic, 4, 'Count', 't3_f_count', is_num=True); add_row(gl_basic, 5, 'Volume', 't3_f_vol', is_num=True); add_row(gl_basic, 6, 'Number', 't3_f_num', is_num=True)
         add_row(gl_basic, 7, 'PageCount', 't3_f_page', is_num=True); add_row(gl_basic, 8, 'Summary', 't3_f_sum', is_text=True); scroll_layout.addWidget(self.group_basic)
@@ -611,7 +620,7 @@ class Tab3Metadata(QWidget):
                 fp = str(f)
                 if fp in self.book_meta: self.book_meta[fp]['Characters'] = val; count += 1
             t_now = self.main_app.i18n[self.main_app.lang]
-            QMessageBox.information(self, t_now.get("msg_done", ""), t_now.get("t3_msg_applied_char_series", "").format(count=count))
+            Toast.show(self.main_app, t_now.get("t3_msg_applied_char_series", "").format(count=count))
         btn_char_series.clicked.connect(apply_char_to_series)
         self.meta_ui_fields['Characters'] = {'my': le_char_my, 'res': le_char_res, 'is_text': False, 'is_combo': False, 'is_tag': True, 'lbl': lbl_char, 't_key': 't3_f_char'}
         scroll_layout.addWidget(self.group_genre_tags)
@@ -650,6 +659,13 @@ class Tab3Metadata(QWidget):
         self.btn_auto_vol = QPushButton(t.get("t3_auto_vol", ""))
         self.btn_auto_chap = QPushButton(t.get("t3_auto_chap", ""))
         self.btn_auto_pages = QPushButton(t.get("t3_auto_pages", ""))
+        
+        self.btn_auto_match = QPushButton(t.get("t3_auto_match", "🤖 시리즈 자동 매칭"))
+        self.btn_auto_match.setToolTip(t.get("t3_tt_auto_match", ""))
+        self.btn_auto_match.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_auto_match.setStyleSheet("background-color: #E67E22; color: white; font-weight: bold; padding: 6px 12px; border-radius: 4px;")
+        self.btn_auto_match.clicked.connect(self.action_auto_match_series)
+        
         self.btn_meta_save = QPushButton(t.get("t3_save", ""))
         self.btn_meta_save_all = QPushButton(t.get("t3_save_all", ""))
 
@@ -665,8 +681,8 @@ class Tab3Metadata(QWidget):
         
         for btn in [self.btn_auto_title, self.btn_auto_vol, self.btn_auto_chap, self.btn_auto_pages, self.btn_meta_save, self.btn_meta_save_all]:
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_meta_save_all.setStyleSheet("background-color: #27AE60; color: white; font-weight: bold;")
-        self.btn_meta_save.setStyleSheet("background-color: #3498DB; color: white; font-weight: bold;")
+        self.btn_meta_save_all.setStyleSheet("background-color: #27AE60; color: white; font-weight: bold; padding: 6px 12px; border-radius: 4px;")
+        self.btn_meta_save.setStyleSheet("background-color: #3498DB; color: white; font-weight: bold; padding: 6px 12px; border-radius: 4px;")
         
         self.btn_auto_title.clicked.connect(self.action_auto_title)
         self.btn_auto_vol.clicked.connect(self.action_auto_volume)
@@ -675,6 +691,7 @@ class Tab3Metadata(QWidget):
         self.btn_meta_save.clicked.connect(self.action_save_single)
         self.btn_meta_save_all.clicked.connect(self.action_save_all)
         
+        bottom_btn_layout.addWidget(self.btn_auto_match)
         bottom_btn_layout.addWidget(self.btn_auto_title); bottom_btn_layout.addWidget(self.btn_auto_vol)
         bottom_btn_layout.addWidget(self.btn_auto_chap); bottom_btn_layout.addWidget(self.btn_auto_pages)
         bottom_btn_layout.addStretch(); bottom_btn_layout.addWidget(self.btn_meta_save); bottom_btn_layout.addWidget(self.btn_meta_save_all)
@@ -698,14 +715,18 @@ class Tab3Metadata(QWidget):
         self.btn_copy_orig.setText(t.get("t3_btn_copy_orig", ""))
         self.btn_apply_all.setText(t.get("t3_btn_apply_all", ""))
         self.btn_apply_series.setText(t.get("t3_btn_apply_series", ""))
-        self.lbl_col_orig.setText(f"<b>{t.get('t3_col_orig', '')}</b>")
-        self.lbl_col_res.setText(f"<b>{t.get('t3_col_res', '')}</b>")
+        
+        self.lbl_col_orig.setText(t.get('t3_col_orig', '원본'))
+        self.lbl_col_res.setText(t.get('t3_col_res', '일괄 편집'))
         
         self.group_basic.setTitle(t.get("t3_nav_basic", "").replace("\n"," "))
         self.group_crew.setTitle(t.get("t3_nav_crew", "").replace("\n"," "))
         self.group_publish.setTitle(t.get("t3_nav_publish", "").replace("\n"," "))
         self.group_genre_tags.setTitle(t.get("t3_nav_genre", "").replace("\n"," "))
         self.group_etc.setTitle(t.get("t3_nav_etc", "").replace("\n"," "))
+        
+        self.btn_auto_match.setText(t.get("t3_auto_match", "🤖 시리즈 자동 매칭"))
+        self.btn_auto_match.setToolTip(t.get("t3_tt_auto_match", ""))
         
         self.btn_auto_title.setText(t.get("t3_auto_title", ""))
         self.btn_auto_vol.setText(t.get("t3_auto_vol", ""))
@@ -740,9 +761,92 @@ class Tab3Metadata(QWidget):
     def set_right_panel_active(self, active):
         self.scroll_area.setEnabled(active); self.cb_meta_api.setEnabled(active)
         self.le_meta_search.setEnabled(active); self.btn_meta_search.setEnabled(active)
-        for b in [self.btn_auto_title, self.btn_auto_vol, self.btn_auto_chap, self.btn_auto_pages, self.btn_meta_save, self.btn_meta_save_all]: b.setEnabled(active)
+        for b in [self.btn_auto_match, self.btn_auto_title, self.btn_auto_vol, self.btn_auto_chap, self.btn_auto_pages, self.btn_meta_save, self.btn_meta_save_all]: b.setEnabled(active)
         if active: self.right_overlay.hide()
         else: self.right_overlay.show(); self.right_overlay.raise_()
+
+    def action_auto_match_series(self):
+        t = self.main_app.i18n[self.main_app.lang]
+        if not self.current_meta_file: return
+        parent_dir = str(Path(self.current_meta_file).parent)
+        folder_name = os.path.basename(parent_dir)
+        
+        self.main_app.lbl_status.setText("🤖 시리즈 메타데이터 자동 매칭 중...")
+        QApplication.processEvents()
+        
+        api_name = self.cb_meta_api.currentText()
+        api_keys = self.main_app.config.get("api_keys", {})
+        
+        results, _ = MetaApiFetcher.search(api_name, folder_name, api_keys, 1)
+        self.main_app.lbl_status.setText(t.get("status_wait", "대기 중..."))
+        
+        if not results or results == "RATE_LIMIT":
+            Toast.show(self.main_app, t.get("t3_msg_no_search_result", "검색 결과가 없습니다."))
+            return
+            
+        best_match = results[0]
+        
+        tag_rules = {}
+        rules_text = api_keys.get("tag_rules", "")
+        if rules_text:
+            for line in rules_text.split('\n'):
+                if '->' in line:
+                    srcs, dst = line.split('->')
+                    dst = dst.strip()
+                    for src in srcs.split(','):
+                        tag_rules[src.strip().lower()] = dst
+
+        def apply_rules(text):
+            if not text or not tag_rules: return text
+            items = [x.strip() for x in text.split(',')]
+            new_items = []
+            for item in items:
+                l_item = item.lower()
+                if l_item in tag_rules:
+                    mapped = tag_rules[l_item]
+                    if mapped and mapped not in new_items: new_items.append(mapped)
+                else:
+                    if item and item not in new_items: new_items.append(item)
+            return ", ".join(new_items)
+            
+        def parse_val(val):
+            if val is None or val == "" or val == "-": return ""
+            if isinstance(val, list): return ", ".join(str(x) for x in val)
+            if isinstance(val, str):
+                v_str = val.strip()
+                if v_str.startswith('[') and v_str.endswith(']'):
+                    import ast
+                    try:
+                        parsed = ast.literal_eval(v_str)
+                        if isinstance(parsed, list): return ", ".join(str(x) for x in parsed)
+                    except:
+                        try:
+                            import json
+                            parsed = json.loads(v_str)
+                            if isinstance(parsed, list): return ", ".join(str(x) for x in parsed)
+                        except: pass
+            return str(val)
+        
+        parsed_match = {k: parse_val(v) for k, v in best_match.items()}
+        parsed_match['Genre'] = apply_rules(parsed_match.get('Genre', ''))
+        parsed_match['Tags'] = apply_rules(parsed_match.get('Tags', ''))
+        
+        if 'Summary' in parsed_match:
+            parsed_match['Summary'] = parsed_match['Summary'].replace("<책소개>", "").replace("&lt;책소개&gt;", "")
+            parsed_match['Summary'] = re.sub(r'\n{2,}', '\n', parsed_match['Summary']).strip()
+            
+        exclude_keys = {'Volume', 'Number', 'PageCount'}
+        count = 0
+        for f in self.meta_data[parent_dir]:
+            fp = str(f)
+            if fp in self.book_meta:
+                for k, v in parsed_match.items():
+                    if k not in exclude_keys and k in self.meta_ui_fields:
+                        self.book_meta[fp][k] = v
+                count += 1
+                
+        self._load_dict_to_ui(self.current_meta_file)
+        Toast.show(self.main_app, t.get("t3_msg_auto_match_done", "시리즈 자동 매칭이 완료되었습니다."))
 
     def action_prev_vol(self):
         current = self.tree_meta_files.currentItem()
@@ -1072,13 +1176,16 @@ class Tab3Metadata(QWidget):
                         val = ','.join([x.strip() for x in val.split('\n') if x.strip()])
                     results_to_copy[key] = val
                     
-        if not results_to_copy: QMessageBox.information(self, t.get("msg_notice", ""), t.get("t3_msg_no_data_copy", "")); return
+        if not results_to_copy: 
+            Toast.show(self.main_app, t.get("t3_msg_no_data_copy", ""))
+            return
+            
         for f in self.meta_data[parent_dir]:
             fp = str(f)
             if fp in self.book_meta:
                 for k, v in results_to_copy.items(): self.book_meta[fp][k] = v
         self._load_dict_to_ui(self.current_meta_file)
-        QMessageBox.information(self, t.get("msg_done", ""), t.get("t3_msg_applied_series_all", ""))
+        Toast.show(self.main_app, t.get("t3_msg_applied_series_all", ""))
 
     def action_auto_title(self):
         t = self.main_app.i18n[self.main_app.lang]
@@ -1122,9 +1229,7 @@ class Tab3Metadata(QWidget):
             if c_match: self.book_meta[fp]['Number'] = str(int(c_match.group(1)))
             
         self._load_dict_to_ui(self.current_meta_file)
-        
-        from PyQt6.QtWidgets import QMessageBox
-        QMessageBox.information(self, t.get("msg_done", "완료"), t.get("t3_msg_auto_title_done", "자동 입력이 완료되었습니다."))
+        Toast.show(self.main_app, t.get("t3_msg_auto_title_done", ""))
 
     def action_auto_volume(self):
         t = self.main_app.i18n[self.main_app.lang]
@@ -1135,7 +1240,7 @@ class Tab3Metadata(QWidget):
             match = re.search(r'(?i)(?:vol\.|v\.|권)\s*(\d+)', title) or re.search(r'제?\s*(\d+)\s*권', title) or re.search(r'\b(\d+)\s*$', title.strip())
             if match: self.book_meta[fp]['Volume'] = str(int(match.group(1)))
         self._load_dict_to_ui(self.current_meta_file)
-        QMessageBox.information(self, t.get("msg_done", ""), t.get("t3_msg_auto_vol_done", ""))
+        Toast.show(self.main_app, t.get("t3_msg_auto_vol_done", ""))
 
     def action_auto_chapter(self):
         t = self.main_app.i18n[self.main_app.lang]
@@ -1146,7 +1251,7 @@ class Tab3Metadata(QWidget):
             match = re.search(r'(?i)(?:ch\.|chapter|화)\s*(\d+)', title) or re.search(r'제?\s*(\d+)\s*화', title)
             if match: self.book_meta[fp]['Number'] = str(int(match.group(1)))
         self._load_dict_to_ui(self.current_meta_file)
-        QMessageBox.information(self, t.get("msg_done", ""), t.get("t3_msg_auto_chap_done", ""))
+        Toast.show(self.main_app, t.get("t3_msg_auto_chap_done", ""))
 
     def action_auto_pages(self):
         t = self.main_app.i18n[self.main_app.lang]
@@ -1161,7 +1266,7 @@ class Tab3Metadata(QWidget):
                 except: pass
             if img_count > 0: self.book_meta[fp]['PageCount'] = str(img_count)
         self._load_dict_to_ui(self.current_meta_file)
-        QMessageBox.information(self, t.get("msg_done", ""), t.get("t3_msg_auto_pages_done", ""))
+        Toast.show(self.main_app, t.get("t3_msg_auto_pages_done", ""))
 
     def remove_selected(self):
         selected_items = self.tree_meta_files.selectedItems()
@@ -1304,7 +1409,7 @@ class Tab3Metadata(QWidget):
         self.main_app.lbl_status.setText(t.get("status_wait", ""))
         
         if success: 
-            QMessageBox.information(self, t.get("msg_done", ""), t.get("t3_msg_save_single_done", ""))
+            Toast.show(self.main_app, t.get("t3_msg_save_single_done", ""))
             self.refresh_tree() 
         else: 
             QMessageBox.warning(self, t.get("msg_failed", ""), t.get("t3_msg_save_failed_reason", "").format(msg=msg))
@@ -1316,7 +1421,7 @@ class Tab3Metadata(QWidget):
         
         targets = {fp: data for fp, data in self.book_meta.items() if os.path.exists(fp)}
         if not targets:
-            QMessageBox.information(self, t.get("msg_notice", ""), t.get("t3_msg_no_data_copy", ""))
+            Toast.show(self.main_app, t.get("t3_msg_no_data_copy", ""))
             return
 
         self.set_right_panel_active(False)
@@ -1345,7 +1450,7 @@ class Tab3Metadata(QWidget):
         self.main_app.lbl_status.setText(t.get("status_wait", ""))
         
         msg = t.get("t3_msg_save_all_done", "").format(success_count=success_count, fail_count=fail_count)
-        QMessageBox.information(self, t.get("t3_msg_save_all_title", ""), msg)
+        Toast.show(self.main_app, msg)
         self.refresh_tree()
 
     def action_search_api(self):
@@ -1354,8 +1459,7 @@ class Tab3Metadata(QWidget):
         query = self.le_meta_search.text().strip()
         
         if not query:
-            from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.warning(self, t.get("msg_notice", "안내"), "검색어를 입력해주세요.")
+            Toast.show(self.main_app, "검색어를 입력해주세요." if self.main_app.lang == "ko" else "Please enter a search keyword.")
             return
             
         series_val = self.meta_ui_fields['Series']['my'].text().strip()

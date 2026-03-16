@@ -8,12 +8,13 @@ from PyQt6.QtWidgets import (
     QWidget, QFormLayout, QComboBox, QSplitter, QScrollArea, QFrame,
     QListWidget, QListWidgetItem, QSizePolicy, QApplication
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QImage, QPixmap, QPainter, QPainterPath
 import qtawesome as qta
 
 from core.api_fetcher import MetaApiFetcher
 from config import get_resource_path
+from ui.widgets import Toast
 
 def similar(a, b): return difflib.SequenceMatcher(None, a, b).ratio()
 
@@ -34,7 +35,7 @@ class ImageLoadThread(QThread):
             return
             
         try:
-            with sqlite3.connect(DB_PATH) as conn:
+            with sqlite3.connect(DB_PATH, timeout=10) as conn:
                 c = conn.cursor()
                 c.execute("SELECT data FROM img_cache WHERE url=?", (self.url,))
                 row = c.fetchone()
@@ -48,7 +49,7 @@ class ImageLoadThread(QThread):
             if resp.status_code == 200:
                 img_data = resp.content
                 try:
-                    with sqlite3.connect(DB_PATH) as conn:
+                    with sqlite3.connect(DB_PATH, timeout=10) as conn:
                         c = conn.cursor()
                         c.execute("INSERT OR REPLACE INTO img_cache (url, data) VALUES (?, ?)", (self.url, img_data))
                         conn.commit()
@@ -73,7 +74,10 @@ class SearchWorker(QThread):
         
     def run(self):
         results, actual_query = MetaApiFetcher.search(self.api_name, self.query, self.api_keys, self.page)
-        self.finished_results.emit(results, actual_query)
+        if isinstance(results, str) and results == "RATE_LIMIT":
+            self.finished_results.emit([], "RATE_LIMIT")
+        else:
+            self.finished_results.emit(results, actual_query)
 
 
 class TranslateWorker(QThread):
@@ -112,7 +116,7 @@ class TranslateWorker(QThread):
         uncached_data = {}
         
         try:
-            with sqlite3.connect(DB_PATH) as conn:
+            with sqlite3.connect(DB_PATH, timeout=10) as conn:
                 c = conn.cursor()
                 c.execute("CREATE TABLE IF NOT EXISTS trans_cache (original TEXT PRIMARY KEY, translated TEXT)")
                 for f in fields_to_translate:
@@ -140,17 +144,15 @@ class TranslateWorker(QThread):
         ai_success = False
         
         lang_map = {"ko": "Korean", "en": "English", "ja": "Japanese"}
-        lang_name = lang_map.get(self.target_lang, "English")
+        lang_name = lang_map.get(self.target_lang, "Korean")
         
         if ai_enabled and ai_key:
-            import json
             prompt = (
                 "You are an expert translator specializing in comic books, manga, and graphic novels. "
                 f"Translate the values of the following JSON object into natural {lang_name}. "
                 "Keep in mind the premise that this is comic book metadata (e.g., Summary is a book synopsis, Tags/Genres are comic genres, Characters are fictional names). "
                 f"Use terminology commonly used in the {lang_name} comic/manga market. "
-                "Preserve the exact JSON keys. Output ONLY valid JSON without Markdown formatting.\n\n"
-                + json.dumps(uncached_data, ensure_ascii=False)
+                "Preserve the exact JSON keys. Output ONLY valid JSON."
             )
             
             try:
@@ -158,36 +160,44 @@ class TranslateWorker(QThread):
                 if ai_provider == "OpenAI":
                     url = "https://api.openai.com/v1/chat/completions"
                     headers = {"Authorization": f"Bearer {ai_key}", "Content-Type": "application/json"}
-                    payload = {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}], "temperature": 0.3}
+                    payload = {
+                        "model": "gpt-4o-mini",
+                        "response_format": {"type": "json_object"},
+                        "messages": [
+                            {"role": "system", "content": prompt},
+                            {"role": "user", "content": json.dumps(uncached_data, ensure_ascii=False)}
+                        ],
+                        "temperature": 0.3
+                    }
                     resp = requests.post(url, headers=headers, json=payload, timeout=15)
                     if resp.status_code == 200:
                         res_text = resp.json()["choices"][0]["message"]["content"].strip()
                 elif ai_provider == "Gemini":
                     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={ai_key}"
                     headers = {"Content-Type": "application/json"}
-                    payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.3}}
+                    payload = {
+                        "contents": [{"parts": [{"text": prompt + "\n\n" + json.dumps(uncached_data, ensure_ascii=False)}]}],
+                        "generationConfig": {"temperature": 0.3, "responseMimeType": "application/json"}
+                    }
                     resp = requests.post(url, headers=headers, json=payload, timeout=15)
                     if resp.status_code == 200:
                         res_text = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
                         
                 if res_text:
-                    import re
-                    json_match = re.search(r'\{.*\}', res_text, re.DOTALL)
-                    if json_match:
-                        parsed_json = json.loads(json_match.group(0))
-                        try:
-                            with sqlite3.connect(DB_PATH) as conn:
-                                c = conn.cursor()
-                                for k, original_val in uncached_data.items():
-                                    translated_val = parsed_json.get(k)
-                                    if translated_val:
-                                        translated_data[k] = translated_val
-                                        c.execute("INSERT OR REPLACE INTO trans_cache (original, translated) VALUES (?, ?)", (f"{original_val}::lang_{self.target_lang}", translated_val))
-                                conn.commit()
-                            ai_success = True
-                        except: pass
+                    parsed_json = json.loads(res_text)
+                    try:
+                        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                            c = conn.cursor()
+                            for k, original_val in uncached_data.items():
+                                translated_val = parsed_json.get(k)
+                                if translated_val:
+                                    translated_data[k] = translated_val
+                                    c.execute("INSERT OR REPLACE INTO trans_cache (original, translated) VALUES (?, ?)", (f"{original_val}::lang_{self.target_lang}", translated_val))
+                            conn.commit()
+                        ai_success = True
+                    except: pass
             except Exception as e:
-                print(f"Detail AI Translation failed: {e}")
+                pass
 
         if not ai_success:
             def fallback_translate(text):
@@ -201,7 +211,7 @@ class TranslateWorker(QThread):
                 return text
 
             try:
-                with sqlite3.connect(DB_PATH) as conn:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
                     c = conn.cursor()
                     for k, original_val in uncached_data.items():
                         translated_val = fallback_translate(original_val)
@@ -221,7 +231,7 @@ class SearchResultWidget(QWidget):
         super().__init__(parent)
         self.cover_url = data.get("CoverUrl", "")
         
-        self.setStyleSheet("background-color: transparent;")
+        self.setStyleSheet("SearchResultWidget { background-color: transparent; }")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         
         def parse_val(val):
@@ -249,7 +259,7 @@ class SearchResultWidget(QWidget):
         
         self.lbl_thumb = QLabel()
         self.lbl_thumb.setFixedSize(45, 64)
-        self.lbl_thumb.setStyleSheet("background-color: transparent;")
+        self.lbl_thumb.setStyleSheet("QLabel { background-color: transparent; border: none; }")
         self.lbl_thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._set_default_thumb()
         
@@ -262,7 +272,7 @@ class SearchResultWidget(QWidget):
         self.lbl_title = QLabel(parse_val(data.get("Title", "")))
         self.lbl_title.setWordWrap(True)
         self.lbl_title.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-        self.lbl_title.setStyleSheet("font-weight: bold; font-size: 14px; color: #EAEAEA; background-color: transparent; border: none; outline: none;")
+        self.lbl_title.setStyleSheet("QLabel { font-weight: bold; font-size: 14px; color: #EAEAEA; background-color: transparent; border: none; outline: none; }")
         info_layout.addWidget(self.lbl_title)
         
         raw_summary = parse_val(data.get("Summary", ""))
@@ -274,7 +284,7 @@ class SearchResultWidget(QWidget):
         self.lbl_summary = QLabel(clean_summary)
         self.lbl_summary.setWordWrap(False) 
         self.lbl_summary.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-        self.lbl_summary.setStyleSheet("color: #999999; font-size: 12px; background-color: transparent; border: none; outline: none;")
+        self.lbl_summary.setStyleSheet("QLabel { color: #999999; font-size: 12px; background-color: transparent; border: none; outline: none; }")
         
         if clean_summary:
             info_layout.addWidget(self.lbl_summary)
@@ -289,12 +299,12 @@ class SearchResultWidget(QWidget):
         
         def add_meta_item(text, color):
             lbl = QLabel(text)
-            lbl.setStyleSheet(f"color: {color}; font-size: 11px; background-color: transparent; border: none; outline: none;")
+            lbl.setStyleSheet(f"QLabel {{ color: {color}; font-size: 11px; background-color: transparent; border: none; outline: none; }}")
             meta_layout.addWidget(lbl)
             
         def add_divider():
             lbl = QLabel("|")
-            lbl.setStyleSheet("color: rgba(255, 255, 255, 0.3); font-size: 9px; background-color: transparent; border: none; outline: none;")
+            lbl.setStyleSheet("QLabel { color: rgba(255, 255, 255, 0.3); font-size: 9px; background-color: transparent; border: none; outline: none; }")
             meta_layout.addWidget(lbl)
 
         items_added = 0
@@ -311,11 +321,16 @@ class SearchResultWidget(QWidget):
             if items_added > 0: add_divider()
             star_layout = QHBoxLayout()
             star_layout.setContentsMargins(0,0,0,0)
-            star_layout.setSpacing(2)
+            star_layout.setSpacing(4)
+            
+            # 🌟 테두리가 강제로 그려지는 현상을 막기 위해 QLabel 지정 스타일링
             star_icon = QLabel()
-            star_icon.setPixmap(qta.icon('fa5s.star', color='#f1c40f').pixmap(10, 10))
+            star_icon.setPixmap(qta.icon('fa5s.star', color='#f1c40f').pixmap(11, 11))
+            star_icon.setStyleSheet("QLabel { background-color: transparent; border: none; outline: none; }") 
+            
             star_lbl = QLabel(rating)
-            star_lbl.setStyleSheet("color: #F1C40F; font-size: 11px; background-color: transparent; border: none; outline: none;")
+            star_lbl.setStyleSheet("QLabel { color: #F1C40F; font-size: 11px; font-weight: bold; background-color: transparent; border: none; outline: none; }")
+            
             star_layout.addWidget(star_icon)
             star_layout.addWidget(star_lbl)
             meta_layout.addLayout(star_layout)
@@ -355,9 +370,9 @@ class SearchResultWidget(QWidget):
                 
                 self.lbl_thumb.setPixmap(rounded_pixmap)
             except:
-                self.lbl_thumb.setStyleSheet("background-color: #333; border-radius: 5px;")
+                self.lbl_thumb.setStyleSheet("QLabel { background-color: #333; border-radius: 5px; }")
         else:
-            self.lbl_thumb.setStyleSheet("background-color: #333; border-radius: 5px;")
+            self.lbl_thumb.setStyleSheet("QLabel { background-color: #333; border-radius: 5px; }")
             
     def on_image_loaded(self, img_data, url):
         try:
@@ -401,6 +416,16 @@ class ApiSearchDialog(QDialog):
         self.t = t if t else {}
         self.api_keys = parent.main_app.config.get("api_keys", {}) if parent and hasattr(parent, "main_app") else {}
         
+        self.tag_rules = {}
+        rules_text = self.api_keys.get("tag_rules", "")
+        if rules_text:
+            for line in rules_text.split('\n'):
+                if '->' in line:
+                    srcs, dst = line.split('->')
+                    dst = dst.strip()
+                    for src in srcs.split(','):
+                        self.tag_rules[src.strip().lower()] = dst
+                        
         self.target_lang = parent.main_app.lang if parent and hasattr(parent, "main_app") else "ko"
         
         self.search_results = []
@@ -534,8 +559,11 @@ class ApiSearchDialog(QDialog):
         
         scroll_content = QWidget()
         scroll_content.setStyleSheet("background-color: #444; border: none;") 
+        
+        # 🌟 메인 레이아웃을 다시 수직 배치(QVBoxLayout)로 복구했습니다.
         detail_layout = QVBoxLayout(scroll_content)
         detail_layout.setContentsMargins(15, 15, 15, 15)
+        detail_layout.setSpacing(10)
         
         title_layout = QHBoxLayout()
         self.lbl_detail_title = QLabel("-")
@@ -544,7 +572,7 @@ class ApiSearchDialog(QDialog):
         self.lbl_detail_title.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.lbl_detail_title.setCursor(Qt.CursorShape.IBeamCursor)
         
-        self.btn_translate = QPushButton(self.t.get("btn_translate_web", "번역"))
+        self.btn_translate = QPushButton(f" {self.t.get('btn_translate_web', '번역')}")
         self.btn_translate.setIcon(qta.icon('fa5s.language', color='white'))
         self.btn_translate.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_translate.setStyleSheet("background-color: #27AE60; color: white; padding: 5px 15px; border-radius: 4px; font-weight: bold;")
@@ -558,29 +586,72 @@ class ApiSearchDialog(QDialog):
         line1 = QFrame(); line1.setFrameShape(QFrame.Shape.HLine); line1.setStyleSheet("color: #666;")
         detail_layout.addWidget(line1)
         
+        # 🌟 이미지와 정보 폼이 가로로 나란히(QHBoxLayout) 배치되도록 분리했습니다.
         info_layout = QHBoxLayout()
+        info_layout.setSpacing(15)
+        
         self.lbl_cover = QLabel()
         self.lbl_cover.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_cover.setFixedSize(160, 240)
-        self.lbl_cover.setStyleSheet("background-color: transparent; color: #555;")
+        self.lbl_cover.setStyleSheet("background-color: transparent; border: none; outline: none; color: #555;")
         self._set_placeholder_image() 
         
         info_layout.addWidget(self.lbl_cover, alignment=Qt.AlignmentFlag.AlignTop)
         
         self.form_layout = QFormLayout()
-        self.form_layout.setContentsMargins(15, 0, 0, 0); self.form_layout.setSpacing(10)
+        self.form_layout.setContentsMargins(0, 0, 0, 0)
+        self.form_layout.setSpacing(10)
         
         self.detail_labels = {}
         fields_to_show = [
             ("Writer", self.t.get("meta_writer", "작가")), 
             ("Publisher", self.t.get("meta_publisher", "출판사")), 
             ("Genre", self.t.get("meta_genre", "장르")), 
-            ("Count", self.t.get("meta_count", "전체권수")), 
-            ("Rating", self.t.get("meta_rating", "평점")), 
+            ("Count", self.t.get("meta_count", "전체권수"))
+        ]
+        
+        for key, label_text in fields_to_show:
+            lbl_val = QLabel("-")
+            lbl_val.setWordWrap(True)
+            lbl_val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            lbl_val.setStyleSheet("color: #ddd; font-size: 13px;")
+            lbl_val.setCursor(Qt.CursorShape.IBeamCursor)
+            
+            lbl_title = QLabel(f"{label_text}")
+            lbl_title.setStyleSheet("font-weight: bold; color: #aaa;")
+            self.form_layout.addRow(lbl_title, lbl_val)
+            self.detail_labels[key] = lbl_val
+            
+        rating_title = QLabel(self.t.get("meta_rating", "평점"))
+        rating_title.setStyleSheet("font-weight: bold; color: #aaa;")
+        
+        rating_container = QWidget()
+        rating_layout = QHBoxLayout(rating_container)
+        rating_layout.setContentsMargins(0, 0, 0, 0)
+        rating_layout.setSpacing(5)
+        
+        self.detail_star_icon = QLabel()
+        self.detail_star_icon.setPixmap(qta.icon('fa5s.star', color='#f1c40f').pixmap(12, 12))
+        self.detail_star_icon.setStyleSheet("QLabel { background-color: transparent; border: none; outline: none; }")
+        self.detail_star_icon.hide() 
+        
+        lbl_rating = QLabel("-")
+        lbl_rating.setWordWrap(True)
+        lbl_rating.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        lbl_rating.setStyleSheet("color: #ddd; font-size: 13px;")
+        lbl_rating.setCursor(Qt.CursorShape.IBeamCursor)
+        
+        rating_layout.addWidget(self.detail_star_icon)
+        rating_layout.addWidget(lbl_rating, 1)
+        
+        self.form_layout.addRow(rating_title, rating_container)
+        self.detail_labels["Rating"] = lbl_rating
+        
+        fields_to_show_bottom = [
             ("AgeRating", self.t.get("meta_age_rating", "연령등급")), 
             ("PubDate", self.t.get("meta_pub_date", "출간일"))
         ]
-        for key, label_text in fields_to_show:
+        for key, label_text in fields_to_show_bottom:
             lbl_val = QLabel("-")
             lbl_val.setWordWrap(True)
             lbl_val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -679,6 +750,9 @@ class ApiSearchDialog(QDialog):
             self.lbl_cover.setText(self.t.get("no_image", "이미지 없음"))
 
     def action_manual_search(self):
+        self.btn_search.setEnabled(False)
+        QTimer.singleShot(1500, lambda: self.btn_search.setEnabled(True))
+        
         self.current_api = self.cb_api.currentText()
         self.current_query = self.le_query.text().strip()
         self.current_page = 1 
@@ -712,7 +786,6 @@ class ApiSearchDialog(QDialog):
             return
         
         self.list_widget.clear()
-        self.btn_search.setEnabled(False)
         self.btn_prev_page.setEnabled(False)
         self.btn_next_page.setEnabled(False)
         
@@ -735,9 +808,12 @@ class ApiSearchDialog(QDialog):
         self.btn_next_page.setEnabled(False)
 
     def _on_search_finished(self, raw_results, actual_query):
-        self.btn_search.setEnabled(True)
+        if isinstance(raw_results, list) and not raw_results and actual_query == "RATE_LIMIT":
+            Toast.show(self, self.t.get("api_rate_limit", "API 호출 한도 초과입니다. 잠시 후 다시 시도해주세요."))
+            self.lbl_result_count.setText("⚠️ API 호출 제한")
+            return
+
         self.search_results = raw_results 
-        
         count = len(self.search_results)
         
         res_text = f"{self.t.get('search_result_prefix', '검색 결과:')} {count}{self.t.get('search_result_suffix', '건')}"
@@ -769,7 +845,7 @@ class ApiSearchDialog(QDialog):
         self.is_translated = False
         
         self.btn_translate.setEnabled(True)
-        self.btn_translate.setText(self.t.get("btn_translate_web", "번역"))
+        self.btn_translate.setText(f" {self.t.get('btn_translate_web', '번역')}")
         self.btn_translate.setIcon(qta.icon('fa5s.language', color='white'))
         self.btn_translate.setStyleSheet("background-color: #27AE60; color: white; padding: 5px 15px; border-radius: 4px; font-weight: bold;")
         
@@ -777,6 +853,19 @@ class ApiSearchDialog(QDialog):
         else: self.btn_translate.hide()
             
         self.update_detail_panel()
+
+    def _apply_tag_rules(self, text):
+        if not text or not self.tag_rules: return text
+        items = [x.strip() for x in text.split(',')]
+        new_items = []
+        for item in items:
+            l_item = item.lower()
+            if l_item in self.tag_rules:
+                mapped = self.tag_rules[l_item]
+                if mapped and mapped not in new_items: new_items.append(mapped)
+            else:
+                if item and item not in new_items: new_items.append(item)
+        return ", ".join(new_items)
 
     def _parse_list_to_string(self, val):
         if val is None or val == "" or val == "-": return "-"
@@ -810,11 +899,22 @@ class ApiSearchDialog(QDialog):
         self.lbl_detail_title.setText(self._parse_list_to_string(data.get("Title", "-")))
         
         for key, lbl_widget in self.detail_labels.items():
-            val = data.get(key, "")
-            lbl_widget.setText(self._parse_list_to_string(val))
+            val = self._parse_list_to_string(data.get(key, ""))
+            if key == "Genre": val = self._apply_tag_rules(val)
+            lbl_widget.setText(val)
+            
+            if key == "Rating":
+                if val and val != "-":
+                    self.detail_star_icon.show()
+                    lbl_widget.setStyleSheet("color: #F1C40F; font-size: 13px; font-weight: bold;")
+                else:
+                    self.detail_star_icon.hide()
+                    lbl_widget.setStyleSheet("color: #ddd; font-size: 13px;")
             
         self.lbl_summary.setText(self._parse_list_to_string(data.get("Summary", "-")))
-        self.lbl_tags.setText(self._parse_list_to_string(data.get("Tags", "-")))
+        
+        raw_tags = self._parse_list_to_string(data.get("Tags", "-"))
+        self.lbl_tags.setText(self._apply_tag_rules(raw_tags))
         
         web_link = data.get("Web", "")
         if web_link:

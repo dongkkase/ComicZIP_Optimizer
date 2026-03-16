@@ -6,9 +6,11 @@ from PyQt6.QtWidgets import (
     QTabWidget, QWidget, QLineEdit, QMessageBox, QGroupBox
 )
 from PyQt6.QtCore import Qt
+from ui.widgets import Toast
 
 class LogDialog(QDialog):
-    def __init__(self, parent, stats, i18n, show_continue_btn=False):
+    # 🌟 continue_key 파라미터 추가
+    def __init__(self, parent, stats, i18n, show_continue_btn=False, continue_key="btn_continue_tab2"):
         super().__init__(parent)
         self.setWindowTitle(i18n["log_title"])
         self.resize(550, 400)
@@ -32,11 +34,13 @@ class LogDialog(QDialog):
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
         if show_continue_btn:
-            btn_cont = QPushButton(i18n.get("btn_continue_tab2", "Continue"))
+            # 🌟 전달받은 키에 따라 버튼 텍스트 설정
+            btn_cont = QPushButton(i18n.get(continue_key, "Continue"))
             btn_cont.setCursor(Qt.CursorShape.PointingHandCursor)
             btn_cont.setStyleSheet("background-color: #27AE60; color: white; font-weight: bold; padding: 8px 15px; border-radius: 4px; border: none;")
             btn_cont.clicked.connect(self.accept)
             btn_layout.addWidget(btn_cont)
+            
         btn_close = QPushButton(i18n["btn_close"])
         btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_close.setStyleSheet("padding: 8px 15px;")
@@ -50,7 +54,7 @@ class SettingsDialog(QDialog):
         self.config = config
         self.i18n = i18n[config["lang"]]
         self.setWindowTitle(self.i18n.get("settings_title", "환경 설정"))
-        self.setFixedSize(480, 700) 
+        self.setFixedSize(500, 750) 
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
 
         main_layout = QVBoxLayout(self)
@@ -187,8 +191,8 @@ class SettingsDialog(QDialog):
 
         self.tab_api = QWidget()
         api_layout = QFormLayout(self.tab_api)
-        api_layout.setSpacing(20)
-        api_layout.setContentsMargins(20, 25, 20, 20)
+        api_layout.setSpacing(12)
+        api_layout.setContentsMargins(20, 20, 20, 20)
         
         api_keys = config.get("api_keys", {})
         
@@ -272,15 +276,30 @@ class SettingsDialog(QDialog):
         self.aladin_widget, self.le_aladin_key = _make_pw_field(api_keys.get("aladin", ""), "Aladin TTBKey")
         api_layout.addRow("Aladin TTBKey:", self.aladin_widget)
         
-        self.vine_widget, self.le_vine_key = _make_pw_field(api_keys.get("vine", ""), "Comic Vine API Key")
-        api_layout.addRow("Comic Vine API:", self.vine_widget)
-        
         self.google_widget, self.le_google_key = _make_pw_field(api_keys.get("google", ""), "Google Books API Key")
         api_layout.addRow("Google Books API:", self.google_widget)
         
-        api_notice = QLabel(self.i18n.get("api_key_missing", "※ API 키가 없는 서비스는 검색이 제한될 수 있습니다."))
-        api_notice.setStyleSheet("color: #aaa; font-size: 12px; margin-top: 15px;")
-        api_layout.addRow(api_notice)
+        self.vine_widget, self.le_vine_key = _make_pw_field(api_keys.get("vine", ""), "Comic Vine API Key")
+        api_layout.addRow("Comic Vine API:", self.vine_widget)
+        
+        tag_group = QGroupBox(self.i18n.get("tag_rules_group", "태그 표준화 규칙"))
+        tag_group.setStyleSheet("QGroupBox { font-weight: bold; border: 1px solid #555; border-radius: 6px; padding-top: 15px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; color: #9B59B6; }")
+        tag_group_layout = QVBoxLayout(tag_group)
+        tag_group_layout.setContentsMargins(10, 15, 10, 10)
+        
+        lbl_tag_notice = QLabel(self.i18n.get("tag_rules_desc", "치환할 태그를 '기존태그 -> 새태그' 형식으로 입력하세요."))
+        lbl_tag_notice.setStyleSheet("color: #aaa; font-size: 11px;")
+        lbl_tag_notice.setWordWrap(True)
+        tag_group_layout.addWidget(lbl_tag_notice)
+        
+        self.te_tag_rules = QTextEdit()
+        self.te_tag_rules.setFixedHeight(70)
+        self.te_tag_rules.setPlaceholderText("Shounen, 소년만화 -> 소년\nAction -> 액션")
+        self.te_tag_rules.setPlainText(api_keys.get("tag_rules", ""))
+        self.te_tag_rules.setStyleSheet("background-color: #1a1a1a; color: white; border: 1px solid #555; border-radius: 4px; padding: 5px;")
+        tag_group_layout.addWidget(self.te_tag_rules)
+        
+        api_layout.addRow(tag_group)
         
         cache_layout = QHBoxLayout()
         cache_layout.addStretch()
@@ -308,13 +327,13 @@ class SettingsDialog(QDialog):
 
     def action_clear_cache(self):
         try:
-            with sqlite3.connect(".api_cache.db") as conn:
+            with sqlite3.connect(".api_cache.db", timeout=10) as conn:
                 c = conn.cursor()
                 c.execute("DELETE FROM search_cache")
                 c.execute("DELETE FROM img_cache")
                 c.execute("DELETE FROM trans_cache")
                 conn.commit()
-            QMessageBox.information(self, self.i18n.get("msg_notice", "안내"), self.i18n.get("msg_cache_cleared", "검색 캐시 및 표지 이미지가 모두 초기화되었습니다."))
+            Toast.show(self.parent(), self.i18n.get("msg_cache_cleared", "캐시가 초기화되었습니다."))
         except Exception as e:
             pass
 
@@ -391,6 +410,8 @@ class SettingsDialog(QDialog):
                 
                 "ai_trans_enabled": self.chk_ai_trans.isChecked(),
                 "ai_provider": self.cb_ai_provider.currentText(),
-                "ai_key": self.le_ai_key.text().strip()
+                "ai_key": self.le_ai_key.text().strip(),
+                
+                "tag_rules": self.te_tag_rules.toPlainText()
             }
         }

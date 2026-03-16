@@ -2,8 +2,8 @@
     "lang": "ko",
     "target_format": "cbz",
     "backup_on": false,
-    "flatten_folders": false,
-    "webp_conversion": false,
+    "flatten_folders": true,
+    "webp_conversion": true,
     "webp_quality": 100,
     "max_threads": 6,
     "play_sound": true,
@@ -17,7 +17,8 @@
         "google": "AIzaSyAyXCSoIBLC8CbkAIZHWp5cwULv3ijdrvg",
         "ai_trans_enabled": true,
         "ai_provider": "OpenAI",
-        "ai_key": "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"
+        "ai_key": "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",
+        "tag_rules": ""
     },
-    "last_meta_api": "Anilist"
+    "last_meta_api": "리디북스"
 }

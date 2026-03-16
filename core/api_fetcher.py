@@ -10,7 +10,7 @@ from datetime import datetime
 DB_PATH = ".api_cache.db"
 
 def init_db():
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(DB_PATH, timeout=10) as conn:
         c = conn.cursor()
         c.execute('''
             CREATE TABLE IF NOT EXISTS search_cache (
@@ -48,7 +48,7 @@ class MetaApiFetcher:
         ai_key = api_keys.get("ai_key", "").strip()
 
         if ai_enabled and ai_key:
-            prompt = f"다음 한국어 만화/코믹스 제목을 미국 Comic Vine이나 해외 DB에서 검색하기 가장 좋은 공식 영문 발매명(Official English Title) 딱 1개만 출력해. 부가 설명, 마침표, 특수기호 없이 오직 영어 제목만 출력할 것. 입력: {text}"
+            prompt = f"다음 한국어 만화/코믹스 제목을 미국 Comic Vine이나 해외 DB에서 검색하기 가장 좋은 공식 영문 발매명(Official English Title) 딱 1개만 출력해. 부가 설명, 마침표, 특수기호 없이 오직 JSON의 value 값으로만 1개 출력할 것. 형식: {{\"title\": \"영문제목\"}} 입력: {text}"
             
             try:
                 if ai_provider == "OpenAI":
@@ -56,13 +56,14 @@ class MetaApiFetcher:
                     headers = {"Authorization": f"Bearer {ai_key}", "Content-Type": "application/json"}
                     payload = {
                         "model": "gpt-4o-mini",
+                        "response_format": {"type": "json_object"}, # 🌟 완벽한 JSON 강제
                         "messages": [{"role": "user", "content": prompt}],
                         "temperature": 0.3
                     }
                     resp = requests.post(url, headers=headers, json=payload, timeout=7)
                     if resp.status_code == 200:
-                        res_text = resp.json()["choices"][0]["message"]["content"].strip().strip('"').strip("'")
-                        print(f"🧠 [OpenAI 변환] '{text}' -> '{res_text}'")
+                        res_json = json.loads(resp.json()["choices"][0]["message"]["content"])
+                        res_text = res_json.get("title", text)
                         return res_text
 
                 elif ai_provider == "Gemini":
@@ -70,24 +71,24 @@ class MetaApiFetcher:
                     headers = {"Content-Type": "application/json"}
                     payload = {
                         "contents": [{"parts": [{"text": prompt}]}],
-                        "generationConfig": {"temperature": 0.3}
+                        "generationConfig": {
+                            "temperature": 0.3,
+                            "responseMimeType": "application/json" # 🌟 완벽한 JSON 강제
+                        }
                     }
                     resp = requests.post(url, headers=headers, json=payload, timeout=7)
                     if resp.status_code == 200:
-                        res_text = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip().strip('"').strip("'")
-                        print(f"🧠 [Gemini 변환] '{text}' -> '{res_text}'")
+                        res_json = json.loads(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
+                        res_text = res_json.get("title", text)
                         return res_text
-            except Exception as e:
-                print(f"⚠️ [AI 변환 실패, 일반 번역으로 대체] {e}")
+            except Exception as e: pass
 
         try:
             url = "https://translate.googleapis.com/translate_a/single"
             params = {"client": "gtx", "sl": "ko", "tl": "en", "dt": "t", "q": text}
             resp = requests.get(url, params=params, timeout=5)
             if resp.status_code == 200:
-                translated = resp.json()[0][0][0]
-                print(f"🔄 [일반 번역] '{text}' -> '{translated}'")
-                return translated
+                return resp.json()[0][0][0]
         except: pass
         return text
 
@@ -97,13 +98,12 @@ class MetaApiFetcher:
         if api_keys is None: api_keys = {}
         
         actual_query = query
-        # 🌟 Anilist도 해외 DB이므로 AI 스마트 번역 로직을 동일하게 적용
         if api_name in ["Vine", "Anilist"]:
             actual_query = MetaApiFetcher._translate_ko_to_en(query, api_keys)
             
         cache_query = f"{query}::p{page}"
             
-        with sqlite3.connect(DB_PATH) as conn:
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
             c = conn.cursor()
             c.execute("SELECT results, updated_at FROM search_cache WHERE api=? AND query=?", (api_name, cache_query))
             row = c.fetchone()
@@ -113,15 +113,11 @@ class MetaApiFetcher:
                     updated_at = datetime.strptime(updated_at_str, "%Y-%m-%d %H:%M:%S")
                     
                     if (datetime.now() - updated_at).total_seconds() < 604800:
-                        print(f"[{api_name}] '{cache_query}' - ⚡ DB 캐시에서 데이터를 불러옵니다. (업데이트: {updated_at_str})")
                         return json.loads(row[0]), actual_query
-                    else:
-                        print(f"[{api_name}] '{cache_query}' - ⏳ 캐시가 만료되었습니다. 새로 요청합니다.")
-                except Exception as e:
-                    print(f"Cache Load Error: {e}")
+                except: pass
         
-        print(f"[{api_name}] '{cache_query}' - 🌐 API 서버로 요청을 보냅니다.")
         results = []
+        is_rate_limited = False
         
         if api_name == "리디북스":
             results = MetaApiFetcher._search_ridibooks(query, page)
@@ -132,13 +128,17 @@ class MetaApiFetcher:
             google_key = api_keys.get("google", "")
             results = MetaApiFetcher._search_google_books(query, google_key, page)
         elif api_name == "Anilist":
-            results = MetaApiFetcher._search_anilist(actual_query, page)
+            results, is_rate_limited = MetaApiFetcher._search_anilist(actual_query, page)
         elif api_name == "Vine":
             vine_key = api_keys.get("vine", "")
-            results = MetaApiFetcher._search_vine(actual_query, vine_key, page)
+            results, is_rate_limited = MetaApiFetcher._search_vine(actual_query, vine_key, page)
+            
+        # 🌟 429 Rate Limit 에러 발생 시 UI 단에 알리기 위한 플래그
+        if is_rate_limited:
+            return "RATE_LIMIT", actual_query
             
         if results:
-            with sqlite3.connect(DB_PATH) as conn:
+            with sqlite3.connect(DB_PATH, timeout=10) as conn:
                 c = conn.cursor()
                 c.execute("""
                     INSERT OR REPLACE INTO search_cache (api, query, results, updated_at) 
@@ -148,7 +148,6 @@ class MetaApiFetcher:
                 
         return results, actual_query
 
-    # 🌟 Anilist GraphQL 기반 검색 연동 추가
     @staticmethod
     def _search_anilist(query, page=1):
         url = "https://graphql.anilist.co"
@@ -170,17 +169,13 @@ class MetaApiFetcher:
           }
         }
         """
-        variables = {
-            "search": query,
-            "page": page,
-            "perPage": 20
-        }
+        variables = {"search": query, "page": page, "perPage": 20}
         results = []
         try:
             resp = requests.post(url, json={"query": graphql_query, "variables": variables}, timeout=15)
+            if resp.status_code == 429: return [], True # Rate Limit 방어
             if resp.status_code == 200:
                 data = resp.json()
-                print(f"[Anilist] API 응답 성공! 파싱된 데이터: {len(data.get('data', {}).get('Page', {}).get('media', []))}개")
                 items = data.get("data", {}).get("Page", {}).get("media", [])
                 
                 for item in items:
@@ -197,8 +192,7 @@ class MetaApiFetcher:
                     tags = ", ".join([t.get("name", "") for t in item.get("tags", [])])
                     
                     staff_edges = item.get("staff", {}).get("edges", [])
-                    writer = []
-                    penciller = []
+                    writer = []; penciller = []
                     for edge in staff_edges:
                         role = edge.get("role", "").lower()
                         name = edge.get("node", {}).get("name", {}).get("full", "")
@@ -230,20 +224,15 @@ class MetaApiFetcher:
                         "PubDate": pub_date, "Year": year, 
                         "Volume": "", "Number": "", "Characters": ""
                     })
-        except Exception as e:
-            print(f"[Anilist] API Error: {e}")
-        return results
+        except: pass
+        return results, False
 
-    # 🌟 Google Books API 검색 연동 추가
     @staticmethod
     def _search_google_books(query, api_key, page=1):
         if not api_key: return []
         url = "https://www.googleapis.com/books/v1/volumes"
         params = {
-            "q": query,
-            "key": api_key,
-            "startIndex": str((page - 1) * 20),
-            "maxResults": "20"
+            "q": query, "key": api_key, "startIndex": str((page - 1) * 20), "maxResults": "20"
         }
         results = []
         try:
@@ -275,32 +264,24 @@ class MetaApiFetcher:
                         "PubDate": pub_date, "Year": year, 
                         "Volume": "", "Number": "", "Characters": "", "PageCount": page_count
                     })
-        except Exception as e:
-            print(f"[Google Books] API Error: {e}")
+        except: pass
         return results
 
     @staticmethod
     def _search_vine(query, api_key, page=1):
-        if not api_key: return []
-
+        if not api_key: return [], False
         url = "https://comicvine.gamespot.com/api/search/"
         headers = {"User-Agent": "ComicZIP_Optimizer_App/1.0"}
-        
         params = {
             "api_key": api_key, "format": "json", "resources": "volume",
-            "query": query, "limit": "20",
-            "page": str(page) 
+            "query": query, "limit": "20", "page": str(page) 
         }
-        
         results = []
         try:
             response = requests.get(url, params=params, headers=headers, timeout=15)
+            if response.status_code == 429: return [], True # Rate Limit 방어
             if response.status_code == 200:
-                data = response.json()
-                items = data.get("results", [])
-                
-                print(f"[Vine] API 응답 성공! 파싱된 데이터: {len(items)}개")
-                
+                items = response.json().get("results", [])
                 for item in items:
                     title = item.get("name", "")
                     pub_obj = item.get("publisher")
@@ -323,16 +304,12 @@ class MetaApiFetcher:
                         "PubDate": year, "Year": year, 
                         "Volume": "", "Number": "", "Characters": ""
                     })
-            else:
-                print(f"[Vine] 에러 발생: HTTP {response.status_code} - {response.text}")
-        except Exception as e:
-            print(f"[Vine] 통신 중 예외 발생: {e}")
-        return results
+        except: pass
+        return results, False
 
     @staticmethod
     def _search_aladin(query, ttbkey, page=1):
         if not ttbkey: return []
-
         url = "http://www.aladin.co.kr/ttb/api/ItemSearch.aspx"
         params = {
             "ttbkey": ttbkey, "Query": query, "QueryType": "Keyword",
@@ -340,30 +317,23 @@ class MetaApiFetcher:
             "output": "js", "Version": "20131101", "Cover": "Big", 
             "OptResult": "categoryId,Story" 
         }
-        
         results = []
         try:
             response = requests.get(url, params=params, timeout=10)
             if response.status_code == 200:
-                data = response.json()
-                items = data.get("item", [])
-                
+                items = response.json().get("item", [])
                 for item in items:
                     title = item.get("title", "")
                     author = item.get("author", "")
                     publisher = item.get("publisher", "")
                     pub_date = item.get("pubDate", "")
                     year = pub_date[:4] if pub_date else ""
-                    
                     synopsis = item.get("description", "")
                     if synopsis: synopsis = re.sub(r'<[^>]+>', '', synopsis).strip()
-                        
                     web_url = item.get("link", "")
                     cover = item.get("cover", "")
-                    
                     category = item.get("categoryName", "")
                     genre = category.split(">")[-1] if category else ""
-                    
                     r_score = item.get("customerReviewRank", 0)
                     rating_score = str(r_score / 2.0) if r_score else "-"
                     rating_detail = f"⭐ {rating_score} / 5.0" if r_score else "-"
@@ -377,7 +347,7 @@ class MetaApiFetcher:
                         "PubDate": pub_date, "Year": year, 
                         "Volume": "", "Number": "", "Characters": ""
                     })
-        except Exception as e: pass
+        except: pass
         return results
 
     @staticmethod
@@ -396,14 +366,11 @@ class MetaApiFetcher:
             "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8",
             "Referer": referer
         }
-        
         results = []
         try:
             response = requests.get(url, params=params, headers=headers, timeout=10)
             if response.status_code == 200:
-                data = response.json()
-                books = data.get("book", {}).get("books", [])
-                
+                books = response.json().get("book", {}).get("books", [])
                 for b in books:
                     b_id = b.get("b_id", ""); title = b.get("title", "")
                     author = b.get("author", "")
@@ -437,5 +404,5 @@ class MetaApiFetcher:
                         "PubDate": pub_date, "Year": pub_date[:4] if pub_date else "", 
                         "Volume": "", "Number": "", "Characters": ""
                     })
-        except Exception as e: pass
+        except: pass
         return results

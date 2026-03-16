@@ -21,101 +21,21 @@ def get_i18n():
         "Webtoon": "ウェブトゥーン", "WebComic": "ウェブコミック", "Digital": "デジタル版"
     }
 
-    ko_genres = {
-        "Action": "액션", "Adventure": "모험", "Comedy": "코미디", "Drama": "드라마",
-        "Fantasy": "판타지", "Sci-Fi": "SF", "Mystery": "미스터리", "Horror": "공포",
-        "Thriller": "스릴러", "Psychological": "심리", "Romance": "로맨스",
-        "Slice of Life": "일상", "School": "학원", "Sports": "스포츠",
-        "Historical": "역사", "Military": "군사", "Crime": "범죄", "Detective": "추리",
-        "Supernatural": "초자연", "Magic": "마법", "Isekai": "이세계",
-        "Post-Apocalyptic": "포스트 아포칼립스", "Cyberpunk": "사이버펑크", "Mecha": "메카",
-        "Martial Arts": "무협", "Samurai": "사무라이", "닌자": "닌자",
-        "Cooking": "요리", "Medical": "의료", "Music": "음악", "Game": "게임",
-        "Gambling": "도박", "Survival": "생존", "Tragedy": "비극", "Parody": "패러디",
-        "Satire": "풍자"
-    }
+    ko_genres = {"Action": "액션", "Adventure": "모험", "Comedy": "코미디", "Drama": "드라마", "Fantasy": "판타지", "Sci-Fi": "SF", "Mystery": "미스터리", "Horror": "공포", "Thriller": "스릴러", "Psychological": "심리", "Romance": "로맨스", "Slice of Life": "일상", "School": "학원", "Sports": "스포츠", "Historical": "역사", "Military": "군사", "Crime": "범죄", "Detective": "추리", "Supernatural": "초자연", "Magic": "마법", "Isekai": "이세계", "Post-Apocalyptic": "포스트 아포칼립스", "Cyberpunk": "사이버펑크", "Mecha": "메카", "Martial Arts": "무협", "Samurai": "사무라이", "Ninja": "닌자", "Cooking": "요리", "Medical": "의료", "Music": "음악", "Game": "게임", "Gambling": "도박", "Survival": "생존", "Tragedy": "비극", "Parody": "패러디", "Satire": "풍자"}
     en_genres = {k: k for k in ko_genres.keys()}
-    ja_genres = {
-        "Action": "アクション", "Adventure": "アドベンチャー", "Comedy": "コメディ", "Drama": "ドラマ",
-        "Fantasy": "ファンタジー", "Sci-Fi": "SF", "Mystery": "ミステリー", "Horror": "ホラー",
-        "Thriller": "スリラー", "Psychological": "サイコ", "Romance": "ロマンス",
-        "Slice of Life": "日常", "School": "学園", "Sports": "スポーツ",
-        "Historical": "歴史", "Military": "ミリタリー", "Crime": "犯罪", "Detective": "推理",
-        "Supernatural": "超自然", "Magic": "魔法", "Isekai": "異世界",
-        "Post-Apocalyptic": "ポストアポカリプス", "Cyberpunk": "サイバーパンク", "Mecha": "メカ",
-        "Martial Arts": "武侠", "Samurai": "サムライ", "Ninja": "忍者",
-        "Cooking": "料理", "Medical": "医療", "Music": "音楽", "Game": "ゲーム",
-        "Gambling": "ギャンブル", "Survival": "サバイバル", "Tragedy": "悲劇", "Parody": "パロディ",
-        "Satire": "風刺"
-    }
+    ja_genres = {"Action": "アクション", "Adventure": "アドベンチャー", "Comedy": "コメディ", "Drama": "ドラマ", "Fantasy": "ファンタジー", "Sci-Fi": "SF", "Mystery": "ミステリー", "Horror": "ホラー", "Thriller": "スリラー", "Psychological": "サイコ", "Romance": "ロマンス", "Slice of Life": "日常", "School": "学園", "Sports": "スポーツ", "Historical": "歴史", "Military": "ミリタリー", "Crime": "犯罪", "Detective": "推理", "Supernatural": "超自然", "Magic": "魔法", "Isekai": "異世界", "Post-Apocalyptic": "ポストアポカリプス", "Cyberpunk": "サイバーパンク", "Mecha": "メカ", "Martial Arts": "武侠", "Samurai": "サムライ", "Ninja": "忍者", "Cooking": "料理", "Medical": "医療", "Music": "音楽", "Game": "ゲーム", "Gambling": "ギャンブル", "Survival": "サバイバル", "Tragedy": "悲劇", "Parody": "パロディ", "Satire": "風刺"}
 
-    ko_tags = {
-        "Revenge": "복수", "Tournament": "토너먼트", "Quest": "퀘스트", "Journey": "여행",
-        "Investigation": "수사", "Heist": "범죄 작전", "Survival": "생존",
-        "Time Travel": "시간 여행", "Time Loop": "타임 루프", "Parallel World": "평행세계",
-        "Reincarnation": "환생", "Regression": "회귀", "Possession": "빙의",
-        "Anti-Hero": "안티히어로", "Villain Protagonist": "악역 주인공",
-        "Genius Protagonist": "천재 주인공", "Strong Protagonist": "먼치킨",
-        "Underdog": "약자 성장형", "Chosen One": "선택받은 자", "Mentor": "스승",
-        "Rivalry": "라이벌", "Teamwork": "팀워크", "Brotherhood": "의형제",
-        "Family": "가족", "Magic System": "마법 체계", "Guild": "길드",
-        "Dungeon": "던전", "Academy": "아카데미", "Kingdom": "왕국", "Empire": "제국",
-        "Cultivation": "수련", "Martial World": "무림", "Post-Apocalypse": "멸망 세계",
-        "Cybernetics": "사이보그", "Space Travel": "우주 여행", "Friendship": "우정",
-        "Betrayal": "배신", "Love Triangle": "삼각관계", "Unrequited Love": "짝사랑"
-    }
+    ko_tags = {"Revenge": "복수", "Tournament": "토너먼트", "Quest": "퀘스트", "Journey": "여행", "Investigation": "수사", "Heist": "범죄 작전", "Survival": "생존", "Time Travel": "시간 여행", "Time Loop": "타임 루프", "Parallel World": "평행세계", "Reincarnation": "환생", "Regression": "회귀", "Possession": "빙의", "Anti-Hero": "안티히어로", "Villain Protagonist": "악역 주인공", "Genius Protagonist": "천재 주인공", "Strong Protagonist": "먼치킨", "Underdog": "약자 성장형", "Chosen One": "선택받은 자", "Mentor": "스승", "Rivalry": "라이벌", "Teamwork": "팀워크", "Brotherhood": "의형제", "Family": "가족", "Magic System": "마법 체계", "Guild": "길드", "Dungeon": "던전", "Academy": "아카데미", "Kingdom": "왕국", "Empire": "제국", "Cultivation": "수련", "Martial World": "무림", "Post-Apocalypse": "멸망 세계", "Cybernetics": "사이보그", "Space Travel": "우주 여행", "Friendship": "우정", "Betrayal": "배신", "Love Triangle": "삼각관계", "Unrequited Love": "짝사랑"}
     en_tags = {k: k for k in ko_tags.keys()}
-    ja_tags = {
-        "Revenge": "復讐", "Tournament": "トーナメント", "Quest": "クエスト", "Journey": "旅",
-        "Investigation": "捜査", "Heist": "強盗", "Survival": "サバイバル",
-        "Time Travel": "タイムトラベル", "Time Loop": "タイムループ", "Parallel World": "平行世界",
-        "Reincarnation": "転生", "Regression": "回帰", "Possession": "憑依",
-        "Anti-Hero": "アンチヒーロー", "Villain Protagonist": "悪役主人公",
-        "Genius Protagonist": "天才主人公", "Strong Protagonist": "最強主人公",
-        "Underdog": "弱者成長", "Chosen One": "選ばれし者", "Mentor": "師匠",
-        "Rivalry": "ライバル", "Teamwork": "チームワーク", "Brotherhood": "義兄弟",
-        "Family": "家族", "Magic System": "魔法体系", "Guild": "ギルド",
-        "Dungeon": "ダンジョン", "Academy": "アカデミー", "Kingdom": "王国", "Empire": "帝国",
-        "Cultivation": "修練", "Martial World": "武林", "Post-Apocalypse": "終末世界",
-        "Cybernetics": "サイボーグ", "Space Travel": "宇宙旅行", "Friendship": "友情",
-        "Betrayal": "裏切り", "Love Triangle": "三角関係", "Unrequited Love": "片思い"
-    }
+    ja_tags = {"Revenge": "復讐", "Tournament": "トーナメント", "Quest": "クエスト", "Journey": "旅", "Investigation": "捜査", "Heist": "強盗", "Survival": "サバイバル", "Time Travel": "タイムトラベル", "Time Loop": "タイムループ", "Parallel World": "平行世界", "Reincarnation": "転生", "Regression": "回帰", "Possession": "憑依", "Anti-Hero": "アンチヒーロー", "Villain Protagonist": "悪役主人公", "Genius Protagonist": "天才主人公", "Strong Protagonist": "最強主人公", "Underdog": "弱者成長", "Chosen One": "選ばれし者", "Mentor": "師匠", "Rivalry": "ライバル", "Teamwork": "チームワーク", "Brotherhood": "義兄弟", "Family": "家族", "Magic System": "魔法体系", "Guild": "ギルド", "Dungeon": "ダンジョン", "Academy": "アカデミー", "Kingdom": "王国", "Empire": "帝国", "Cultivation": "修練", "Martial World": "武林", "Post-Apocalypse": "終末世界", "Cybernetics": "サイボーグ", "Space Travel": "宇宙旅行", "Friendship": "友情", "Betrayal": "裏切り", "Love Triangle": "三角関係", "Unrequited Love": "片思い"}
 
-    ko_age = {
-        "All Ages": "전체이용가",
-        "Kids / Children": "12세 이상 이용가",
-        "Young Adult / Teen": "15세 이상 이용가",
-        "Older Teen / Mature": "18세(또는 19세) 이상 이용가",
-        "Adult / Mature Audiences": "성인 이용가"
-    }
-    en_age = {
-        "All Ages": "All Ages",
-        "Kids / Children": "Kids / Children",
-        "Young Adult / Teen": "Young Adult / Teen",
-        "Older Teen / Mature": "Older Teen / Mature",
-        "Adult / Mature Audiences": "Adult / Mature Audiences"
-    }
-    ja_age = {
-        "All Ages": "全年齢",
-        "Kids / Children": "12歳以上対象",
-        "Young Adult / Teen": "15歳以上対象",
-        "Older Teen / Mature": "18歳以上対象",
-        "Adult / Mature Audiences": "成人向け"
-    }
+    ko_age = {"All Ages": "전체이용가", "Kids / Children": "12세 이상 이용가", "Young Adult / Teen": "15세 이상 이용가", "Older Teen / Mature": "18세(또는 19세) 이상 이용가", "Adult / Mature Audiences": "성인 이용가"}
+    en_age = {"All Ages": "All Ages", "Kids / Children": "Kids / Children", "Young Adult / Teen": "Young Adult / Teen", "Older Teen / Mature": "Older Teen / Mature", "Adult / Mature Audiences": "Adult / Mature Audiences"}
+    ja_age = {"All Ages": "全年齢", "Kids / Children": "12歳以上対象", "Young Adult / Teen": "15歳以上対象", "Older Teen / Mature": "18歳以上対象", "Adult / Mature Audiences": "成人向け"}
 
-    ko_manga = {
-        "No": "일반(No)",
-        "Yes": "만화(Yes)",
-        "YesAndRightToLeft": "일본식 우→좌(YesAndRightToLeft)"
-    }
-    en_manga = {
-        "No": "No", "Yes": "Yes", "YesAndRightToLeft": "YesAndRightToLeft"
-    }
-    ja_manga = {
-        "No": "一般 (No)",
-        "Yes": "漫画 (Yes)",
-        "YesAndRightToLeft": "日本式 右→左 (YesAndRightToLeft)"
-    }
+    ko_manga = {"No": "일반(No)", "Yes": "만화(Yes)", "YesAndRightToLeft": "일본식 우→좌(YesAndRightToLeft)"}
+    en_manga = {"No": "No", "Yes": "Yes", "YesAndRightToLeft": "YesAndRightToLeft"}
+    ja_manga = {"No": "一般 (No)", "Yes": "漫画 (Yes)", "YesAndRightToLeft": "日本式 右→左 (YesAndRightToLeft)"}
 
     return {
         "ko": {
@@ -129,7 +49,7 @@ def get_i18n():
             "settings_btn": "환경 설정", "settings_title": "환경 설정",
             
             "tab_basic": "기본 설정",
-            "tab_api": "API 검색 설정",
+            "tab_api": "API 및 검색 설정",
             
             "lang_lbl": "언어 (Language) :", "format_lbl": "변환 포맷 :",
             "play_sound": "작업 완료 알림음 재생", 
@@ -142,6 +62,7 @@ def get_i18n():
             "threads_desc": f"수치가 높을수록 변환 속도가 빨라지지만 PC가 느려질 수 있습니다.\n시스템 안정을 위해 전체 {total_c}코어 중 여유분을 남긴 안전 수치({safe_c}코어)까지만 올릴 수 있습니다.",
             "btn_save": "저장", "btn_cancel": "취소", "btn_close": "닫기",
             "btn_continue_tab2": "내부 파일명 변경 (Tab 2) 이어서 하기",
+            "btn_continue_tab3": "🚀 메타데이터 관리 (Tab 3) 이어서 하기", # 🌟 Tab 3 번역 추가
             "log_title": "상세 작업 결과 로그",
             "pattern_lbl": "파일명 패턴 :",
             "target_lbl": " 대상 압축파일 (ZIP, CBZ, CBR, 7Z 지원) ",
@@ -190,6 +111,9 @@ def get_i18n():
             "ai_api_key": "API Key:",
             "ai_notice": "해외 DB(Vine, Anilist 등) 검색 시, 한글을 공식 발매명으로 치환하여 정확도를 대폭 높입니다.",
             
+            "tag_rules_group": "태그 표준화 규칙",
+            "tag_rules_desc": "치환할 태그를 '기존태그 -> 새태그' 형식으로 줄바꿈하여 입력하세요. (예: Shounen, 소년만화 -> 소년)",
+            
             "meta_writer": "작가",
             "meta_publisher": "출판사",
             "meta_genre": "장르",
@@ -217,8 +141,11 @@ def get_i18n():
             "t3_btn_copy_orig": "원본 카피 편집",
             "t3_btn_apply_all": "편집 적용",
             "t3_btn_apply_series": "시리즈 편집 적용",
-            "t3_col_orig": "원본", "t3_col_res": "일괄 편집",
             "t3_cb_ph": "선택 시 자동 추가되며, 쉼표(,)로 직접 입력할 수 있습니다.",
+            
+            "t3_auto_match": "시리즈 자동 매칭",
+            "t3_tt_auto_match": "폴더명으로 검색하여 가장 정확한 첫 번째 메타데이터를 폴더 내 전체 책에 일괄 적용합니다.",
+            
             "t3_auto_title": "자동 제목 입력",
             "t3_auto_vol": "자동 권수 입력",
             "t3_auto_chap": "자동 화 입력",
@@ -246,16 +173,18 @@ def get_i18n():
             
             "t3_msg_sel": "왼쪽 리스트에서 작업할 책을 선택해주세요.",
             "t3_btn_apply_series_tag": "시리즈 전체 일괄 덮어쓰기",
-            "t3_msg_applied_series_tag": "입력된 값이 시리즈 내 {count}권에 일괄 적용되었습니다.",
-            "t3_msg_applied_char_series": "입력된 등장인물이 시리즈 내 {count}권에 일괄 적용되었습니다.",
+            "t3_msg_applied_series_tag": "입력된 값이 시리즈에 일괄 적용되었습니다.",
+            "t3_msg_applied_char_series": "입력된 등장인물이 시리즈에 일괄 적용되었습니다.",
             "t3_msg_analyzing": "메타데이터 분석 중...",
             "t3_msg_saving": "저장 중...",
             "t3_msg_no_data_copy": "복사할 일괄 편집 데이터가 없습니다.",
-            "t3_msg_applied_series_all": "일괄 편집 결과가 시리즈 내의 모든 책에 일괄 적용되었습니다.",
-            "t3_msg_auto_title_done": "시리즈의 모든 책에 자동 제목 및 권/화가 입력되었습니다.",
-            "t3_msg_auto_vol_done": "시리즈의 모든 책에 자동 권수가 입력되었습니다.",
-            "t3_msg_auto_chap_done": "시리즈의 모든 책에 자동 화가 입력되었습니다.",
-            "t3_msg_auto_pages_done": "시리즈의 모든 책에 자동 페이지 수가 입력되었습니다.",
+            "t3_msg_applied_series_all": "일괄 편집 결과가 시리즈에 일괄 적용되었습니다.",
+            "t3_msg_auto_title_done": "시리즈의 자동 제목 및 권/화가 입력되었습니다.",
+            "t3_msg_auto_vol_done": "시리즈의 자동 권수가 입력되었습니다.",
+            "t3_msg_auto_chap_done": "시리즈의 자동 화가 입력되었습니다.",
+            "t3_msg_auto_pages_done": "시리즈의 자동 페이지 수가 입력되었습니다.",
+            "t3_msg_auto_match_done": "시리즈 자동 매칭이 완료되었습니다.",
+            "t3_msg_no_search_result": "검색 결과가 없습니다.",
             "t3_msg_save_single_done": "ComicInfo.xml 저장 성공.",
             "t3_msg_save_all_done": "총 {success_count}건 성공, {fail_count}건 실패.",
             "t3_msg_save_all_title": "일괄 저장 완료",
@@ -277,7 +206,7 @@ def get_i18n():
             "settings_btn": "Settings", "settings_title": "Preferences",
             
             "tab_basic": "Basic Settings",
-            "tab_api": "API Settings",
+            "tab_api": "API & Search Settings",
             
             "lang_lbl": "Language :", "format_lbl": "Output Format :",
             "play_sound": "Play completion sound",  
@@ -290,6 +219,7 @@ def get_i18n():
             "threads_desc": f"Higher values increase speed but consume more CPU.\nFor system stability, the maximum is capped at {safe_c} cores (Total: {total_c}).",
             "btn_save": "Save", "btn_cancel": "Cancel", "btn_close": "Close",
             "btn_continue_tab2": "Continue to Inner Renamer (Tab 2)",
+            "btn_continue_tab3": "🚀 Continue to Metadata Management (Tab 3)", # 🌟 Tab 3 번역 추가
             "log_title": "Detailed Job Log",
             "pattern_lbl": "Naming Pattern :",
             "target_lbl": " Target Archives (ZIP, CBZ, CBR, 7Z) ",
@@ -337,6 +267,9 @@ def get_i18n():
             "ai_provider": "AI Provider:",
             "ai_api_key": "API Key:",
             "ai_notice": "Transforms Korean titles to official English titles (e.g. '귀멸의 칼날' -> 'Demon Slayer') for better search accuracy.",
+            
+            "tag_rules_group": "Tag Standardization Rules",
+            "tag_rules_desc": "Enter rules as 'Old Tag -> New Tag' on each line. (e.g. Shounen, Shonen -> Boy)",
 
             "meta_writer": "Writer",
             "meta_publisher": "Publisher",
@@ -367,6 +300,10 @@ def get_i18n():
             "t3_btn_apply_series": "Apply Edit to Series",
             "t3_col_orig": "Original", "t3_col_res": "Batch Edit",
             "t3_cb_ph": "Checked items added automatically, or type with commas (,)",
+            
+            "t3_auto_match": "Auto Match Series",
+            "t3_tt_auto_match": "Searches by folder name and applies the best metadata to all books in the series.",
+            
             "t3_auto_title": "Auto Title",
             "t3_auto_vol": "Auto Vol.", "t3_auto_chap": "Auto Chap.", "t3_auto_pages": "Auto Pages",
             "t3_save": "Save", "t3_save_all": "Save All",
@@ -392,8 +329,8 @@ def get_i18n():
             
             "t3_msg_sel": "Please select a book from the left list.",
             "t3_btn_apply_series_tag": "Apply to Series",
-            "t3_msg_applied_series_tag": "Applied to {count} books in the series.",
-            "t3_msg_applied_char_series": "Characters applied to {count} books in the series.",
+            "t3_msg_applied_series_tag": "Applied to all books in the series.",
+            "t3_msg_applied_char_series": "Characters applied to all books in the series.",
             "t3_msg_analyzing": "Analyzing metadata...", "t3_msg_saving": "Saving...",
             "t3_msg_no_data_copy": "No batch edit data to copy.",
             "t3_msg_applied_series_all": "Batch edit results applied to all books in the series.",
@@ -401,6 +338,8 @@ def get_i18n():
             "t3_msg_auto_vol_done": "Auto volume applied to all books in the series.",
             "t3_msg_auto_chap_done": "Auto chapter applied to all books in the series.",
             "t3_msg_auto_pages_done": "Auto page count applied to all books in the series.",
+            "t3_msg_auto_match_done": "Series auto match completed.",
+            "t3_msg_no_search_result": "No search results found.",
             "t3_msg_save_single_done": "Saved ComicInfo.xml successfully.",
             "t3_msg_save_all_done": "{success_count} succeeded, {fail_count} failed.",
             "t3_msg_save_all_title": "Save All Complete",
@@ -433,6 +372,7 @@ def get_i18n():
             "threads_desc": f"数値が高いほど変換速度が速くなりますが、PCが遅くなる場合があります。\nシステム安定化のため、全 {total_c} コアのうち余裕を残した安全な数値 ({safe_c} コア) までしか設定できません。",
             "btn_save": "保存", "btn_cancel": "キャンセル", "btn_close": "閉じる",
             "btn_continue_tab2": "内部ファイル名変更 (Tab 2) を続ける",
+            "btn_continue_tab3": "🚀 メタデータ管理 (Tab 3) を続ける", # 🌟 Tab 3 번역 추가
             "log_title": "詳細作業結果ログ",
             "pattern_lbl": "ファイル名パターン :",
             "target_lbl": " 対象アーカイブ (ZIP, CBZ, CBR, 7Z 対応) ",
@@ -480,6 +420,9 @@ def get_i18n():
             "ai_provider": "AIモデル選択:",
             "ai_api_key": "API Key:",
             "ai_notice": "海外DB (Vineなど) 検索に使用され、「鬼滅の刃」などのタイトルを「Demon Slayer」のような最も正確な公式英語発売名で検索します。",
+            
+            "tag_rules_group": "タグ標準化ルール",
+            "tag_rules_desc": "置換するタグを「元のタグ -> 新しいタグ」の形式で改行して入力してください。",
 
             "meta_writer": "作家",
             "meta_publisher": "出版社",
@@ -508,8 +451,11 @@ def get_i18n():
             "t3_btn_copy_orig": "原本をコピーして編集",
             "t3_btn_apply_all": "編集を適用",
             "t3_btn_apply_series": "シリーズに編集を適用",
-            "t3_col_orig": "原本", "t3_col_res": "一括編集",
             "t3_cb_ph": "選択時に自動追加され、カンマ(,)で直接入力できます。",
+            
+            "t3_auto_match": "シリーズ自動マッチング",
+            "t3_tt_auto_match": "フォルダ名で検索し、最も正確な最初のメタデータをシリーズ全体に一括適用します。",
+            
             "t3_auto_title": "タイトル自動入力",
             "t3_auto_vol": "巻数自動入力",
             "t3_auto_chap": "話数自動入力",
@@ -537,16 +483,18 @@ def get_i18n():
             
             "t3_msg_sel": "左のリストから作業する書籍を選択してください。",
             "t3_btn_apply_series_tag": "シリーズ全体に一括上書き",
-            "t3_msg_applied_series_tag": "入力された値がシリーズ内の {count} 巻に一括適用されました。",
-            "t3_msg_applied_char_series": "入力された登場人物がシリーズ内の {count} 巻に一括適用されました。",
+            "t3_msg_applied_series_tag": "入力された値がシリーズに一括適用されました。",
+            "t3_msg_applied_char_series": "入力された登場人物がシリーズに一括適用されました。",
             "t3_msg_analyzing": "メタデータを分析中...",
             "t3_msg_saving": "保存中...",
             "t3_msg_no_data_copy": "コピーする一括編集データがありません。",
-            "t3_msg_applied_series_all": "一括編集の結果がシリーズ内のすべての書籍に一括適用されました。",
-            "t3_msg_auto_title_done": "シリーズのすべての書籍に自動タイトルと巻/話が入力されました。",
-            "t3_msg_auto_vol_done": "シリーズのすべての書籍に自動巻数が入力されました。",
-            "t3_msg_auto_chap_done": "シリーズのすべての書籍に自動話数が入力されました。",
-            "t3_msg_auto_pages_done": "シリーズのすべての書籍に自動ページ数が入力されました。",
+            "t3_msg_applied_series_all": "一括編集の結果がシリーズに一括適用されました。",
+            "t3_msg_auto_title_done": "シリーズの自動タイトルと巻/話が入力されました。",
+            "t3_msg_auto_vol_done": "シリーズの自動巻数が入力されました。",
+            "t3_msg_auto_chap_done": "シリーズの自動話数が入力されました。",
+            "t3_msg_auto_pages_done": "シリーズの自動ページ数が入力されました。",
+            "t3_msg_auto_match_done": "シリーズ自動マッチングが完了しました。",
+            "t3_msg_no_search_result": "検索結果がありません。",
             "t3_msg_save_single_done": "ComicInfo.xml 保存成功。",
             "t3_msg_save_all_done": "合計 {success_count} 件成功、{fail_count} 件失敗。",
             "t3_msg_save_all_title": "一括保存完了",
