@@ -10,42 +10,52 @@
 ## 🇬🇧 English
 <kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo1_en.png)</kbd>
 <kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo2_en.png)</kbd>
+<kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo3_en.png)</kbd>
+<kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo4_en.png)</kbd>
+<kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo5_en.png)</kbd>
 
-**ComicZIP Optimizer** is a powerful and smart GUI tool designed for comic/manga collectors and e-book reader users (Plex, Kavita, YACReader, etc.). It automatically renames inner images, flattens nested folders, and converts images to WebP to save disk space—all without manually extracting the archives.
+**ComicZIP Optimizer** is a smart GUI tool designed for comic/manga collectors and e-book reader users (Plex, Kavita, YACReader, Komga, etc.). It helps you easily rename inner images, flatten nested folders, convert images to WebP, and manage metadata—all without manually extracting the archives.
 
 <p align="center">
-  </p>
+</p>
 
 ### ✨ Key Features
 
-**🚀 [NEW] Smart Archive Reorganization (Split & Merge)**
-* Scans integrated archives containing multiple volumes, then intelligently separates, merges, and repackages them into clean, individual volume archives.
-* Provides an intuitive Tree-view preview with an 'Expand/Collapse All' function to easily grasp the internal structure at a glance.
-* High-speed In-Memory scanning previews massive files without extracting them to disk, automatically skipping already organized files.
+**🚀 Metadata Auto-Match & High Search Accuracy**
+* **Enhanced Search Rate:** Supports 5 major databases (Ridibooks, Aladin, Comic Vine, Anilist, Google Books) to provide highly accurate search results for both local and foreign comics.
+* **Series Auto-Match:** Scans folder names to fetch and apply the best metadata to all books in a series with a single click.
+* Edits and saves standard `ComicInfo.xml` metadata inside archives (ZIP, CBZ, 7Z, RAR, CBR).
 
-**🧠 Intelligent Title & Volume Extraction Engine (Deep Scan Parser)**
-* Ignores meaningless Hash folder names (25+ characters) or generic shells (like `temp`). It deep-scans the archive in reverse to extract the real comic titles.
-* Automatically cleans up bracket tags (e.g., `[High Quality]`) and smartly appends volume identifiers (e.g., 'v') to folders named only with numbers.
+**🌐 Multi-API Search & Smart AI Translation**
+* **AI Smart Translation:** Utilizes OpenAI/Gemini to translate Korean titles to official English release names, greatly improving search success rates on foreign DBs.
+* **Tag Standardization:** Define custom rules (e.g., `Shounen -> Boy`) to unify tags across different APIs.
+* **Multilingual UI:** Supports English, Korean, and Japanese seamlessly.
 
-**🔄 Batch Inner Renaming & Output Path Control**
-* Uniformly renames messy inner image files according to preset rules (e.g., Number padding, English book style, Sync with archive name).
-* Easily control the output destination paths for processed files individually via text input, or batch-change them with a single click.
+**🎨 Remastered UX/UI & Workflow Automation**
+* Features crisp vector icons powered by FontAwesome (`qtawesome`).
+* Non-intrusive **Toast Notifications** prevent workflow interruption.
+* **Scroll Spy Navigation:** The side menu dynamically highlights sections as you scroll through the metadata fields.
+* **Auto Workflow Transfer:** Transfers processed files from the Renamer tab (Tab 2) directly to the Metadata tab (Tab 3) for a smooth workflow.
 
-**📂 Folder Flattening & Perfect Natural Sort**
-* Removes unnecessary nested folders (double/triple depths) that cause reading errors in e-book readers, pulling all images to the root.
-* Employs an improved slash-based Natural Sort algorithm, ensuring folder depth and file order perfectly match Windows File Explorer.
+**🚀 Smart Archive Reorganization**
+* Scans integrated archives containing multiple volumes, separating, merging, and repackaging them into clean, individual volume archives.
+* High-speed In-Memory scanning previews massive files without extracting them to disk.
 
-**⚡ Ultra-fast Multi-threaded WebP Conversion**
-* Batch-converts heavy JPG/PNG images to the highly efficient WebP format, drastically saving disk space.
-* Maximizes conversion speed by utilizing 100% of CPU Multi-threading. Includes a quality slider (supports 100% lossless compression).
+**🧠 Intelligent Title & Volume Extraction**
+* Ignores meaningless Hash folder names and extracts real comic titles by scanning the archive.
+* Cleans up bracket tags and extracts volume/chapter numbers smartly.
 
-**📦 Auto Format Conversion**
-* Freely convert between ZIP, CBZ, CBR, and 7Z formats with a single click.
+**🔄 Batch Inner Renaming & Folder Flattening**
+* Uniformly renames inner image files according to preset rules.
+* Removes unnecessary nested folders (double depths) that cause reading errors in e-book readers, pulling all images to the root.
 
-**🔒 Maximized System Stability & Convenience**
-* **Rock-solid Stability:** Handles thousands of drag-and-dropped files without freezing, completely preventing Windows 11 Explorer crash bugs.
-* **Safe Temp Operations:** Uses unique UUIDs in the system temp folder, preventing write errors and leftover debris even when working directly on Network Drives (NAS).
-* **Convenience:** Smart list auto-selection (enables continuous keyboard deletion), Completion sound toggle, Auto-update notifications, CPU safe limits, and Original backup (.bak) support.
+**⚡ Multi-threaded WebP Conversion**
+* Batch-converts JPG/PNG images to the highly efficient WebP format, saving disk space utilizing CPU Multi-threading.
+
+**🔒 System Stability**
+* Improved SQLite concurrency handling and API Rate Limit (429) protections.
+* Password masking for API keys to enhance security.
+* Safe Temp Operations with unique UUIDs prevent write errors on Network Drives (NAS).
 
 ### 🚀 How to Run
 
@@ -56,12 +66,13 @@
 ### 🛠️ Tech Stack
 * Python 3
 * PyQt6 (GUI Framework)
+* QtAwesome (Vector Icons)
 * Pillow (Image Processing)
-* 7-Zip (`7za.exe` for robust archive handling)
+* 7-Zip (`7za.exe` for archive handling)
 
 ### 📝 License
 This project is licensed under the **[MIT License](LICENSE)**.
-* **7-Zip**: This application bundles `7za.exe` (7-Zip standalone console version), which is licensed under the GNU LGPL and unRAR restriction. For more info, visit [7-zip.org](https://www.7-zip.org/).
+* **7-Zip**: This application bundles `7za.exe`, licensed under the GNU LGPL and unRAR restriction. Visit [7-zip.org](https://www.7-zip.org/).
 
 <br>
 
@@ -71,55 +82,66 @@ This project is licensed under the **[MIT License](LICENSE)**.
 ## 🇰🇷 한국어
 <kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo1_ko.png)</kbd>
 <kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo2_ko.png)</kbd>
-ComicZIP Optimizer(코믹집 옵티마이저)는 만화/코믹스 수집가 및 e-book 리더기(Kavita, Plex, YACReader 등) 사용자를 위한 강력한 GUI 최적화 툴입니다. 
-압축 파일을 일일이 풀지 않고도 내부 이미지 파일명 일괄 변경, 폴더 구조 평탄화, 다중 코어 WebP 변환을 지원하여 관리 편의성과 용량 다이어트를 동시에 제공합니다.
+<kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo3_ko.png)</kbd>
+<kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo4_ko.png)</kbd>
+<kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo5_ko.png)</kbd>
+
+**ComicZIP Optimizer(코믹집 옵티마이저)**는 만화/코믹스 수집가 및 e-book 리더기(Kavita, Plex, YACReader, Komga 등) 사용자를 위한 GUI 기반 라이브러리 최적화 툴입니다. 
+압축 파일을 풀지 않고도 내부 이미지 파일명 일괄 변경, 폴더 구조 평탄화, 다중 코어 WebP 변환, 그리고 메타데이터(`ComicInfo.xml`) 관리까지 간편하게 처리할 수 있습니다.
 
 <p align="center">
-  </p>
+</p>
 
 ### ✨ 주요 기능
 
-**🚀 [NEW] 압축 파일 구조 일괄 정리 (분리 및 병합)**
-* 내부에 여러 권의 책이 섞여 있는 통합 압축파일을 스캔하여, 각 권별로 깔끔하게 분리 및 병합한 후 재압축합니다.
-* 직관적인 트리(Tree) 형태의 미리보기와 '전체 펼치기/접기' 기능을 지원하여 내부 구조를 한눈에 파악할 수 있습니다.
-* 디스크에 압축을 풀지 않는 고속 In-Memory 스캔을 지원하며, 이미 정리가 완료된 파일은 지능적으로 건너뜁니다(Skip).
+**🚀 뛰어난 검색률과 메타데이터 자동 매칭**
+* **높은 검색 정확도:** 리디북스, 알라딘, Comic Vine, Anilist(GraphQL), Google Books 등 5개의 주요 API를 지원하여 국내외 도서의 메타데이터 검색 성공률을 크게 높였습니다.
+* **시리즈 자동 매칭:** 폴더(시리즈) 이름을 기반으로 최적의 메타데이터를 검색하여, 폴더 내 모든 책에 일괄 적용해 줍니다.
+* 압축 파일(ZIP, CBZ, 7Z, RAR, CBR) 내부에 범용 규격인 `ComicInfo.xml` 메타데이터를 직접 편집하고 저장합니다.
 
-**🧠 지능형 타이틀 & 볼륨 추출 엔진 (Deep Scan 파서)**
-* 다운로더가 생성한 무의미한 25자 이상의 해시(Hash) 폴더명이나 껍데기 폴더(`temp` 등)를 무시하고, 내부 가장 깊은 곳을 역탐색하여 진짜 책 제목을 구출해 냅니다.
-* `(미완)`, `[고화질]` 등 불필요한 태그를 자동 정제하며, 단순 숫자 폴더(`01`, `02`)도 자동으로 '권/화' 단위로 스마트하게 네이밍합니다.
+**🌐 다중 DB 검색 및 AI 스마트 번역**
+* **AI 스마트 번역:** OpenAI 및 Gemini API를 활용하여 해외 DB 검색 시 한글 제목을 공식 영문 발매명으로 치환하여 검색 정확도를 한층 더 끌어올렸습니다.
+* **태그 표준화 규칙:** 사용자 환경설정에서 나만의 치환 규칙(예: `Shounen, 소년만화 -> 소년`)을 등록하여 각기 다른 API의 태그를 일관성 있게 통일할 수 있습니다.
+* **다국어 UI 지원:** 한국어, 영어에 더해 **일본어(日本語)** 환경을 지원합니다.
 
-**🔄 스마트 내부 파일명 변경 & 출력 경로 제어**
-* 난잡한 내부 이미지 이름을 규칙에 맞게 일괄 정리합니다. (예: 기본 숫자 패딩, 영문 도서 스타일, 압축파일명 동기화 등 지원)
-* 완료된 파일이 저장될 출력 경로를 개별 텍스트 필드로 직접 제어하거나, 체크된 항목을 원클릭으로 일괄 변경(기본값/책제목)할 수 있습니다.
+**🎨 직관적인 UX/UI 및 워크플로우 자동화**
+* FontAwesome(`qtawesome`) 벡터 아이콘을 도입하여 깔끔한 디자인을 제공합니다.
+* **토스트(Toast) 알림:** 작업 흐름을 방해하던 중앙 팝업창 대신, 화면 하단에서 부드럽게 나타나는 토스트 알림을 적용했습니다.
+* **스크롤 스파이(Scroll Spy):** 메타데이터 상세 폼에서 스크롤을 내리면, 우측 내비게이션 메뉴가 현재 위치에 맞춰 실시간으로 강조됩니다.
+* **작업 목록 자동 전달:** 탭 2(파일명 변경)에서 최적화 작업이 완료되면, 추가 확인 팝업 없이 탭 3(메타데이터 관리)으로 이동하며 작업 목록을 자연스럽게 전달합니다.
 
-**📂 하위 폴더 평탄화 & 완벽한 자연 정렬 (Natural Sort)**
-* e-book 리더기에서 인식 오류를 일으키는 불필요한 이중/삼중 폴더를 제거하고 이미지를 최상단으로 끌어올립니다.
-* 슬래시(`/`) 기반의 뎁스 인식형 자연 정렬 알고리즘을 적용하여, 폴더 계층과 파일 순서가 윈도우 탐색기와 완벽하게 동일하게 정렬됩니다.
+**📦 압축 파일 구조 일괄 정리 (분리 및 병합)**
+* 내부에 여러 권의 책이 섞여 있는 통합 압축파일을 스캔하여, 각 권별로 분리 및 병합한 후 재압축합니다.
+* 디스크에 압축을 풀지 않는 In-Memory 스캔을 지원하며, 트리(Tree) 형태의 미리보기를 제공합니다.
 
-**⚡ 초고속 다중 스레드 WebP 변환**
-* 무거운 JPG/PNG 이미지를 고효율 WebP 포맷으로 일괄 변환하여 디스크 용량을 획기적으로 절약합니다.
-* 다중 코어(Multi-threading)를 100% 활용해 변환 속도를 극대화했으며, 화질 조절 슬라이더(100% 무손실 압축 포함)를 제공합니다.
+**🧠 지능형 타이틀 & 볼륨 추출 엔진**
+* 의미 없는 긴 해시(Hash) 폴더명 등을 무시하고 압축 파일 스캔을 통해 실제 책 제목을 추출합니다.
+* 불필요한 태그를 정제하고, 권/화(Volume/Chapter) 번호를 지능적으로 분석합니다.
 
-**📦 포맷 자동 변환**
-* ZIP, CBZ, CBR, 7Z 파일 간의 포맷을 클릭 한 번으로 자유롭게 변환합니다.
+**🔄 내부 파일명 변경 & 하위 폴더 평탄화**
+* 난잡한 내부 이미지 이름을 규칙에 맞게 일괄 정리합니다.
+* e-book 리더기에서 인식 오류를 일으키는 불필요한 하위 폴더를 제거하여 이미지를 최상단으로 정리합니다.
 
-**🔒 극대화된 시스템 안정성 및 편의성**
-* **메모리 안정성 보장:** 수천 개의 파일을 드래그 앤 드롭해도 뻗지 않으며, 윈도우 11 파일 탐색기 충돌(튕김) 현상을 원천 차단했습니다.
-* **안전한 임시 폴더 운용:** 시스템 임시 폴더에 고유 식별자(UUID)를 부여해 작업하므로, 네트워크 드라이브(NAS) 작업 시에도 쓰기 오류나 잔여 찌꺼기가 남지 않습니다.
-* **사용자 편의성:** 스마트 리스트 자동 선택(마우스 없이 연속 삭제 가능), 작업 완료 알림음(On/Off), 자동 업데이트 알림, CPU 안전 제한(Safe Limit), 원본 백업(bak)을 완벽 지원합니다.
+**⚡ 다중 스레드 WebP 변환**
+* 용량이 큰 JPG/PNG 이미지를 고효율 WebP 포맷으로 변환하여 디스크 공간을 절약합니다. (CPU 다중 코어 활용)
+
+**🔒 시스템 안정성**
+* SQLite 다중 스레드 동시성 에러(Lock) 방지 및 API 과부하(Rate Limit) 대응 로직을 적용했습니다.
+* API Key 입력 란에 패스워드 마스킹 및 토글 버튼을 추가하여 보안성을 개선했습니다.
 
 ### 🚀 실행 방법
 
 1. [Releases](https://github.com/dongkkase/ComicZIP_Optimizer/releases) 페이지로 이동합니다.
 2. 최신 버전의 `ComicZIP_Optimizer.zip` 파일을 다운로드합니다.
-3. 압축을 풀고 안에 있는 실행 파일(`.exe`)을 바로 실행하세요. (별도의 설치가 필요 없는 포터블 버전입니다.)
+3. 압축을 풀고 안에 있는 실행 파일(`.exe`)을 실행하세요. (별도 설치 불필요)
 
 ### 🛠️ 사용 기술
 * Python 3
 * PyQt6 (UI 프레임워크)
+* QtAwesome (벡터 아이콘)
 * Pillow (이미지 처리)
 * 7-Zip (`7za.exe` 압축 엔진)
 
 ### 📝 라이선스 (License)
-이 프로젝트는 **[MIT License](LICENSE)** 를 따릅니다. 누구나 자유롭게 사용, 수정, 배포할 수 있습니다.
+이 프로젝트는 **[MIT License](LICENSE)** 를 따릅니다.
 * **7-Zip**: 본 프로그램은 파일 압축/해제를 위해 `7za.exe`를 내부적으로 사용하며, 해당 파일은 GNU LGPL 라이선스를 따릅니다. 자세한 정보는 [7-zip.org](https://www.7-zip.org/)에서 확인할 수 있습니다.
