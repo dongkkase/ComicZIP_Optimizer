@@ -79,7 +79,6 @@ class TagLineEdit(QLineEdit):
         super().__init__(*args, **kwargs); self.parent_area = parent_area
         
     def keyPressEvent(self, event):
-        # 🌟 콤마(,) 입력 시 이벤트를 가로채어 엔터 친 것처럼 태그 추가
         if event.key() == Qt.Key.Key_Backspace and not self.text(): 
             self.parent_area.remove_last_tag()
         elif event.text() == ',':
@@ -210,16 +209,14 @@ class Tab3Metadata(QWidget):
         self.cover_timer.timeout.connect(self._process_cover_load)
         
         self.setup_ui()
-
-    # 🌟 테스트용 임시 자동 로드 (앱 실행 후 0.5초 뒤에 실행됨)
         QTimer.singleShot(500, self._temp_auto_load)
 
-    # 🌟 임시 로드 함수 추가
     def _temp_auto_load(self):
         test_path = r"C:\Users\eyeca\Downloads\temp\3월의 라이온"
         if os.path.exists(test_path):
             self.load_paths([test_path])
-
+            idx = self.cb_meta_api.findText("알라딘")
+            if idx >= 0: self.cb_meta_api.setCurrentIndex(idx)
             QTimer.singleShot(500, self.btn_meta_search.click)
 
     def setup_ui(self):
@@ -283,7 +280,6 @@ class Tab3Metadata(QWidget):
         search_layout.addWidget(self.lbl_search_api)
         
         self.cb_meta_api = QComboBox()
-        # 🌟 검색 API 추가: Anilist, Vine
         self.cb_meta_api.addItems(["리디북스", "알라딘", "코믹박스", "Google Books", "Anilist", "Vine"])
         self.cb_meta_api.setStyleSheet("padding: 5px; border: 1px solid #555; border-radius: 4px; background-color: #2b2b2b;")
         search_layout.addWidget(self.cb_meta_api)
@@ -296,11 +292,11 @@ class Tab3Metadata(QWidget):
         self.le_meta_search.setStyleSheet("padding: 6px; border: 1px solid #555; border-radius: 4px; background-color: #2b2b2b;")
         search_layout.addWidget(self.le_meta_search, 1)
         
-        self.btn_meta_search = QPushButton(t.get("t3_btn_search", "🔍 검색"))
+        self.btn_meta_search = QPushButton(f"🔍 {t.get('btn_search', '검색')}")
         self.btn_meta_search.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_meta_search.setStyleSheet("QPushButton { padding: 6px 14px; font-size: 12px; background-color: #333333; color: white; border: 1px solid #555; border-radius: 4px; } QPushButton:hover { background-color: #444444; }")
         search_layout.addWidget(self.btn_meta_search)
-        self.btn_meta_search.clicked.connect(self.action_search_api) # 이 줄 추가
+        self.btn_meta_search.clicked.connect(self.action_search_api) 
         self.le_meta_search.returnPressed.connect(self.action_search_api)
         right_layout.addLayout(search_layout)
 
@@ -313,7 +309,6 @@ class Tab3Metadata(QWidget):
         self.btn_prev_vol = QPushButton(t.get("t3_btn_prev", "◁ 이전 권"))
         self.btn_next_vol = QPushButton(t.get("t3_btn_next", "다음 권 ▷"))
         
-        # 🌟 새 버튼 추가: 원본 카피 편집
         self.btn_copy_orig = QPushButton(t.get("t3_btn_copy_orig", "원본 카피 편집"))
         self.btn_apply_all = QPushButton(t.get("t3_btn_apply_all", "편집 적용"))
         self.btn_apply_series = QPushButton(t.get("t3_btn_apply_series", "시리즈 편집 적용"))
@@ -385,7 +380,6 @@ class Tab3Metadata(QWidget):
         self.btn_apply_all.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_apply_series.setCursor(Qt.CursorShape.PointingHandCursor)
         
-        # 버튼 3개 배치 디자인 업데이트
         set_segmented_btn_style(self.btn_copy_orig, "left_end")
         set_segmented_btn_style(self.btn_apply_all, "middle")
         set_segmented_btn_style(self.btn_apply_series, "right_end", is_primary=True)
@@ -463,7 +457,6 @@ class Tab3Metadata(QWidget):
             elif is_num:
                 le_my_widget, le_my = create_number_input(is_date=is_date, date_type=date_type); le_res = QLineEdit()
             elif combo_items is not None:
-                # 🌟 일괄 편집(res) 영역도 QComboBox로 생성
                 le_my_widget = le_my = QComboBox(); le_my.setEditable(editable_combo); le_my.addItem("", "")
                 le_res = QComboBox(); le_res.setEditable(editable_combo); le_res.addItem("", "")
                 for k, v in combo_items.items(): 
@@ -483,7 +476,6 @@ class Tab3Metadata(QWidget):
                     val = le_res.currentText()
                     if editable_combo: le_my.setCurrentText(val)
                     else:
-                        # 콤보박스가 편집 불가일 경우 (텍스트 일치 또는 Data 일치 모두 찾음)
                         idx = le_my.findText(val)
                         if idx < 0: idx = le_my.findData(val)
                         if idx >= 0: le_my.setCurrentIndex(idx)
@@ -556,8 +548,6 @@ class Tab3Metadata(QWidget):
 
         self.group_publish, gl_publish = create_group_box(t.get("t3_nav_publish", "").replace("\n"," "))
         add_row(gl_publish, 0, 'Publisher', 't3_f_pub'); add_row(gl_publish, 1, 'Imprint', 't3_f_imp')
-        
-        # 🌟 Web(웹사이트) 여러줄 필드로 변경 (is_text=True)
         add_row(gl_publish, 2, 'Web', 't3_f_web', is_text=True)
         add_row(gl_publish, 3, 'Format', 't3_f_format', combo_items=t.get("meta_formats", {}), editable_combo=True)
         add_row(gl_publish, 4, 'Year', 't3_f_year', is_num=True, is_date=True, date_type='Y'); add_row(gl_publish, 5, 'Month', 't3_f_month', is_num=True, is_date=True, date_type='M')
@@ -565,7 +555,7 @@ class Tab3Metadata(QWidget):
 
         self.group_genre_tags, gl_genre_tags = create_group_box(t.get("t3_nav_genre", "").replace("\n"," "))
         r = add_checkbox_group(gl_genre_tags, 0, 'Genre', 't3_f_genre', t.get("meta_genres", {}))
-        r = add_checkbox_group(gl_genre_tags, r, 'Tags', 't3_f_tags', t.get("meta_tags", {}))
+        r = add_checkbox_group(gl_genre_tags, r, 'Tags', 't3_f_tags_lbl', t.get("meta_tags", {}))
         lbl_char = QLabel(t.get('t3_f_char', '')); lbl_char.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop); gl_genre_tags.addWidget(lbl_char, r, 0)
         
         le_char_my = TagInputArea(t); le_char_res = QTextEdit(); le_char_res.setMaximumHeight(80); le_char_res.setStyleSheet("background-color: #1a1a1a; color: #888888;")
@@ -603,7 +593,6 @@ class Tab3Metadata(QWidget):
         self.btn_goto_etc.clicked.connect(lambda: scroll_to(self.group_etc))
 
         bottom_btn_layout = QHBoxLayout()
-        # 🌟 자동 제목 입력 버튼 추가
         self.btn_auto_title = QPushButton(t.get("t3_auto_title", ""))
         self.btn_auto_vol = QPushButton(t.get("t3_auto_vol", ""))
         self.btn_auto_chap = QPushButton(t.get("t3_auto_chap", ""))
@@ -644,7 +633,7 @@ class Tab3Metadata(QWidget):
         self.lbl_search_api.setText(t.get("t3_search_api", ""))
         self.lbl_search_query.setText(t.get("t3_search_query", ""))
         self.le_meta_search.setPlaceholderText(t.get("t3_search_ph", ""))
-        self.btn_meta_search.setText(t.get("t3_btn_search", ""))
+        self.btn_meta_search.setText(f"🔍 {t.get('btn_search', '검색')}")
         self.btn_goto_basic.setText(t.get("t3_nav_basic", ""))
         self.btn_goto_crew.setText(t.get("t3_nav_crew", ""))
         self.btn_goto_publish.setText(t.get("t3_nav_publish", ""))
@@ -711,7 +700,6 @@ class Tab3Metadata(QWidget):
             idx = current.parent().indexOfChild(current)
             if idx < current.parent().childCount() - 1: self.tree_meta_files.setCurrentItem(current.parent().child(idx + 1))
 
-    # 🌟 새 기능: 원본 카피 편집 (권, 화, 페이지수 제외)
     def action_copy_orig(self):
         if not self.current_meta_file: return
         exclude_keys = {'Volume', 'Number', 'PageCount'}
@@ -719,7 +707,6 @@ class Tab3Metadata(QWidget):
         for key, field in self.meta_ui_fields.items():
             if key in exclude_keys: continue
             
-            # 원본 필드('my')에서 값을 가져옵니다.
             val = None
             if field.get('is_combo'):
                 if field['my'].isEditable(): val = field['my'].currentText()
@@ -731,7 +718,6 @@ class Tab3Metadata(QWidget):
             else:
                 val = field['my'].text()
                 
-            # 일괄 편집 필드('res')에 값을 넣습니다.
             res_widget = field['res']
             if isinstance(res_widget, QComboBox):
                 if res_widget.isEditable():
@@ -864,22 +850,16 @@ class Tab3Metadata(QWidget):
         self._load_dict_to_ui(fp)
         self.cover_timer.start(150)
         
-        # 파일명에서 말머리와 권/화수를 제거하여 순수 제목 추출
         title = Path(fp).stem
-        
         import re
-        # 🌟 여기도 안전한 정규식으로 통일
         clean_title = re.sub(r'^\[.*?\]\s*', '', title)
         clean_title = re.sub(r'^\(.*?\)\s*', '', clean_title)
         
-        # 뒤에 붙은 권/화수 및 숫자 패턴 제거
         series_name = re.sub(r'\s*제?\d+\s*(?:권|화|편).*$', '', clean_title)
         series_name = re.sub(r'(?i)\s*(?:vol\.|v\.|ch\.|chapter)\s*\d+.*$', '', series_name)
         series_name = re.sub(r'\s*(?:-\s*)?\d+\s*$', '', series_name)
         
         series_name = series_name.strip()
-        
-        # 추출된 제목이 있으면 검색어 칸에 텍스트 세팅
         if series_name:
             self.le_meta_search.setText(series_name)
 
@@ -908,7 +888,6 @@ class Tab3Metadata(QWidget):
         else: self.render_image("cover", fp, None)
 
     def render_image(self, target_id, arc_path, img_data):
-        # 🌟 레이스 컨디션 방지
         if arc_path and getattr(self, 'current_meta_file', None) != arc_path:
             return
             
@@ -935,7 +914,6 @@ class Tab3Metadata(QWidget):
         if self.current_meta_file and self.current_meta_file in self.book_meta:
             for key, field in self.meta_ui_fields.items():
                 if field.get('is_combo'):
-                    # 🌟 읽기 방향 (Manga 등) 값 저장 시 Text 대신 내부 Data(키값)를 저장
                     if field['my'].isEditable(): val = field['my'].currentText()
                     else: val = field['my'].currentData()
                 elif field.get('is_text'):
@@ -945,7 +923,6 @@ class Tab3Metadata(QWidget):
                 else:
                     val = field['my'].text()
                     
-                # 🌟 Web 속성일 경우 엔터를 콤마로 변환
                 if key == 'Web':
                     val = ','.join([x.strip() for x in val.split('\n') if x.strip()])
                     
@@ -956,7 +933,6 @@ class Tab3Metadata(QWidget):
         for key, field in self.meta_ui_fields.items():
             val = data.get(key, "")
             
-            # 🌟 Web 속성일 경우 콤마를 엔터로 변환
             if key == 'Web':
                 val = '\n'.join([x.strip() for x in val.split(',') if x.strip()])
                 
@@ -964,7 +940,6 @@ class Tab3Metadata(QWidget):
                 if field['my'].isEditable():
                     field['my'].setCurrentText(val)
                 else:
-                    # 🌟 Manga 등 읽기 시 내부 Data 기반으로 Index 색인
                     idx = field['my'].findData(val)
                     if idx >= 0: field['my'].setCurrentIndex(idx)
                     else: field['my'].setCurrentIndex(0)
@@ -976,7 +951,6 @@ class Tab3Metadata(QWidget):
         for key, field in self.meta_ui_fields.items():
             res_widget = field['res']
             
-            # 🌟 ComboBox 지원 대응
             if field.get('is_combo'):
                 if res_widget.isEditable():
                     val = res_widget.currentText().strip()
@@ -1006,7 +980,6 @@ class Tab3Metadata(QWidget):
             if key not in exclude_keys:
                 res_widget = field['res']
                 
-                # 🌟 ComboBox 지원 대응
                 if field.get('is_combo'):
                     if res_widget.isEditable():
                         val = res_widget.currentText().strip()
@@ -1018,7 +991,6 @@ class Tab3Metadata(QWidget):
                     val = res_widget.text().strip()
                     
                 if val: 
-                    # Web 은 적용 시에도 \n을 ,로 변경
                     if key == 'Web':
                         val = ','.join([x.strip() for x in val.split('\n') if x.strip()])
                     results_to_copy[key] = val
@@ -1031,7 +1003,6 @@ class Tab3Metadata(QWidget):
         self._load_dict_to_ui(self.current_meta_file)
         QMessageBox.information(self, t.get("msg_done", ""), t.get("t3_msg_applied_series_all", ""))
 
-    # 🌟 새 기능: 자동 제목 입력 (시리즈와 권/화를 동시 추출)
     def action_auto_title(self):
         t = self.main_app.i18n[self.main_app.lang]
         if not self.current_meta_file: return
@@ -1041,25 +1012,21 @@ class Tab3Metadata(QWidget):
         for f in self.meta_data.get(parent_dir, []):
             fp = str(f); title = f.stem
             
-            # 1. 말머리 제거
             clean_title = re.sub(r'^\[.*?\]\s*|^\(.*?\)\s*', '', title).strip()
             
-            # 🌟 2. 권/화수 추출 (v01, c01, _v01, -c01 등 모든 패턴 대응)
             v_match = re.search(r'(?i)(?:^|\s|_|-)(?:vol\.?|v)\s*(\d+)', title) or re.search(r'제?\s*(\d+)\s*권', title) or re.search(r'\b(\d+)\s*$', title.strip())
             c_match = re.search(r'(?i)(?:^|\s|_|-)(?:ch\.?|chapter|c)\s*(\d+)', title) or re.search(r'제?\s*(\d+)\s*화', title)
             
-            # 🌟 3. 순수 시리즈명 추출 (v01, c01 꼬리 자르기)
             series_name = re.sub(r'\s*제?\d+\s*(?:권|화|편).*$', '', clean_title)
             series_name = re.sub(r'(?i)(?:\s|_|-)*(?:vol\.?|v|ch\.?|chapter|c)\s*\d+.*$', '', series_name)
             series_name = re.sub(r'\s*(?:-\s*)?\d+\s*$', '', series_name)
             series_name = series_name.strip()
             
-            # 4. 언어 설정에 맞춰 Title 텍스트 재조립
             final_title = clean_title
             lang = getattr(self.main_app, 'lang', 'ko')
             
             if v_match:
-                vol_str = v_match.group(1) # 원본 숫자 (01 유지)
+                vol_str = v_match.group(1) 
                 if lang == 'en':
                     final_title = f"{series_name} Vol. {vol_str}"
                 else:
@@ -1071,11 +1038,9 @@ class Tab3Metadata(QWidget):
                 else:
                     final_title = f"{series_name} {ch_str}화"
             
-            # 필드에 값 맵핑
             if final_title: self.book_meta[fp]['Title'] = final_title
             if series_name: self.book_meta[fp]['Series'] = series_name 
             
-            # Volume, Number 메타데이터에는 앞의 0을 뗀 순수 숫자(int)만 들어감
             if v_match: self.book_meta[fp]['Volume'] = str(int(v_match.group(1)))
             if c_match: self.book_meta[fp]['Number'] = str(int(c_match.group(1)))
             
@@ -1084,42 +1049,26 @@ class Tab3Metadata(QWidget):
         from PyQt6.QtWidgets import QMessageBox
         QMessageBox.information(self, t.get("msg_done", "완료"), t.get("t3_msg_auto_title_done", "자동 입력이 완료되었습니다."))
 
+    # 🌟 중복 버그 수정: action_auto_volume
     def action_auto_volume(self):
         t = self.main_app.i18n[self.main_app.lang]
         if not self.current_meta_file: return
         parent_dir = str(Path(self.current_meta_file).parent)
         for f in self.meta_data.get(parent_dir, []):
             fp = str(f); title = f.name
-            match = re.search(r'(?i)(?:vol\.|v\.)\s*(\d+)', title) or re.search(r'제?\s*(\d+)\s*권', title) or re.search(r'\b(\d+)\s*$', title.strip())
-            if match: self.book_meta[fp]['Volume'] = str(int(match.group(1)))
-        self._load_dict_to_ui(self.current_meta_file)
-        QMessageBox.information(self, t.get("msg_done", ""), t.get("t3_msg_auto_vol_done", ""))
-        t = self.main_app.i18n[self.main_app.lang]
-        if not self.current_meta_file: return
-        parent_dir = str(Path(self.current_meta_file).parent)
-        for f in self.meta_data.get(parent_dir, []):
-            fp = str(f); title = f.name
-            match = re.search(r'(?i)(?:vol\.|v\.|권)\s*(\d+)', title) or re.search(r'(\d+)\s*권', title) or re.search(r'\b(\d+)\s*$', title.strip())
+            match = re.search(r'(?i)(?:vol\.|v\.|권)\s*(\d+)', title) or re.search(r'제?\s*(\d+)\s*권', title) or re.search(r'\b(\d+)\s*$', title.strip())
             if match: self.book_meta[fp]['Volume'] = str(int(match.group(1)))
         self._load_dict_to_ui(self.current_meta_file)
         QMessageBox.information(self, t.get("msg_done", ""), t.get("t3_msg_auto_vol_done", ""))
 
+    # 🌟 중복 버그 수정: action_auto_chapter
     def action_auto_chapter(self):
         t = self.main_app.i18n[self.main_app.lang]
         if not self.current_meta_file: return
         parent_dir = str(Path(self.current_meta_file).parent)
         for f in self.meta_data.get(parent_dir, []):
             fp = str(f); title = f.name
-            match = re.search(r'(?i)(?:ch\.|chapter)\s*(\d+)', title) or re.search(r'제?\s*(\d+)\s*화', title)
-            if match: self.book_meta[fp]['Number'] = str(int(match.group(1)))
-        self._load_dict_to_ui(self.current_meta_file)
-        QMessageBox.information(self, t.get("msg_done", ""), t.get("t3_msg_auto_chap_done", ""))
-        t = self.main_app.i18n[self.main_app.lang]
-        if not self.current_meta_file: return
-        parent_dir = str(Path(self.current_meta_file).parent)
-        for f in self.meta_data.get(parent_dir, []):
-            fp = str(f); title = f.name
-            match = re.search(r'(?i)(?:ch\.|chapter|화)\s*(\d+)', title) or re.search(r'(\d+)\s*화', title)
+            match = re.search(r'(?i)(?:ch\.|chapter|화)\s*(\d+)', title) or re.search(r'제?\s*(\d+)\s*화', title)
             if match: self.book_meta[fp]['Number'] = str(int(match.group(1)))
         self._load_dict_to_ui(self.current_meta_file)
         QMessageBox.information(self, t.get("msg_done", ""), t.get("t3_msg_auto_chap_done", ""))
@@ -1334,37 +1283,29 @@ class Tab3Metadata(QWidget):
             QMessageBox.warning(self, t.get("msg_notice", "안내"), "검색어를 입력해주세요.")
             return
             
-        # 🌟 1. 최상단 타이틀(H1) 설정: 시리즈명이 있으면 우선 적용, 없으면 파일명에서 추출한 책 제목(현재 검색어) 사용
         series_val = self.meta_ui_fields['Series']['my'].text().strip()
         h1_text = series_val if series_val else query
             
-        # 2. 다이얼로그 호출
         dialog = ApiSearchDialog(api_name, query, h1_text, self, t)
         if dialog.exec():
-            # 3. 사용자가 '선택'을 누르면 숨겨진 원본 데이터를 가져와 일괄 편집(res) 칸에 매핑
             result_data = dialog.get_selected_data()
             if result_data:
                 self._apply_api_data_to_res(result_data)
 
     def _apply_api_data_to_res(self, data):
-        # 🌟 줄거리(Summary) 특수 문자 제거 및 개행 압축 처리
         if 'Summary' in data and data['Summary']:
             import re
             summary = data['Summary']
-            # <책소개> 및 혹시 모를 HTML 엔티티 형태 같이 제거
             summary = summary.replace("<책소개>", "").replace("&lt;책소개&gt;", "")
-            # 개행문자(\n)가 2개 이상 연속될 경우 1개로 변경
             summary = re.sub(r'\n{2,}', '\n', summary)
             data['Summary'] = summary.strip()
 
-        # 가져온 데이터를 일괄 편집 필드 우측 텍스트박스(res)에 밀어넣기
         for d_key, val in data.items():
             if not val: continue
             
             if d_key in self.meta_ui_fields:
                 res_widget = self.meta_ui_fields[d_key]['res']
                 
-                # 타입 체크를 우회하는 안전한 속성(hasattr) 방식으로 값 입력
                 if hasattr(res_widget, "setCurrentText") and res_widget.isEditable():
                     res_widget.setCurrentText(val)
                 elif hasattr(res_widget, "findText"):

@@ -39,9 +39,27 @@ class SearchResultWidget(QWidget):
         self.cover_url = data.get("CoverUrl", "")
         
         self.setStyleSheet("background-color: transparent;")
-        # 🌟 리스트 아이템 전체 영역에 손가락 커서 적용
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         
+        # 🌟 좌측 리스트 요소들을 위한 안전한 JSON 배열 파싱 헬퍼 함수
+        def parse_val(val):
+            if val is None or val == "" or val == "-": return ""
+            if isinstance(val, list): return ", ".join(str(x) for x in val)
+            if isinstance(val, str):
+                v_str = val.strip()
+                if v_str.startswith('[') and v_str.endswith(']'):
+                    import ast
+                    try:
+                        parsed = ast.literal_eval(v_str)
+                        if isinstance(parsed, list): return ", ".join(str(x) for x in parsed)
+                    except:
+                        try:
+                            import json
+                            parsed = json.loads(v_str)
+                            if isinstance(parsed, list): return ", ".join(str(x) for x in parsed)
+                        except: pass
+            return str(val)
+
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 10, 20, 10)
         layout.setSpacing(15)
@@ -57,13 +75,13 @@ class SearchResultWidget(QWidget):
         info_layout.setSpacing(4)
         info_layout.setAlignment(Qt.AlignmentFlag.AlignTop) 
         
-        self.lbl_title = QLabel(data.get("Title", ""))
+        self.lbl_title = QLabel(parse_val(data.get("Title", "")))
         self.lbl_title.setWordWrap(True)
         self.lbl_title.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         self.lbl_title.setStyleSheet("font-weight: bold; font-size: 14px; color: #EAEAEA; background-color: transparent; border: none; outline: none;")
         info_layout.addWidget(self.lbl_title)
         
-        raw_summary = data.get("Summary", "")
+        raw_summary = parse_val(data.get("Summary", ""))
         clean_summary = raw_summary.replace("\n", " ").replace("\r", "").strip() if raw_summary else ""
         
         if len(clean_summary) > 38:
@@ -81,9 +99,9 @@ class SearchResultWidget(QWidget):
         meta_layout.setSpacing(8)
         meta_layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         
-        writer = data.get("Writer", "")
-        pub = data.get("Publisher", "")
-        rating = str(data.get("RatingScore", "")).strip()
+        writer = parse_val(data.get("Writer", ""))
+        pub = parse_val(data.get("Publisher", ""))
+        rating = parse_val(data.get("RatingScore", "")).strip()
         
         def add_meta_item(text, color):
             lbl = QLabel(text)
@@ -168,7 +186,6 @@ class ApiSearchDialog(QDialog):
         self.is_translated = False
         self.current_cover_url = None
         
-        # 🌟 다국어: 창 제목
         self.setWindowTitle(self.t.get("meta_search_title", "메타데이터 검색"))
         self.resize(1050, 750)
         self.setup_ui()
@@ -199,7 +216,6 @@ class ApiSearchDialog(QDialog):
         self.cb_api.addItems(["리디북스", "알라딘", "코믹박스", "Google Books", "Anilist", "Vine"])
         self.cb_api.setCurrentText(self.current_api); self.cb_api.setFixedWidth(130)
         self.cb_api.setStyleSheet("padding: 6px; border: 1px solid #555; border-radius: 4px; background-color: #2b2b2b;")
-        # 🌟 손가락 커서
         self.cb_api.setCursor(Qt.CursorShape.PointingHandCursor)
         
         self.le_query = QLineEdit(self.current_query)
@@ -207,8 +223,7 @@ class ApiSearchDialog(QDialog):
         self.le_query.setStyleSheet("padding: 7px; border: 1px solid #555; border-radius: 4px; background-color: #2b2b2b;")
         self.le_query.returnPressed.connect(self.action_manual_search)
         
-        # 🌟 다국어: 검색 버튼
-        self.btn_search = QPushButton(self.t.get("btn_search", "검색"))
+        self.btn_search = QPushButton(f"🔍 {self.t.get('btn_search', '검색')}")
         self.btn_search.setStyleSheet("background-color: #444; color: white; border: 1px solid #555; padding: 7px 20px; border-radius: 4px; font-weight: bold;")
         self.btn_search.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_search.clicked.connect(self.action_manual_search)
@@ -233,12 +248,10 @@ class ApiSearchDialog(QDialog):
             QListWidget::item:selected { background-color: #2980b9; border-radius: 4px; border: none; outline: none; }
             QListWidget::item:focus { outline: none; border: none; }
         """)
-        # 🌟 리스트 위젯 영역 커서
         self.list_widget.viewport().setCursor(Qt.CursorShape.PointingHandCursor)
         self.list_widget.itemSelectionChanged.connect(self.on_item_selected)
         left_layout.addWidget(self.list_widget)
         
-        # 🌟 다국어: 검색 결과 수
         self.lbl_result_count = QLabel(f"{self.t.get('search_result_prefix', '검색 결과:')} 0{self.t.get('search_result_suffix', '건')}")
         self.lbl_result_count.setStyleSheet("color: #aaa; font-size: 12px; margin-top: 5px; border: none; outline: none;")
         self.lbl_result_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -262,7 +275,6 @@ class ApiSearchDialog(QDialog):
         self.lbl_detail_title.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.lbl_detail_title.setCursor(Qt.CursorShape.IBeamCursor)
         
-        # 🌟 다국어: 번역 버튼
         self.btn_translate = QPushButton(self.t.get("btn_translate_web", "🌐 번역"))
         self.btn_translate.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_translate.setStyleSheet("background-color: #27AE60; color: white; padding: 5px 15px; border-radius: 4px; font-weight: bold;")
@@ -277,7 +289,6 @@ class ApiSearchDialog(QDialog):
         detail_layout.addWidget(line1)
         
         info_layout = QHBoxLayout()
-        # 🌟 다국어: 이미지 없음
         self.lbl_cover = QLabel(self.t.get("no_image", "이미지 없음"))
         self.lbl_cover.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_cover.setFixedSize(160, 240)
@@ -288,7 +299,6 @@ class ApiSearchDialog(QDialog):
         self.form_layout.setContentsMargins(15, 0, 0, 0); self.form_layout.setSpacing(10)
         
         self.detail_labels = {}
-        # 🌟 다국어: 필드 라벨들
         fields_to_show = [
             ("Writer", self.t.get("meta_writer", "작가")), 
             ("Publisher", self.t.get("meta_publisher", "출판사")), 
@@ -329,9 +339,8 @@ class ApiSearchDialog(QDialog):
             detail_layout.addWidget(lbl_t); detail_layout.addWidget(lbl_v)
             return lbl_v
 
-        # 🌟 다국어: 하단 라벨
         self.lbl_summary = _add_bottom_section(self.t.get("meta_summary", "줄거리"))
-        self.lbl_tags = _add_bottom_section(self.t.get("meta_tags", "태그"))
+        self.lbl_tags = _add_bottom_section(self.t.get("meta_tags_lbl", "태그"))
         self.lbl_web = _add_bottom_section(self.t.get("meta_link", "링크"))
         
         detail_layout.addStretch()
@@ -343,7 +352,6 @@ class ApiSearchDialog(QDialog):
 
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
-        # 🌟 다국어: 닫기 / 선택 버튼
         self.btn_close = QPushButton(self.t.get("btn_close", "닫기"))
         self.btn_close.setStyleSheet("background-color: #555; color: white; padding: 8px 25px; border-radius: 4px; font-weight: bold;")
         self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -369,7 +377,6 @@ class ApiSearchDialog(QDialog):
         self.list_widget.clear()
         
         count = len(self.search_results)
-        # 🌟 다국어: 카운트 갱신
         self.lbl_result_count.setText(f"{self.t.get('search_result_prefix', '검색 결과:')} {count}{self.t.get('search_result_suffix', '건')}")
         
         for data in self.search_results:
@@ -397,19 +404,45 @@ class ApiSearchDialog(QDialog):
             
         self.update_detail_panel()
 
+    # 🌟 우측 상세보기 요소들을 위한 안전한 JSON 배열 파싱 헬퍼 함수
+    def _parse_list_to_string(self, val):
+        if val is None or val == "" or val == "-": return "-"
+        if isinstance(val, list): 
+            if len(val) == 0: return "-"
+            return ", ".join(str(x) for x in val)
+        if isinstance(val, str):
+            v_str = val.strip()
+            if v_str.startswith('[') and v_str.endswith(']'):
+                import ast
+                try:
+                    parsed = ast.literal_eval(v_str)
+                    if isinstance(parsed, list): 
+                        if len(parsed) == 0: return "-"
+                        return ", ".join(str(x) for x in parsed)
+                except:
+                    try:
+                        import json
+                        parsed = json.loads(v_str)
+                        if isinstance(parsed, list): 
+                            if len(parsed) == 0: return "-"
+                            return ", ".join(str(x) for x in parsed)
+                    except: pass
+        return str(val)
+
     def update_detail_panel(self):
         if not self.selected_raw_data: return
         
         data = self.translated_data if self.is_translated else self.selected_raw_data
         
-        self.lbl_detail_title.setText(data.get("Title", "-"))
+        # 🌟 모든 필드에 대해 파싱 로직 적용
+        self.lbl_detail_title.setText(self._parse_list_to_string(data.get("Title", "-")))
         
         for key, lbl_widget in self.detail_labels.items():
             val = data.get(key, "")
-            lbl_widget.setText(val if val else "-")
+            lbl_widget.setText(self._parse_list_to_string(val))
             
-        self.lbl_summary.setText(data.get("Summary", "-") or "-")
-        self.lbl_tags.setText(data.get("Tags", "-") or "-")
+        self.lbl_summary.setText(self._parse_list_to_string(data.get("Summary", "-")))
+        self.lbl_tags.setText(self._parse_list_to_string(data.get("Tags", "-")))
         
         web_link = data.get("Web", "")
         if web_link:
@@ -463,7 +496,6 @@ class ApiSearchDialog(QDialog):
         self.is_translated = not self.is_translated
         
         if self.is_translated:
-            # 🌟 다국어: 원문 보기 버튼
             self.btn_translate.setText(self.t.get("btn_original_web", "🌐 원문"))
             self.btn_translate.setStyleSheet("background-color: #E67E22; color: white; padding: 5px 15px; border-radius: 4px; font-weight: bold;")
             
@@ -472,7 +504,6 @@ class ApiSearchDialog(QDialog):
             
             for field in translate_fields:
                 if self.translated_data.get(field):
-                    # 🌟 다국어: [번역됨] 접두어
                     self.translated_data[field] = f"[{self.t.get('translated_prefix', '번역됨')}] {self.translated_data[field]}"
         else:
             self.btn_translate.setText(self.t.get("btn_translate_web", "🌐 번역"))

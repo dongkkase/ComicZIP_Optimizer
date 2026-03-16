@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit, QPushButton, 
     QFormLayout, QComboBox, QSlider, QFrame, QCheckBox, QDialogButtonBox,
-    QTabWidget, QWidget, QLineEdit  # 🌟 이 3개가 추가되었습니다!
+    QTabWidget, QWidget, QLineEdit, QMessageBox
 )
 from PyQt6.QtCore import Qt
 
@@ -42,24 +42,22 @@ class LogDialog(QDialog):
         btn_layout.addWidget(btn_close)
         layout.addLayout(btn_layout)
 
+
 class SettingsDialog(QDialog):
     def __init__(self, parent, config, format_keys, i18n):
         super().__init__(parent)
+        self.config = config
         self.i18n = i18n[config["lang"]]
         self.setWindowTitle(self.i18n.get("settings_title", "환경 설정"))
-        # 🌟 탭과 입력창이 잘 보이도록 세로 길이를 조금 늘렸습니다.
         self.setFixedSize(480, 680) 
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(15, 15, 15, 15)
         
-        # 🌟 1. 탭 위젯 생성
         self.tabs = QTabWidget()
         
-        # ==========================================
-        # 🌟 2. 첫 번째 탭: 기본 설정 (기존 UI)
-        # ==========================================
+        # --- 첫 번째 탭: 기본 설정 ---
         self.tab_basic = QWidget()
         basic_layout = QVBoxLayout(self.tab_basic)
         basic_layout.setContentsMargins(15, 15, 15, 15)
@@ -170,15 +168,23 @@ class SettingsDialog(QDialog):
         basic_layout.addLayout(opt_layout)
         basic_layout.addStretch()
 
-        # ==========================================
-        # 🌟 3. 두 번째 탭: API 검색 설정
-        # ==========================================
+        # --- 두 번째 탭: API 검색 설정 ---
         self.tab_api = QWidget()
         api_layout = QFormLayout(self.tab_api)
         api_layout.setSpacing(20)
         api_layout.setContentsMargins(20, 25, 20, 20)
         
-        # 기존에 저장된 API 키 딕셔너리를 불러옵니다 (없으면 빈 딕셔너리)
+        # 🌟 API 매뉴얼 버튼 추가
+        api_header_layout = QHBoxLayout()
+        api_header_layout.addStretch()
+        self.btn_api_manual = QPushButton(self.i18n.get("btn_api_manual", "❓ API 발급 매뉴얼"))
+        self.btn_api_manual.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_api_manual.setStyleSheet("background-color: #2b5797; color: white; padding: 6px 12px; border-radius: 4px; font-weight: bold;")
+        self.btn_api_manual.clicked.connect(self.show_api_manual)
+        api_header_layout.addWidget(self.btn_api_manual)
+        
+        api_layout.addRow(api_header_layout)
+        
         api_keys = config.get("api_keys", {})
         
         self.le_aladin_key = QLineEdit(api_keys.get("aladin", ""))
@@ -196,7 +202,6 @@ class SettingsDialog(QDialog):
         self.le_google_key.setStyleSheet("padding: 5px;")
         api_layout.addRow("Google Books API:", self.le_google_key)
         
-        # 코믹박스용 구분선 추가
         api_layout.addRow(QLabel(" "))
         cb_label = QLabel("코믹박스 (Comicbox) 설정")
         cb_label.setStyleSheet("font-weight: bold; color: #3498DB;")
@@ -217,13 +222,11 @@ class SettingsDialog(QDialog):
         api_notice.setStyleSheet("color: #aaa; font-size: 12px; margin-top: 15px;")
         api_layout.addRow(api_notice)
 
-        # 🌟 4. 구성한 탭들을 메인 탭 위젯에 추가
         self.tabs.addTab(self.tab_basic, self.i18n.get("tab_basic", "기본 설정"))
         self.tabs.addTab(self.tab_api, self.i18n.get("tab_api", "API 검색 설정"))
         
         main_layout.addWidget(self.tabs)
 
-        # --- 하단 버튼부 ---
         btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         btn_box.button(QDialogButtonBox.StandardButton.Ok).setText(self.i18n.get("btn_save", "저장"))
         btn_box.button(QDialogButtonBox.StandardButton.Cancel).setText(self.i18n.get("btn_cancel", "취소"))
@@ -232,6 +235,48 @@ class SettingsDialog(QDialog):
         btn_box.accepted.connect(self.accept)
         btn_box.rejected.connect(self.reject)
         main_layout.addWidget(btn_box)
+
+    # 🌟 API 매뉴얼 팝업 함수
+    def show_api_manual(self):
+        msg = QMessageBox(self)
+        msg.setWindowTitle(self.i18n.get("api_manual_title", "API 발급 매뉴얼"))
+        
+        if self.config.get("lang") == "en":
+            text = (
+                "<b>[ Aladin ]</b><br>"
+                "1. Visit <a href='https://blog.aladin.co.kr/openapi' style='color:#3498DB;'>Aladin OpenAPI</a> and login.<br>"
+                "2. Apply for a 'TTBKey' in the menu.<br><br>"
+                "<b>[ Comic Vine ]</b><br>"
+                "1. Visit <a href='https://comicvine.gamespot.com/api/' style='color:#3498DB;'>Comic Vine API</a> and sign in.<br>"
+                "2. Copy the API Key from your developer page.<br><br>"
+                "<b>[ Google Books ]</b><br>"
+                "1. Visit <a href='https://console.cloud.google.com/' style='color:#3498DB;'>Google Cloud Console</a>.<br>"
+                "2. Create a project and enable 'Google Books API'.<br>"
+                "3. Generate an API Key under 'Credentials'.<br><br>"
+                "<b>[ Comicbox ]</b><br>"
+                "1. Enter your self-hosted server URL (e.g., http://192.168.x.x:8080)<br>"
+                "2. Enter the API Token or password."
+            )
+        else:
+            text = (
+                "<b>[ 알라딘 (Aladin) ]</b><br>"
+                "1. <a href='https://blog.aladin.co.kr/openapi' style='color:#3498DB;'>알라딘 OpenAPI 홈페이지</a> 접속 및 로그인<br>"
+                "2. 'TTBKey 발급 신청' 메뉴에서 발급<br><br>"
+                "<b>[ Comic Vine ]</b><br>"
+                "1. <a href='https://comicvine.gamespot.com/api/' style='color:#3498DB;'>Comic Vine API 홈페이지</a> 가입 및 로그인<br>"
+                "2. 개발자 페이지에서 API Key 복사<br><br>"
+                "<b>[ Google Books ]</b><br>"
+                "1. <a href='https://console.cloud.google.com/' style='color:#3498DB;'>Google Cloud Console</a> 접속<br>"
+                "2. 새 프로젝트 생성 후 'Google Books API' 사용 설정<br>"
+                "3. '사용자 인증 정보' 메뉴에서 API Key 생성<br><br>"
+                "<b>[ 코믹박스 (Comicbox) ]</b><br>"
+                "1. 본인이 구축한 서버 주소 (예: http://192.168.x.x:8080)<br>"
+                "2. 서버에 설정된 API Token 또는 접속 비밀번호 입력"
+            )
+            
+        msg.setTextFormat(Qt.TextFormat.RichText)
+        msg.setText(text)
+        msg.exec()
 
     def get_data(self):
         format_keys = ["none", "zip", "cbz", "cbr", "7z"]
@@ -245,7 +290,6 @@ class SettingsDialog(QDialog):
             "max_threads": self.slider_threads.value(),
             "play_sound": self.chk_sound.isChecked(),
             
-            # 🌟 저장 시 입력된 API 키 값들을 딕셔너리로 함께 묶어서 반환합니다.
             "api_keys": {
                 "aladin": self.le_aladin_key.text().strip(),
                 "vine": self.le_vine_key.text().strip(),

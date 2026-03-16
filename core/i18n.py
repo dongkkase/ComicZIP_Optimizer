@@ -103,6 +103,7 @@ def get_i18n():
             "run_btn": "🚀 최적화 실행", "cancel_btn": "🛑 작업 중단",
             "cancel_wait": "⏳ 중단 처리 중...", "status_wait": "대기 중...",
             "no_preview": "미리보기 없음", "no_image": "미리볼 수 없는 이미지입니다.",
+            "loading": "로딩 중...",
             "total_files": "총 {count}개 리스트",
             "format_opts": ["변경없음", "zip", "cbz", "cbr", "7z"],
             "patterns": ["기본 숫자 패딩 (000, 001...)", "영문 도서 스타일 (Cover, Page_001...)",
@@ -111,6 +112,29 @@ def get_i18n():
             "meta_formats": ko_formats, "meta_genres": ko_genres, "meta_tags": ko_tags,
             "meta_age": ko_age, "meta_manga": ko_manga,
             
+            # 🌟 검색 다이얼로그용 라벨 (충돌 방지를 위해 meta_tags -> meta_tags_lbl 로 변경)
+            "meta_search_title": "메타데이터 검색",
+            "btn_search": "검색",
+            "btn_select": "선택",
+            "search_result_prefix": "검색 결과:",
+            "search_result_suffix": "건",
+            "btn_translate_web": "🌐 번역",
+            "btn_original_web": "🌐 원문",
+            "translated_prefix": "번역됨",
+            "api_manual_title": "API 발급 매뉴얼",
+            "btn_api_manual": "❓ API 발급 매뉴얼",
+            
+            "meta_writer": "작가",
+            "meta_publisher": "출판사",
+            "meta_genre": "장르",
+            "meta_count": "전체권수",
+            "meta_rating": "평점",
+            "meta_age_rating": "연령등급",
+            "meta_pub_date": "출간일",
+            "meta_summary": "줄거리",
+            "meta_tags_lbl": "태그", # 🌟 충돌 해결
+            "meta_link": "링크",
+
             "t3_empty": "📂 폴더 및 파일을 이 화면으로 드래그 앤 드롭하세요",
             "t3_cover": "표지 미리보기",
             "t3_search_api": "검색 API :", "t3_search_query": "검색어 :",
@@ -207,7 +231,8 @@ def get_i18n():
             "drag_drop": "📂 Drag and drop folders or files to this screen",
             "run_btn": "🚀 Execute Process", "cancel_btn": "🛑 Cancel Process",
             "cancel_wait": "⏳ Cancelling...", "status_wait": "Waiting...",
-            "no_preview": "No Preview", "no_image": "Cannot preview this image.",
+            "no_preview": "No Preview", "no_image": "No Image",
+            "loading": "Loading...",
             "total_files": "Total {count} items",
             "format_opts": ["No Change", "zip", "cbz", "cbr", "7z"],
             "patterns": ["Basic Number Padding (000, 001...)", "English Book Style (Cover, Page_001...)",
@@ -215,6 +240,29 @@ def get_i18n():
             
             "meta_formats": en_formats, "meta_genres": en_genres, "meta_tags": en_tags,
             "meta_age": en_age, "meta_manga": en_manga,
+            
+            # 🌟 검색 다이얼로그용 라벨 (충돌 방지를 위해 meta_tags -> meta_tags_lbl 로 변경)
+            "meta_search_title": "Metadata Search",
+            "btn_search": "Search",
+            "btn_select": "Select",
+            "search_result_prefix": "Search Results:",
+            "search_result_suffix": " items",
+            "btn_translate_web": "🌐 Translate",
+            "btn_original_web": "🌐 Original",
+            "translated_prefix": "Translated",
+            "api_manual_title": "API Key Manual",
+            "btn_api_manual": "❓ API Manual",
+
+            "meta_writer": "Writer",
+            "meta_publisher": "Publisher",
+            "meta_genre": "Genre",
+            "meta_count": "Total Volumes",
+            "meta_rating": "Rating",
+            "meta_age_rating": "Age Rating",
+            "meta_pub_date": "Pub. Date",
+            "meta_summary": "Summary",
+            "meta_tags_lbl": "Tags", # 🌟 충돌 해결
+            "meta_link": "Link",
 
             "t3_empty": "📂 Drag and drop folders or files to this screen",
             "t3_cover": "Cover Preview",
