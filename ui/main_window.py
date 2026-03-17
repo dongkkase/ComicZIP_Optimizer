@@ -226,6 +226,9 @@ class RenamerApp(QMainWindow):
         QFrame#panelFrame { background-color: #2b2b2b; border-radius: 10px; }
         QFrame#optionsFrame { background-color: #2b2b2b; border-radius: 8px; }
         QFrame#divider { background-color: #444444; }
+
+        QCheckBox, QGroupBox { color: #ffffff; }
+
         QLabel { color: #ffffff; font-family: '맑은 고딕', 'Segoe UI Emoji'; }
         QLabel#titleLabel { font-size: 14px; font-weight: bold; margin-bottom: 5px; }
         QLabel#boldLabel { font-size: 12px; font-weight: bold; margin-top: 5px; }
@@ -234,7 +237,7 @@ class RenamerApp(QMainWindow):
         QLabel#infoLabel { color: #aaaaaa; font-size: 11px; }
         QLabel#imageLabel { background-color: #1a1a1a; border-radius: 8px; }
         
-        QTabWidget::pane { border: 1px solid #444; border-radius: 5px; top: -1px; background: #1e1e1e; }
+        QTabWidget::pane { border: 1px solid #444; border-radius: 5px; top: -1px; background: ; }
         QTabBar::tab { background: #2b2b2b; color: #888; border: 1px solid #444; padding: 10px 20px; margin-right: 2px; border-top-left-radius: 5px; border-top-right-radius: 5px; font-weight: bold; }
         QTabBar::tab:selected { background: #3a7ebf; color: #fff; }
         QTabBar::tab:hover:!selected { background: #3a3a3a; color: #fff; }

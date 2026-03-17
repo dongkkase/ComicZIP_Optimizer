@@ -4,7 +4,6 @@ import tempfile
 import subprocess
 import zipfile
 import threading
-import concurrent.futures
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
@@ -16,187 +15,18 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit, 
     QFrame, QSizePolicy, QTreeWidgetItem, QStackedWidget, QGroupBox,
     QTextEdit, QComboBox, QGridLayout, QScrollArea, QMessageBox, QCheckBox, 
-    QLayout, QSpacerItem, QApplication, QAbstractItemView
+    QSpacerItem, QApplication, QAbstractItemView
 )
-from PyQt6.QtCore import Qt, QTimer, QSize, QRect, QPoint, QThread, pyqtSignal
-from PyQt6.QtGui import QImage, QPixmap, QPainter, QPainterPath, QColor, QKeySequence, QShortcut
+from PyQt6.QtCore import Qt, QTimer, QSize
+from PyQt6.QtGui import QImage, QPixmap, QPainter, QPainterPath, QKeySequence, QShortcut
 
 from utils import natural_keys
 from config import get_resource_path
 from ui.widgets import OrgTreeWidget, Toast
 from core.api_fetcher import MetaApiFetcher
 
-class FlowLayout(QLayout):
-    def __init__(self, parent=None, margin=4, spacing=4):
-        super().__init__(parent)
-        if parent is not None: self.setContentsMargins(margin, margin, margin, margin)
-        self.itemList = []
-        self.setSpacing(spacing)
-    def __del__(self):
-        item = self.takeAt(0)
-        while item: item = self.takeAt(0)
-    def addItem(self, item): self.itemList.append(item)
-    def count(self): return len(self.itemList)
-    def itemAt(self, index):
-        if 0 <= index < len(self.itemList): return self.itemList[index]
-        return None
-    def takeAt(self, index):
-        if 0 <= index < len(self.itemList): return self.itemList.pop(index)
-        return None
-    def expandingDirections(self): return Qt.Orientation(0)
-    def hasHeightForWidth(self): return True
-    def heightForWidth(self, width): return self.doLayout(QRect(0, 0, width, 0), True)
-    def setGeometry(self, rect):
-        super().setGeometry(rect)
-        self.doLayout(rect, False)
-    def sizeHint(self): return self.minimumSize()
-    def minimumSize(self):
-        size = QSize()
-        for item in self.itemList: size = size.expandedTo(item.minimumSize())
-        margins = self.contentsMargins()
-        size += QSize(margins.left() + margins.right(), margins.top() + margins.bottom())
-        return size
-    def doLayout(self, rect, testOnly):
-        margins = self.contentsMargins()
-        effective_rect = rect.adjusted(margins.left(), margins.top(), -margins.right(), -margins.bottom())
-        x = effective_rect.x(); y = effective_rect.y(); lineHeight = 0; spacing = self.spacing()
-        for item in self.itemList:
-            nextX = x + item.sizeHint().width() + spacing
-            if nextX - spacing > effective_rect.right() and lineHeight > 0:
-                x = effective_rect.x(); y = y + lineHeight + spacing
-                nextX = x + item.sizeHint().width() + spacing; lineHeight = 0
-            if not testOnly: item.setGeometry(QRect(QPoint(x, y), item.sizeHint()))
-            x = nextX; lineHeight = max(lineHeight, item.sizeHint().height())
-        return y + lineHeight - rect.y() + margins.bottom()
-
-class TagWidget(QFrame):
-    def __init__(self, text, remove_cb):
-        super().__init__()
-        self.text_val = text
-        self.setStyleSheet("QFrame { background-color: #3a7ebf; border-radius: 4px; } QLabel { color: white; padding: 4px 2px 4px 6px; border: none; background: transparent; font-weight: bold; font-size: 11px; } QPushButton { border: none; background: transparent; color: white; padding: 4px 6px 4px 2px; font-weight: bold; } QPushButton:hover { color: #ffcccc; }")
-        layout = QHBoxLayout(self); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(2)
-        lbl = QLabel(text); btn = QPushButton("×"); btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.clicked.connect(lambda: remove_cb(self)); layout.addWidget(lbl); layout.addWidget(btn)
-
-class TagLineEdit(QLineEdit):
-    def __init__(self, parent_area, *args, **kwargs):
-        super().__init__(*args, **kwargs); self.parent_area = parent_area
-        
-    def keyPressEvent(self, event):
-        if event.key() == Qt.Key.Key_Backspace and not self.text(): 
-            self.parent_area.remove_last_tag()
-        elif event.text() == ',':
-            self.parent_area.add_tag_from_input()
-            return
-        super().keyPressEvent(event)
-
-class TagInputArea(QFrame):
-    def __init__(self, i18n_dict, on_change_cb=None):
-        super().__init__()
-        self.i18n = i18n_dict
-        self.tags = []
-        self.on_change_cb = on_change_cb
-        
-        self.setMinimumHeight(45)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-        self.setStyleSheet("TagInputArea { background-color: #1a1a1a; border: 1px solid #555; border-radius: 4px; }")
-        
-        self.flow_layout = FlowLayout(self, margin=10, spacing=8)
-        self.line_edit = TagLineEdit(self)
-        self.line_edit.setStyleSheet("background: transparent; border: none; color: white; padding-left: 2px;")
-        self.line_edit.setMinimumWidth(80)
-        
-        self.line_edit.setPlaceholderText(self.i18n.get("enter_after_input", "입력 후 Enter..."))
-        
-        self.line_edit.returnPressed.connect(self.add_tag_from_input)
-        self.line_edit.editingFinished.connect(self.add_tag_from_input)
-        self.flow_layout.addWidget(self.line_edit)
-        
-    def mousePressEvent(self, event): self.line_edit.setFocus()
-    
-    def add_tag_from_input(self):
-        text = self.line_edit.text().strip()
-        if text:
-            for t in text.split(','):
-                t = t.strip()
-                if t and t not in self.tags: self._add_tag_ui(t)
-        self.line_edit.clear()
-        
-    def _add_tag_ui(self, text):
-        if text in self.tags: return
-        self.tags.append(text); tag_widget = TagWidget(text, self.remove_tag)
-        self.flow_layout.removeWidget(self.line_edit); self.flow_layout.addWidget(tag_widget); self.flow_layout.addWidget(self.line_edit)
-        if self.on_change_cb: self.on_change_cb()
-        
-    def remove_tag(self, tag_widget):
-        if tag_widget.text_val in self.tags: self.tags.remove(tag_widget.text_val)
-        self.flow_layout.removeWidget(tag_widget); tag_widget.deleteLater()
-        if self.on_change_cb: self.on_change_cb()
-        
-    def remove_last_tag(self):
-        if self.tags:
-            last_tag = self.tags[-1]
-            for i in reversed(range(self.flow_layout.count())):
-                w = self.flow_layout.itemAt(i).widget()
-                if isinstance(w, TagWidget) and w.text_val == last_tag: self.remove_tag(w); break
-                
-    def set_tags(self, text_list):
-        for i in reversed(range(self.flow_layout.count())):
-            w = self.flow_layout.itemAt(i).widget()
-            if w != self.line_edit: self.flow_layout.removeWidget(w); w.deleteLater()
-        self.tags.clear()
-        for t in text_list:
-            if t: self._add_tag_ui(t)
-        if self.on_change_cb: self.on_change_cb()
-        
-    def text(self): return ", ".join(self.tags)
-    def setText(self, txt): 
-        temp_cb = self.on_change_cb; self.on_change_cb = None
-        self.set_tags([x.strip() for x in txt.split(',') if x.strip()])
-        self.on_change_cb = temp_cb
-        if self.on_change_cb: self.on_change_cb()
-
-    def update_i18n(self, i18n_dict):
-        self.i18n = i18n_dict
-        self.line_edit.setPlaceholderText(self.i18n.get("enter_after_input", "입력 후 Enter..."))
-
-class SaveWorker(QThread):
-    progress = pyqtSignal(int, int)          
-    finished_all = pyqtSignal(int, int)      
-    finished_single = pyqtSignal(bool, str)  
-
-    def __init__(self, target_dict, tab_instance, is_single=False, max_workers=4):
-        super().__init__()
-        self.target_dict = target_dict
-        self.tab = tab_instance
-        self.is_single = is_single
-        self.max_workers = max_workers
-
-    def run(self):
-        if self.is_single:
-            fp, data = list(self.target_dict.items())[0]
-            xml_str = self.tab._create_comicinfo_xml(data)
-            success, msg = self.tab._inject_xml_to_archive(fp, xml_str)
-            self.finished_single.emit(success, msg)
-        else:
-            success_count, fail_count = 0, 0
-            total = len(self.target_dict)
-            current = 0
-            
-            def process_file(fp, data):
-                xml_str = self.tab._create_comicinfo_xml(data)
-                return self.tab._inject_xml_to_archive(fp, xml_str)
-
-            with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                futures = {executor.submit(process_file, fp, data): fp for fp, data in self.target_dict.items()}
-                for future in concurrent.futures.as_completed(futures):
-                    success, _ = future.result()
-                    if success: success_count += 1
-                    else: fail_count += 1
-                    current += 1
-                    self.progress.emit(current, total)
-                    
-            self.finished_all.emit(success_count, fail_count)
+from ui.tag_widgets import TagInputArea
+from tasks.save_task import SaveWorker
 
 class Tab3Metadata(QWidget):
     def __init__(self, main_app):
@@ -288,7 +118,7 @@ class Tab3Metadata(QWidget):
         
         self.cb_meta_api = QComboBox()
         self.cb_meta_api.addItems(["리디북스", "알라딘", "Google Books", "Anilist", "Vine"])
-        self.cb_meta_api.setStyleSheet("padding: 5px; border: 1px solid #555; border-radius: 4px; background-color: #2b2b2b;")
+        self.cb_meta_api.setStyleSheet("padding: 5px; border: 1px solid #555; border-radius: 4px; color:#aaa; background-color: #2b2b2b;")
         
         last_api = self.main_app.config.get("last_meta_api", "리디북스")
         idx = self.cb_meta_api.findText(last_api)
@@ -444,6 +274,8 @@ class Tab3Metadata(QWidget):
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_content = QWidget()
+        self.scroll_content.setObjectName("scrollContent")
+        self.scroll_content.setStyleSheet("#scrollContent { background-color: transparent; }")
         scroll_layout = QVBoxLayout(self.scroll_content)
         scroll_layout.setContentsMargins(0, 0, 10, 0)
         scroll_layout.setSpacing(20)
@@ -725,14 +557,14 @@ class Tab3Metadata(QWidget):
             is_input = isinstance(new.parent(), (QLineEdit, QTextEdit, QComboBox))
 
         if is_input:
-            self.shortcut_s.setEnabled(False) 
+            self.shortcut_s.setEnabled(False)
             self.shortcut_c.setEnabled(False)
         else:
             self.shortcut_s.setEnabled(True)
             self.shortcut_c.setEnabled(True)
 
     def _trigger_s(self):
-        if self.btn_meta_search.isEnabled():
+        if self.btn_search.isEnabled():
             self.action_search_api()
 
     def _trigger_c(self):
@@ -1251,7 +1083,6 @@ class Tab3Metadata(QWidget):
             series_name = re.sub(r'\s*제?\d+\s*(?:권|화|편).*$', '', clean_title)
             series_name = re.sub(r'(?i)(?:\s|_|-)*(?:vol\.?|v|ch\.?|chapter|c)\s*\d+.*$', '', series_name)
             series_name = re.sub(r'\s*(?:-\s*)?\d+\s*$', '', series_name)
-            series_name = series_name.strip()
             
             final_title = clean_title
             lang = getattr(self.main_app, 'lang', 'ko')
@@ -1433,7 +1264,6 @@ class Tab3Metadata(QWidget):
         t = self.main_app.i18n[self.main_app.lang]
         if not self.current_meta_file: return
         
-        # 🌟 현재 탭 제외 타 탭 초기화
         if hasattr(self.main_app, 'tab1'): self.main_app.tab1.clear_list()
         if hasattr(self.main_app, 'tab2'): self.main_app.tab2.clear_list()
         
@@ -1470,7 +1300,6 @@ class Tab3Metadata(QWidget):
     def action_save_all(self):
         t = self.main_app.i18n[self.main_app.lang]
         
-        # 🌟 현재 탭 제외 타 탭 초기화
         if hasattr(self.main_app, 'tab1'): self.main_app.tab1.clear_list()
         if hasattr(self.main_app, 'tab2'): self.main_app.tab2.clear_list()
         

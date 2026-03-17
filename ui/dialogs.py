@@ -9,20 +9,25 @@ from PyQt6.QtCore import Qt
 from ui.widgets import Toast
 
 class LogDialog(QDialog):
-    # 🌟 continue_key 파라미터 추가
     def __init__(self, parent, stats, i18n, show_continue_btn=False, continue_key="btn_continue_tab2"):
         super().__init__(parent)
         self.setWindowTitle(i18n["log_title"])
         self.resize(550, 400)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        
+        self.setStyleSheet("""
+            QDialog { background-color: #1e1e1e; color: #ffffff; font-family: '맑은 고딕', 'Segoe UI Emoji'; }
+            QLabel { color: #ffffff; }
+        """)
+        
         layout = QVBoxLayout(self)
         lbl_summary = QLabel(f"Success: {len(stats['success'])}  |  Skip: {len(stats['skip'])}  |  Error: {len(stats['error'])}")
-        lbl_summary.setStyleSheet("font-weight: bold; font-size: 14px; margin-bottom: 10px;")
+        lbl_summary.setStyleSheet("font-weight: bold; font-size: 14px; margin-bottom: 10px; color: #ffffff;")
         layout.addWidget(lbl_summary)
         
         self.text_edit = QTextEdit()
         self.text_edit.setReadOnly(True)
-        self.text_edit.setStyleSheet("background-color: #1a1a1a; color: #e0e0e0; font-family: Consolas, monospace; padding: 10px;")
+        self.text_edit.setStyleSheet("background-color: #1a1a1a; color: #e0e0e0; font-family: Consolas, monospace; padding: 10px; border: 1px solid #444; border-radius: 4px;")
         
         log_content = ""
         if stats['error']: log_content += "[ERRORS]\n" + "\n".join(stats['error']) + "\n\n"
@@ -34,7 +39,6 @@ class LogDialog(QDialog):
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
         if show_continue_btn:
-            # 🌟 전달받은 키에 따라 버튼 텍스트 설정
             btn_cont = QPushButton(i18n.get(continue_key, "Continue"))
             btn_cont.setCursor(Qt.CursorShape.PointingHandCursor)
             btn_cont.setStyleSheet("background-color: #27AE60; color: white; font-weight: bold; padding: 8px 15px; border-radius: 4px; border: none;")
@@ -43,7 +47,7 @@ class LogDialog(QDialog):
             
         btn_close = QPushButton(i18n["btn_close"])
         btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_close.setStyleSheet("padding: 8px 15px;")
+        btn_close.setStyleSheet("background-color: #555; color: white; font-weight: bold; padding: 8px 15px; border-radius: 4px; border: none;")
         btn_close.clicked.connect(self.reject)
         btn_layout.addWidget(btn_close)
         layout.addLayout(btn_layout)
@@ -56,6 +60,27 @@ class SettingsDialog(QDialog):
         self.setWindowTitle(self.i18n.get("settings_title", "환경 설정"))
         self.setFixedSize(500, 750) 
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+
+        # 🌟 탭 내부 영역까지 모두 하얀색 글자와 어두운 배경이 적용되도록 강력한 CSS 주입
+        self.setStyleSheet("""
+            QDialog, QWidget { background-color: #1e1e1e; color: #ffffff; font-family: '맑은 고딕', 'Segoe UI Emoji'; }
+            QLabel, QCheckBox { background-color: transparent; color: #ffffff; color:pointer}
+            
+            QTabWidget::pane { border: 1px solid #444; border-radius: 5px; background: #1e1e1e; }
+            
+            QTabBar::tab { background: #2b2b2b; color: #888; border: 1px solid #444; padding: 8px 20px; font-weight: bold; }
+            QTabBar::tab:selected { background: #3a7ebf; color: #ffffff; }
+            
+            QGroupBox { border: 1px solid #555; border-radius: 6px; margin-top: 15px; padding-top: 15px; font-weight: bold; color: #ffffff; background-color: transparent; }
+            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; color: #3498DB; }
+            
+            QComboBox, QLineEdit, QTextEdit { background-color: #3a3a3a; color: #ffffff; border: 1px solid #555; border-radius: 4px; padding: 5px; }
+            QPushButton { background-color: #3a3a3a; color: white; border-radius: 4px; padding: 6px 12px; font-weight: bold; border: 1px solid #555; }
+            QPushButton:hover { background-color: #4a4a4a; }
+            
+            QSlider::groove:horizontal { border-radius: 4px; height: 8px; background: #3a3a3a; }
+            QSlider::handle:horizontal { background: #3498DB; width: 16px; height: 16px; margin: -4px 0; border-radius: 8px; }
+        """)
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(15, 15, 15, 15)
@@ -205,13 +230,11 @@ class SettingsDialog(QDialog):
             le = QLineEdit(value)
             le.setPlaceholderText(placeholder)
             le.setEchoMode(QLineEdit.EchoMode.Password)
-            le.setStyleSheet("padding: 5px;")
             
             btn = QPushButton()
             btn.setIcon(qta.icon('fa5s.eye', color='#dddddd'))
             btn.setFixedSize(28, 28)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setStyleSheet("background-color: #333; border: 1px solid #555; border-radius: 4px;")
             
             def toggle_visibility():
                 if le.echoMode() == QLineEdit.EchoMode.Password:
@@ -221,7 +244,7 @@ class SettingsDialog(QDialog):
                 else:
                     le.setEchoMode(QLineEdit.EchoMode.Password)
                     btn.setIcon(qta.icon('fa5s.eye', color='#dddddd'))
-                    btn.setStyleSheet("background-color: #333; border: 1px solid #555; border-radius: 4px;")
+                    btn.setStyleSheet("background-color: #3a3a3a; border: 1px solid #555; border-radius: 4px;")
             
             btn.clicked.connect(toggle_visibility)
             ly.addWidget(le)
@@ -229,7 +252,6 @@ class SettingsDialog(QDialog):
             return w, le
         
         ai_group = QGroupBox(self.i18n.get("ai_trans_group", "AI 검색어 최적화"))
-        ai_group.setStyleSheet("QGroupBox { font-weight: bold; border: 1px solid #555; border-radius: 6px; padding-top: 15px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; color: #E67E22; }")
         ai_group_layout = QFormLayout(ai_group)
         ai_group_layout.setContentsMargins(10, 15, 10, 10)
         ai_group_layout.setSpacing(10)
@@ -249,7 +271,7 @@ class SettingsDialog(QDialog):
         ai_group_layout.addRow(self.i18n.get("ai_api_key", "API Key:"), self.ai_key_widget)
 
         lbl_ai_notice = QLabel(self.i18n.get("ai_notice", "해외 DB 검색 시 정확도를 대폭 높입니다."))
-        lbl_ai_notice.setStyleSheet("color: #aaa; font-size: 11px;")
+        lbl_ai_notice.setStyleSheet("color: #aaaaaa; font-size: 11px;")
         lbl_ai_notice.setWordWrap(True)
         ai_group_layout.addRow(lbl_ai_notice)
 
@@ -267,7 +289,7 @@ class SettingsDialog(QDialog):
         self.btn_api_manual = QPushButton(self.i18n.get("btn_api_manual", "API 발급 매뉴얼"))
         self.btn_api_manual.setIcon(qta.icon('fa5s.book-open', color='white'))
         self.btn_api_manual.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_api_manual.setStyleSheet("background-color: #2b5797; color: white; padding: 6px 12px; border-radius: 4px; font-weight: bold;")
+        self.btn_api_manual.setStyleSheet("background-color: #2b5797; color: white; padding: 6px 12px; border-radius: 4px; font-weight: bold; border: none;")
         self.btn_api_manual.clicked.connect(self.show_api_manual)
         api_header_layout.addWidget(self.btn_api_manual)
         
@@ -283,12 +305,11 @@ class SettingsDialog(QDialog):
         api_layout.addRow("Comic Vine API:", self.vine_widget)
         
         tag_group = QGroupBox(self.i18n.get("tag_rules_group", "태그 표준화 규칙"))
-        tag_group.setStyleSheet("QGroupBox { font-weight: bold; border: 1px solid #555; border-radius: 6px; padding-top: 15px; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; color: #9B59B6; }")
         tag_group_layout = QVBoxLayout(tag_group)
         tag_group_layout.setContentsMargins(10, 15, 10, 10)
         
         lbl_tag_notice = QLabel(self.i18n.get("tag_rules_desc", "치환할 태그를 '기존태그 -> 새태그' 형식으로 입력하세요."))
-        lbl_tag_notice.setStyleSheet("color: #aaa; font-size: 11px;")
+        lbl_tag_notice.setStyleSheet("color: #aaaaaa; font-size: 11px;")
         lbl_tag_notice.setWordWrap(True)
         tag_group_layout.addWidget(lbl_tag_notice)
         
@@ -296,7 +317,6 @@ class SettingsDialog(QDialog):
         self.te_tag_rules.setFixedHeight(70)
         self.te_tag_rules.setPlaceholderText("Shounen, 소년만화 -> 소년\nAction -> 액션")
         self.te_tag_rules.setPlainText(api_keys.get("tag_rules", ""))
-        self.te_tag_rules.setStyleSheet("background-color: #1a1a1a; color: white; border: 1px solid #555; border-radius: 4px; padding: 5px;")
         tag_group_layout.addWidget(self.te_tag_rules)
         
         api_layout.addRow(tag_group)
@@ -306,7 +326,7 @@ class SettingsDialog(QDialog):
         self.btn_clear_cache = QPushButton(self.i18n.get("btn_clear_cache", "검색 캐시 비우기"))
         self.btn_clear_cache.setIcon(qta.icon('fa5s.trash-alt', color='white'))
         self.btn_clear_cache.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_clear_cache.setStyleSheet("background-color: #E74C3C; color: white; padding: 6px 12px; border-radius: 4px; font-weight: bold;")
+        self.btn_clear_cache.setStyleSheet("background-color: #E74C3C; color: white; padding: 6px 12px; border-radius: 4px; font-weight: bold; border: none;")
         self.btn_clear_cache.clicked.connect(self.action_clear_cache)
         cache_layout.addWidget(self.btn_clear_cache)
         api_layout.addRow(cache_layout)
@@ -321,6 +341,8 @@ class SettingsDialog(QDialog):
         btn_box.button(QDialogButtonBox.StandardButton.Cancel).setText(self.i18n.get("btn_cancel", "취소"))
         btn_box.button(QDialogButtonBox.StandardButton.Ok).setCursor(Qt.CursorShape.PointingHandCursor)
         btn_box.button(QDialogButtonBox.StandardButton.Cancel).setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_box.button(QDialogButtonBox.StandardButton.Ok).setStyleSheet("background-color: #3498DB; color: white; font-weight: bold;")
+        
         btn_box.accepted.connect(self.accept)
         btn_box.rejected.connect(self.reject)
         main_layout.addWidget(btn_box)
