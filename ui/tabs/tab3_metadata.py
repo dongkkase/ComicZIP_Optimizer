@@ -704,7 +704,6 @@ class Tab3Metadata(QWidget):
         layout_content.addWidget(left_frame); layout_content.addWidget(self.right_frame, 1)
         self.meta_stacked.addWidget(page_content); self.meta_stacked.setCurrentIndex(0); self.set_right_panel_active(False)
 
-        # 🌟 전역 단축키 등록 (포커스 무관하게 작동)
         self.shortcut_s = QShortcut(QKeySequence(Qt.Key.Key_S), self)
         self.shortcut_s.activated.connect(self._trigger_s)
         self.shortcut_s.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
@@ -713,9 +712,7 @@ class Tab3Metadata(QWidget):
         self.shortcut_c.activated.connect(self._trigger_c)
         self.shortcut_c.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
 
-        # 🌟 텍스트 입력 방해를 막기 위해 포커스 감지기 연결
         QApplication.instance().focusChanged.connect(self._on_focus_changed)
-        self._on_focus_changed(None, QApplication.focusWidget())
 
     def _on_focus_changed(self, old, new):
         if new is None:
@@ -728,7 +725,7 @@ class Tab3Metadata(QWidget):
             is_input = isinstance(new.parent(), (QLineEdit, QTextEdit, QComboBox))
 
         if is_input:
-            self.shortcut_s.setEnabled(False) # 텍스트 입력 중일 땐 단축키 비활성화
+            self.shortcut_s.setEnabled(False) 
             self.shortcut_c.setEnabled(False)
         else:
             self.shortcut_s.setEnabled(True)
@@ -1435,6 +1432,11 @@ class Tab3Metadata(QWidget):
     def action_save_single(self):
         t = self.main_app.i18n[self.main_app.lang]
         if not self.current_meta_file: return
+        
+        # 🌟 현재 탭 제외 타 탭 초기화
+        if hasattr(self.main_app, 'tab1'): self.main_app.tab1.clear_list()
+        if hasattr(self.main_app, 'tab2'): self.main_app.tab2.clear_list()
+        
         self._save_ui_to_dict(); fp = self.current_meta_file
         
         self.set_right_panel_active(False)
@@ -1467,6 +1469,11 @@ class Tab3Metadata(QWidget):
 
     def action_save_all(self):
         t = self.main_app.i18n[self.main_app.lang]
+        
+        # 🌟 현재 탭 제외 타 탭 초기화
+        if hasattr(self.main_app, 'tab1'): self.main_app.tab1.clear_list()
+        if hasattr(self.main_app, 'tab2'): self.main_app.tab2.clear_list()
+        
         self._save_ui_to_dict()
         
         targets = {fp: data for fp, data in self.book_meta.items() if os.path.exists(fp)}

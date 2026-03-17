@@ -19,3 +19,5 @@ __pycache__/
 Thumbs.db
 config.json
 api_cache.db
+/.api_cache.db
+.api_cache.db

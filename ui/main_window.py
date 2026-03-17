@@ -16,6 +16,7 @@ from config import load_config, save_config, get_resource_path, CURRENT_VERSION
 from utils import play_complete_sound
 from ui.signals import WorkerSignals
 from ui.dialogs import LogDialog, SettingsDialog
+from ui.widgets import Toast  # 🌟 Toast 알림 임포트 추가
 from tasks.update_task import VersionCheckTask, ReleaseNotesTask
 from tasks.load_task import OrganizerLoadTask, FileLoadTask
 from tasks.organize_task import OrganizerProcessTask
@@ -344,6 +345,23 @@ class RenamerApp(QMainWindow):
         from PyQt6.QtWidgets import QDialog
         if dlg.exec() == int(QDialog.DialogCode.Accepted):
             new_data = dlg.get_data()
+            
+            # 🌟 환경설정에서 포맷 또는 WebP 옵션 변경 시 타 탭 일괄 초기화 검사
+            format_changed = new_data.get("target_format") != self.config.get("target_format")
+            webp_conv_changed = new_data.get("webp_conversion") != self.config.get("webp_conversion")
+            webp_qual_changed = new_data.get("webp_quality") != self.config.get("webp_quality")
+            
+            if format_changed or webp_conv_changed or webp_qual_changed:
+                self.tab1.clear_list()
+                self.tab2.clear_list()
+                self.tab3.clear_list()
+                
+                lang = new_data.get("lang", "ko")
+                if lang == "ko": msg = "포맷 및 WebP 설정 변경으로 인해 모든 탭의 작업 리스트가 초기화되었습니다."
+                elif lang == "ja": msg = "フォーマットまたはWebP設定が変更されたため、すべてのタブのタスクリストが初期化されました。"
+                else: msg = "All task lists have been cleared due to changes in format or WebP settings."
+                Toast.show(self, msg)
+
             self.config.update(new_data)
             self.lang = self.config["lang"]
             save_config(self.config)
@@ -389,7 +407,6 @@ class RenamerApp(QMainWindow):
         current = self.tabs.currentWidget()
         if hasattr(current, 'clear_list'): current.clear_list()
 
-    # 🌟 자동 전환(Auto Transfer) 처리 파라미터 is_auto_transfer 연동
     def process_paths(self, paths, is_auto_transfer=False):
         if self.is_processing: return
         
@@ -477,7 +494,10 @@ class RenamerApp(QMainWindow):
                 QMessageBox.warning(self, "Warning", "체크(☑)된 작업 대상이 없습니다." if self.lang == "ko" else "No checked targets.")
                 return
             
+            # 🌟 탭 1 실행 시 탭 2, 3 목록 초기화
             self.tab2.clear_list()
+            self.tab3.clear_list()
+            
             self.is_processing = True
             self.toggle_ui_elements(is_processing=True)
             self.btn_run.clicked.disconnect()
@@ -498,7 +518,10 @@ class RenamerApp(QMainWindow):
                 QMessageBox.warning(self, "Warning", "체크(☑)된 작업 대상이 없습니다." if self.lang == "ko" else "No checked targets.")
                 return
                 
+            # 🌟 탭 2 실행 시 탭 1, 3 목록 초기화
             self.tab1.clear_list()
+            self.tab3.clear_list()
+            
             self.is_processing = True
             self.toggle_ui_elements(is_processing=True)
             self.btn_run.clicked.disconnect()
@@ -608,7 +631,7 @@ class RenamerApp(QMainWindow):
             
             from PyQt6.QtWidgets import QDialog
             if log_dlg.exec() == int(QDialog.DialogCode.Accepted):
-                self.tabs.setCurrentIndex(2) # 🌟 Tab 3 로 이동
+                self.tabs.setCurrentIndex(2) 
                 self.process_paths(valid_fps, is_auto_transfer=True)
 
     def safe_finish_ui_reset(self):

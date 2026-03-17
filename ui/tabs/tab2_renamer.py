@@ -4,7 +4,7 @@ import zipfile
 from pathlib import Path
 import qtawesome as qta
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
-                             QLabel, QComboBox, QLineEdit, QFrame, QTableWidgetItem, QAbstractItemView, QHeaderView, QSizePolicy, QTableWidget, QMessageBox, QStackedWidget)
+                             QLabel, QComboBox, QLineEdit, QFrame, QTableWidgetItem, QAbstractItemView, QHeaderView, QSizePolicy, QTableWidget, QMessageBox, QStackedWidget, QCheckBox)
 from PyQt6.QtCore import Qt, QTimer, QSize
 from PyQt6.QtGui import QImage, QPixmap, QPainter, QPainterPath, QColor
 
@@ -87,9 +87,16 @@ class Tab2Renamer(QWidget):
         self.entry_custom.setEnabled(False)
         self.entry_custom.textChanged.connect(self.update_inner_preview_list)
         
+        # 🌟 '내부 파일명 유지' 체크박스 추가
+        self.chk_keep_name = QCheckBox(t.get("tab2_keep_name", "내부 파일명 유지"))
+        self.chk_keep_name.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.chk_keep_name.setStyleSheet("font-weight: bold; color: #E67E22;")
+        self.chk_keep_name.toggled.connect(self.on_keep_name_toggled)
+        
         options_layout.addWidget(self.lbl_pattern)
         options_layout.addWidget(self.cb_pattern, 1)
         options_layout.addWidget(self.entry_custom)
+        options_layout.addWidget(self.chk_keep_name)
         right_layout.addWidget(options_frame)
 
         self.lbl_target = QLabel()
@@ -100,7 +107,6 @@ class Tab2Renamer(QWidget):
         page_empty = QWidget()
         layout_empty = QVBoxLayout(page_empty)
         
-        # 🌟 folder-open 아이콘 적용
         self.icon_empty_arch = QLabel()
         self.icon_empty_arch.setPixmap(qta.icon('fa5s.folder-open', color='#aaaaaa').pixmap(64, 64))
         self.icon_empty_arch.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -166,6 +172,7 @@ class Tab2Renamer(QWidget):
         self.lbl_inner_title.setText(t["inner_preview"])
         self.lbl_pattern.setText(t["pattern_lbl"])
         self.lbl_empty_arch.setText(t.get("drag_drop", ""))
+        self.chk_keep_name.setText(t.get("tab2_keep_name", "내부 파일명 유지"))
         
         self.cb_pattern.blockSignals(True)
         self.cb_pattern.clear()
@@ -187,6 +194,14 @@ class Tab2Renamer(QWidget):
         t = self.main_app.i18n[self.main_app.lang]["patterns"]
         if value == t[4]: self.entry_custom.setEnabled(True); self.entry_custom.setFocus()
         else: self.entry_custom.setEnabled(False)
+        self.update_inner_preview_list()
+
+    def on_keep_name_toggled(self, checked):
+        self.cb_pattern.setEnabled(not checked)
+        if checked:
+            self.entry_custom.setEnabled(False)
+        else:
+            self.on_pattern_change(self.cb_pattern.currentText())
         self.update_inner_preview_list()
 
     def on_table_item_changed(self, item):
@@ -258,13 +273,15 @@ class Tab2Renamer(QWidget):
         cust_txt = self.entry_custom.text()
         flatten = self.main_app.config.get("flatten_folders", False)
         webp_on = self.main_app.config.get("webp_conversion", False)
+        keep_name = self.chk_keep_name.isChecked()
 
         for idx, e in enumerate(entries):
             old = e['filename']
             ext = ".webp" if webp_on else (os.path.splitext(old)[1] or ".jpg")
             pad = 2 if total < 100 else (3 if total < 1000 else 4)
             
-            if pat_idx == 1: new = f"Cover{ext}" if idx==0 else f"Page_{idx:0{pad}d}{ext}"
+            if keep_name: new = os.path.splitext(os.path.basename(old))[0] + ext
+            elif pat_idx == 1: new = f"Cover{ext}" if idx==0 else f"Page_{idx:0{pad}d}{ext}"
             elif pat_idx == 2: new = f"{stem.replace(' ','_')}_{idx:0{pad}d}{ext}"
             elif pat_idx == 3: new = f"{stem.replace(' ','_')}_Cover{ext}" if idx==0 else f"{stem.replace(' ','_')}_Page_{idx:0{pad}d}{ext}"
             elif pat_idx == 4: new = f"{cust_txt.strip() or 'Custom'}_{idx:0{pad}d}{ext}"
@@ -398,6 +415,8 @@ class Tab2Renamer(QWidget):
         return [fp for fp, d in self.archive_data.items() if d.get('checked', False)]
 
     def get_pattern(self):
+        if self.chk_keep_name.isChecked():
+            return "__KEEP_NAME__"
         return self.cb_pattern.currentText()
 
     def get_custom_text(self):

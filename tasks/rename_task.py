@@ -124,7 +124,12 @@ class RenameTask:
                         ext = os.path.splitext(entry['filename'])[1] or ".jpg" 
                         if self.webp_conversion: ext = ".webp"
                         
-                        new_basename = self.generate_new_name(count, ext, total_count, stem_name)
+                        # 🌟 원본 파일명을 그대로 유지할 때의 처리
+                        if self.pattern_val == "__KEEP_NAME__":
+                            new_basename = os.path.splitext(os.path.basename(old_name))[0] + ext
+                        else:
+                            new_basename = self.generate_new_name(count, ext, total_count, stem_name)
+                            
                         new_name = new_basename if self.flatten_folders else os.path.join(dir_name, new_basename).replace('\\', '/')
 
                         if old_name != new_name or actual_webp_needed:
@@ -136,7 +141,6 @@ class RenameTask:
 
                     if not needs_rename and not must_extract:
                         stats['skip'].append(filename)
-                        # 🌟 [버그 수정 1] 스킵된 파일은 UI에서 새로고침하지 않도록 목록에 넣지 않음 (증발 방지)
                         continue
 
                     if not must_extract:
@@ -152,23 +156,21 @@ class RenameTask:
                         for i in range(0, len(flat_args), 40):
                             if self._is_cancelled: break
                             try:
-                                subprocess.run([self.seven_z_exe, 'rn', temp_rn_archive] + flat_args[i:i + 40], startupinfo=startupinfo, creationflags=CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-                            except Exception as e:
+                                # 🌟 파이썬 zipfile 모듈 수정으로 인해 7z에서 발생하는 Warning(코드 1)을 무시하도록 수정
+                                res = subprocess.run([self.seven_z_exe, 'rn', temp_rn_archive] + flat_args[i:i + 40], startupinfo=startupinfo, creationflags=CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                if res.returncode not in (0, 1):
+                                    rename_success = False
+                                    break
+                            except Exception:
                                 rename_success = False
                                 break
                                 
                         if rename_success and not self._is_cancelled:
-                            # 🌟 [버그 수정 2] 고속 변경(rn) 시에도 .tmp 안전 덮어쓰기 적용
                             tmp_backup_path = file_path + ".tmp"
                             if os.path.exists(tmp_backup_path):
                                 os.remove(tmp_backup_path)
                             os.rename(file_path, tmp_backup_path)
 
-                            # # 🚨🚨 [테스트용 코드 추가] 🚨🚨
-                            # import time
-                            # time.sleep(10)  # 여기서 프로그램이 10초간 일시 정지합니다!
-                            # # 🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨
-                            
                             try:
                                 shutil.move(temp_rn_archive, file_path)
                                 os.remove(tmp_backup_path)
@@ -192,7 +194,10 @@ class RenameTask:
                         if os.path.exists(temp_dir): shutil.rmtree(temp_dir, ignore_errors=True)
                         os.makedirs(temp_dir, exist_ok=True)
                         
-                        subprocess.run([self.seven_z_exe, 'x', str(file_path), f'-o{temp_dir}', '-y'], startupinfo=startupinfo, creationflags=CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, check=True)
+                        # 🌟 7z Warning(코드 1) 무시 처리 적용
+                        res_x = subprocess.run([self.seven_z_exe, 'x', str(file_path), f'-o{temp_dir}', '-y'], startupinfo=startupinfo, creationflags=CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        if res_x.returncode not in (0, 1):
+                            raise Exception(f"7-Zip Extraction Error (Code: {res_x.returncode})")
                         
                         if rename_args:
                             with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_threads) as executor:
@@ -219,28 +224,26 @@ class RenameTask:
                         temp_archive = os.path.join(sys_temp, f"ComicZIP_Done_{safe_id}_{filename}{target_ext}")
                         
                         if os.path.exists(temp_archive): os.remove(temp_archive)
-                        subprocess.run([self.seven_z_exe, 'a', archive_type, temp_archive, '*', '-mx=0'], cwd=temp_dir, startupinfo=startupinfo, creationflags=CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, check=True)
+                        
+                        # 🌟 7z Warning(코드 1) 무시 처리 적용
+                        res_a = subprocess.run([self.seven_z_exe, 'a', archive_type, temp_archive, '*', '-mx=0'], cwd=temp_dir, startupinfo=startupinfo, creationflags=CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        if res_a.returncode not in (0, 1):
+                            raise Exception(f"7-Zip Archiving Error (Code: {res_a.returncode})")
+                            
                         shutil.rmtree(temp_dir, ignore_errors=True)
                         
-                        # 🌟 [NAS/드라이브 에러 완벽 방어] 
-                        # 확장자 변경 여부와 상관없이 무조건 원본을 .tmp로 전환하여 데이터 유실을 차단합니다.
                         tmp_backup_path = file_path + ".tmp"
                         if os.path.exists(tmp_backup_path):
                             os.remove(tmp_backup_path)
                         os.rename(file_path, tmp_backup_path)
                         
                         try:
-                            # 새 파일이 들어갈 자리에 구버전(다른 확장자 등)이 있다면 제거
                             if os.path.exists(target_final_path):
                                 os.remove(target_final_path)
                             
-                            # 완성된 새 파일을 목적지로 이동 (NAS 끊김 시 여기서 에러 발생)
                             shutil.move(temp_archive, target_final_path)
-                            
-                            # 이동이 완벽하게 끝났음이 보장된 후, 피신시켜둔 원본 삭제
                             os.remove(tmp_backup_path)
                         except Exception as e:
-                            # 🚨 에러 발생 시: 이동하다 만 찌꺼기 파일을 지우고, .tmp를 원본으로 복구
                             if os.path.exists(target_final_path):
                                 os.remove(target_final_path)
                             os.rename(tmp_backup_path, file_path) 
