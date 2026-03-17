@@ -3,7 +3,7 @@
 [English](#-english) | [한국어](#-한국어)
 
 ---
-<kbd>![Demo](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo.gif?v=1)</kbd>
+<kbd>![Demo](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo.gif?v=2)</kbd>
 ---
 
 <a id="-english"></a>
