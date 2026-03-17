@@ -43,7 +43,6 @@ class Tab1Organizer(QWidget):
         page_empty = QWidget()
         layout_empty = QVBoxLayout(page_empty)
         
-        # 🌟 folder-open 아이콘 적용
         self.icon_empty_org = QLabel()
         self.icon_empty_org.setPixmap(qta.icon('fa5s.folder-open', color='#aaaaaa').pixmap(64, 64))
         self.icon_empty_org.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -61,12 +60,17 @@ class Tab1Organizer(QWidget):
         self.tree_org = OrgTreeWidget()
         self.tree_org.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.tree_org.setHeaderLabels(["", "", "", ""])
-        self.tree_org.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.tree_org.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch) 
+        
+        self.tree_org.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        self.tree_org.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         self.tree_org.header().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
-        self.tree_org.setColumnWidth(2, 70)
         self.tree_org.header().setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
-        self.tree_org.setColumnWidth(3, 80)
+        self.tree_org.header().setStretchLastSection(False) 
+        
+        self.tree_org.setTextElideMode(Qt.TextElideMode.ElideNone)
+        
+        # 🌟 긴 파일명이 오면 잘리지 않고 여러 줄로 표시되도록 줄바꿈 허용
+        self.tree_org.setWordWrap(True)
         
         self.tree_org.itemChanged.connect(self.on_item_changed)
         self.tree_org.delete_pressed.connect(self.remove_highlighted)
@@ -78,12 +82,39 @@ class Tab1Organizer(QWidget):
         layout.addWidget(self.stacked_org, 1)
         layout.addWidget(self.lbl_count, alignment=Qt.AlignmentFlag.AlignCenter)
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.adjust_columns()
+
+    def adjust_columns(self):
+        if not hasattr(self, 'tree_org'): return
+        total_w = self.tree_org.viewport().width()
+        if total_w <= 0: return
+        
+        # 항목수와 용량은 80px 고정
+        col2_w = 80
+        col3_w = 80
+        # 경로는 전체 크기의 40% 차지
+        col1_w = int(total_w * 0.4)
+        # 파일명 컬럼은 남은 공간 모두 차지
+        col0_w = max(50, total_w - col1_w - col2_w - col3_w)
+        
+        self.tree_org.setColumnWidth(0, col0_w)
+        self.tree_org.setColumnWidth(1, col1_w)
+        self.tree_org.setColumnWidth(2, col2_w)
+        self.tree_org.setColumnWidth(3, col3_w)
+
     def retranslate_ui(self, t, lang):
         self.btn_toggle_expand.setText("↕ 전체 펼치기 / 접기" if lang == "ko" else "↕ Expand / Collapse All")
         self.btn_batch_default.setText(t["batch_default"])
         self.btn_batch_title.setText(t["batch_title"])
         self.lbl_empty_org.setText(t.get("drag_drop", ""))
         self.tree_org.setHeaderLabels([t["col_org_name"], t["col_org_path"], t["col_org_count"], t["col_org_size"]])
+        
+        # 헤더 텍스트 우측 정렬
+        self.tree_org.headerItem().setTextAlignment(2, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.tree_org.headerItem().setTextAlignment(3, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        
         self.lbl_count.setText(t["total_files"].format(count=len(self.org_data)))
 
     def toggle_expand(self):
@@ -146,6 +177,9 @@ class Tab1Organizer(QWidget):
             root_item.setText(2, vol_count_text) 
             root_item.setText(3, f"{data['size_mb']:.1f} MB") 
             
+            root_item.setTextAlignment(2, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            root_item.setTextAlignment(3, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            
             path_widget = QWidget()
             path_layout = QHBoxLayout(path_widget)
             path_layout.setContentsMargins(5, 2, 5, 2)
@@ -184,19 +218,29 @@ class Tab1Organizer(QWidget):
                 final_ext = target_ext if target_ext else (Path(vol.get('inner_path', '')).suffix if vol.get('type') == 'archive' else ".zip")
                 if not final_ext: final_ext = ".zip"
                 
-                child.setText(0, f"  ↳ {icon_txt} {vol['new_name']}{final_ext}")
+                full_text = f"  ↳ {icon_txt} {vol['new_name']}{final_ext}"
+                child.setText(0, full_text)
                 child.setForeground(0, QColor("#aaaaaa"))
+                child.setToolTip(0, full_text)
                 
             items_to_add.append(root_item)
             widgets_to_set.append((root_item, path_widget)) 
             
+        # 🌟 핵심 수정: 아이템을 트리에 완전히 등록(Add)한 직후에 병합(colspan)을 적용합니다!
         self.tree_org.addTopLevelItems(items_to_add)
+        
         for item, widget in widgets_to_set:
             self.tree_org.setItemWidget(item, 1, widget)
-        
-        for i in range(self.tree_org.topLevelItemCount()):
-            self.tree_org.topLevelItem(i).setExpanded(self.is_expanded)
             
+        # 🌟 PyQt 버그 회피: 트리에 등록된 후 하위 항목들을 순회하며 가로 전체 병합 옵션 먹이기
+        for i in range(self.tree_org.topLevelItemCount()):
+            top_item = self.tree_org.topLevelItem(i)
+            top_item.setExpanded(self.is_expanded)
+            for j in range(top_item.childCount()):
+                top_item.child(j).setFirstColumnSpanned(True)
+                
+        self.adjust_columns()
+        
         self.tree_org.blockSignals(False)
         self.tree_org.setUpdatesEnabled(True)
         self.lbl_count.setText(self.main_app.i18n[self.main_app.lang]["total_files"].format(count=len(self.org_data)))

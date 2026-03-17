@@ -17,4 +17,5 @@ def play_complete_sound():
         pass
 
 def natural_keys(text):
-    return [[f"{int(c):010d}" if c.isdigit() else c.lower() for c in re.split(r'(\d+)', p)] for p in str(text).replace('\\', '/').split('/')]
+    # 기존 코드의 리스트 컴프리헨션 맨 끝에 'if c'를 추가하여 빈 문자열('')을 걸러냅니다.
+    return [[f"{int(c):010d}" if c.isdigit() else c.lower() for c in re.split(r'(\d+)', p) if c] for p in str(text).replace('\\', '/').split('/')]

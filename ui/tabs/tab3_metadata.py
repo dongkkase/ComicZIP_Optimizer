@@ -15,10 +15,11 @@ import qtawesome as qta
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit, 
     QFrame, QSizePolicy, QTreeWidgetItem, QStackedWidget, QGroupBox,
-    QTextEdit, QComboBox, QGridLayout, QScrollArea, QMessageBox, QCheckBox, QLayout, QSpacerItem, QApplication
+    QTextEdit, QComboBox, QGridLayout, QScrollArea, QMessageBox, QCheckBox, 
+    QLayout, QSpacerItem, QApplication, QAbstractItemView
 )
 from PyQt6.QtCore import Qt, QTimer, QSize, QRect, QPoint, QThread, pyqtSignal
-from PyQt6.QtGui import QImage, QPixmap, QPainter, QPainterPath, QColor
+from PyQt6.QtGui import QImage, QPixmap, QPainter, QPainterPath, QColor, QKeySequence, QShortcut
 
 from utils import natural_keys
 from config import get_resource_path
@@ -259,6 +260,9 @@ class Tab3Metadata(QWidget):
         self.tree_meta_files.itemSelectionChanged.connect(self.on_tree_select)
         self.tree_meta_files.delete_pressed.connect(self.remove_selected)
         
+        self.tree_meta_files.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.tree_meta_files.verticalScrollBar().setSingleStep(15)
+        
         left_layout.addWidget(self.lbl_meta_cover)
         left_layout.addWidget(self.tree_meta_files)
 
@@ -308,7 +312,7 @@ class Tab3Metadata(QWidget):
         self.le_meta_search.setStyleSheet("padding: 6px; border: 1px solid #555; border-radius: 4px; background-color: #2b2b2b;")
         search_layout.addWidget(self.le_meta_search, 1)
         
-        self.btn_meta_search = QPushButton(f" {t.get('btn_search', '검색')}")
+        self.btn_meta_search = QPushButton(f" {t.get('btn_search', '검색')} (S)")
         self.btn_meta_search.setIcon(qta.icon('fa5s.search', color='white'))
         self.btn_meta_search.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_meta_search.setStyleSheet("QPushButton { padding: 6px 14px; font-size: 12px; background-color: #333333; color: white; border: 1px solid #555; border-radius: 4px; } QPushButton:hover { background-color: #444444; }")
@@ -332,7 +336,8 @@ class Tab3Metadata(QWidget):
         self.btn_copy_orig.setIcon(qta.icon('fa5s.copy', color='white'))
         self.btn_apply_all = QPushButton(t.get("t3_btn_apply_all", "편집 적용"))
         self.btn_apply_all.setIcon(qta.icon('fa5s.check', color='white'))
-        self.btn_apply_series = QPushButton(t.get("t3_btn_apply_series", "시리즈 편집 적용"))
+        
+        self.btn_apply_series = QPushButton(f"{t.get('t3_btn_apply_series', '시리즈 편집 적용')} (C)")
         self.btn_apply_series.setIcon(qta.icon('fa5s.layer-group', color='white'))
 
         self.btn_copy_orig.setToolTip(t.get("t3_tt_copy_orig", ""))
@@ -573,7 +578,6 @@ class Tab3Metadata(QWidget):
 
         self.group_basic, gl_basic = create_group_box(t.get("t3_nav_basic", "").replace("\n"," "))
         
-        # 🌟 상단 텍스트 라벨 명시적으로 생성 및 스타일(색상) 강제 적용
         self.lbl_col_orig = QLabel(t.get('t3_col_orig', '원본'))
         self.lbl_col_res = QLabel(t.get('t3_col_res', '일괄 편집'))
         
@@ -700,13 +704,52 @@ class Tab3Metadata(QWidget):
         layout_content.addWidget(left_frame); layout_content.addWidget(self.right_frame, 1)
         self.meta_stacked.addWidget(page_content); self.meta_stacked.setCurrentIndex(0); self.set_right_panel_active(False)
 
+        # 🌟 전역 단축키 등록 (포커스 무관하게 작동)
+        self.shortcut_s = QShortcut(QKeySequence(Qt.Key.Key_S), self)
+        self.shortcut_s.activated.connect(self._trigger_s)
+        self.shortcut_s.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+
+        self.shortcut_c = QShortcut(QKeySequence(Qt.Key.Key_C), self)
+        self.shortcut_c.activated.connect(self._trigger_c)
+        self.shortcut_c.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+
+        # 🌟 텍스트 입력 방해를 막기 위해 포커스 감지기 연결
+        QApplication.instance().focusChanged.connect(self._on_focus_changed)
+        self._on_focus_changed(None, QApplication.focusWidget())
+
+    def _on_focus_changed(self, old, new):
+        if new is None:
+            self.shortcut_s.setEnabled(True)
+            self.shortcut_c.setEnabled(True)
+            return
+
+        is_input = isinstance(new, (QLineEdit, QTextEdit, QComboBox))
+        if not is_input and new.parent() is not None:
+            is_input = isinstance(new.parent(), (QLineEdit, QTextEdit, QComboBox))
+
+        if is_input:
+            self.shortcut_s.setEnabled(False) # 텍스트 입력 중일 땐 단축키 비활성화
+            self.shortcut_c.setEnabled(False)
+        else:
+            self.shortcut_s.setEnabled(True)
+            self.shortcut_c.setEnabled(True)
+
+    def _trigger_s(self):
+        if self.btn_meta_search.isEnabled():
+            self.action_search_api()
+
+    def _trigger_c(self):
+        if getattr(self, 'btn_apply_series', None) and self.btn_apply_series.isEnabled():
+            self.action_apply_series()
+
     def retranslate_ui(self, t, lang):
         self.lbl_empty.setText(t.get("t3_empty", ""))
         if not self.current_meta_file: self.lbl_meta_cover.setText(t.get("t3_cover", ""))
         self.lbl_search_api.setText(t.get("t3_search_api", ""))
         self.lbl_search_query.setText(t.get("t3_search_query", ""))
         self.le_meta_search.setPlaceholderText(t.get("t3_search_ph", ""))
-        self.btn_meta_search.setText(f" {t.get('btn_search', '검색')}")
+        
+        self.btn_meta_search.setText(f" {t.get('btn_search', '검색')} (S)")
         self.btn_goto_basic.setText(t.get("t3_nav_basic", ""))
         self.btn_goto_crew.setText(t.get("t3_nav_crew", ""))
         self.btn_goto_publish.setText(t.get("t3_nav_publish", ""))
@@ -714,7 +757,8 @@ class Tab3Metadata(QWidget):
         self.btn_goto_etc.setText(t.get("t3_nav_etc", ""))
         self.btn_copy_orig.setText(t.get("t3_btn_copy_orig", ""))
         self.btn_apply_all.setText(t.get("t3_btn_apply_all", ""))
-        self.btn_apply_series.setText(t.get("t3_btn_apply_series", ""))
+        
+        self.btn_apply_series.setText(f"{t.get('t3_btn_apply_series', '시리즈 편집 적용')} (C)")
         
         self.lbl_col_orig.setText(t.get('t3_col_orig', '원본'))
         self.lbl_col_res.setText(t.get('t3_col_res', '일괄 편집'))
@@ -1184,10 +1228,16 @@ class Tab3Metadata(QWidget):
             fp = str(f)
             if fp in self.book_meta:
                 for k, v in results_to_copy.items(): self.book_meta[fp][k] = v
+                
+        self.action_auto_title(show_toast=False)
+        self.action_auto_volume(show_toast=False)
+        self.action_auto_chapter(show_toast=False)
+        self.action_auto_pages(show_toast=False)
+                
         self._load_dict_to_ui(self.current_meta_file)
         Toast.show(self.main_app, t.get("t3_msg_applied_series_all", ""))
 
-    def action_auto_title(self):
+    def action_auto_title(self, show_toast=True):
         t = self.main_app.i18n[self.main_app.lang]
         if not self.current_meta_file: return
         parent_dir = str(Path(self.current_meta_file).parent)
@@ -1229,9 +1279,9 @@ class Tab3Metadata(QWidget):
             if c_match: self.book_meta[fp]['Number'] = str(int(c_match.group(1)))
             
         self._load_dict_to_ui(self.current_meta_file)
-        Toast.show(self.main_app, t.get("t3_msg_auto_title_done", ""))
+        if show_toast: Toast.show(self.main_app, t.get("t3_msg_auto_title_done", ""))
 
-    def action_auto_volume(self):
+    def action_auto_volume(self, show_toast=True):
         t = self.main_app.i18n[self.main_app.lang]
         if not self.current_meta_file: return
         parent_dir = str(Path(self.current_meta_file).parent)
@@ -1240,9 +1290,9 @@ class Tab3Metadata(QWidget):
             match = re.search(r'(?i)(?:vol\.|v\.|권)\s*(\d+)', title) or re.search(r'제?\s*(\d+)\s*권', title) or re.search(r'\b(\d+)\s*$', title.strip())
             if match: self.book_meta[fp]['Volume'] = str(int(match.group(1)))
         self._load_dict_to_ui(self.current_meta_file)
-        Toast.show(self.main_app, t.get("t3_msg_auto_vol_done", ""))
+        if show_toast: Toast.show(self.main_app, t.get("t3_msg_auto_vol_done", ""))
 
-    def action_auto_chapter(self):
+    def action_auto_chapter(self, show_toast=True):
         t = self.main_app.i18n[self.main_app.lang]
         if not self.current_meta_file: return
         parent_dir = str(Path(self.current_meta_file).parent)
@@ -1251,9 +1301,9 @@ class Tab3Metadata(QWidget):
             match = re.search(r'(?i)(?:ch\.|chapter|화)\s*(\d+)', title) or re.search(r'제?\s*(\d+)\s*화', title)
             if match: self.book_meta[fp]['Number'] = str(int(match.group(1)))
         self._load_dict_to_ui(self.current_meta_file)
-        Toast.show(self.main_app, t.get("t3_msg_auto_chap_done", ""))
+        if show_toast: Toast.show(self.main_app, t.get("t3_msg_auto_chap_done", ""))
 
-    def action_auto_pages(self):
+    def action_auto_pages(self, show_toast=True):
         t = self.main_app.i18n[self.main_app.lang]
         if not self.current_meta_file: return
         parent_dir = str(Path(self.current_meta_file).parent)
@@ -1266,7 +1316,7 @@ class Tab3Metadata(QWidget):
                 except: pass
             if img_count > 0: self.book_meta[fp]['PageCount'] = str(img_count)
         self._load_dict_to_ui(self.current_meta_file)
-        Toast.show(self.main_app, t.get("t3_msg_auto_pages_done", ""))
+        if show_toast: Toast.show(self.main_app, t.get("t3_msg_auto_pages_done", ""))
 
     def remove_selected(self):
         selected_items = self.tree_meta_files.selectedItems()

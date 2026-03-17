@@ -6,10 +6,10 @@ import requests
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, 
     QWidget, QFormLayout, QComboBox, QSplitter, QScrollArea, QFrame,
-    QListWidget, QListWidgetItem, QSizePolicy, QApplication
+    QListWidget, QListWidgetItem, QSizePolicy, QApplication, QTextEdit
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
-from PyQt6.QtGui import QImage, QPixmap, QPainter, QPainterPath
+from PyQt6.QtGui import QImage, QPixmap, QPainter, QPainterPath, QKeySequence, QShortcut
 import qtawesome as qta
 
 from core.api_fetcher import MetaApiFetcher
@@ -323,7 +323,6 @@ class SearchResultWidget(QWidget):
             star_layout.setContentsMargins(0,0,0,0)
             star_layout.setSpacing(4)
             
-            # 🌟 테두리가 강제로 그려지는 현상을 막기 위해 QLabel 지정 스타일링
             star_icon = QLabel()
             star_icon.setPixmap(qta.icon('fa5s.star', color='#f1c40f').pixmap(11, 11))
             star_icon.setStyleSheet("QLabel { background-color: transparent; border: none; outline: none; }") 
@@ -477,7 +476,7 @@ class ApiSearchDialog(QDialog):
         self.le_query.setStyleSheet("padding: 7px; border: 1px solid #555; border-radius: 4px; background-color: #2b2b2b;")
         self.le_query.returnPressed.connect(self.action_manual_search)
         
-        self.btn_search = QPushButton(f" {self.t.get('btn_search', '검색')}")
+        self.btn_search = QPushButton(f" {self.t.get('btn_search', '검색')} (S)")
         self.btn_search.setIcon(qta.icon('fa5s.search', color='white'))
         self.btn_search.setStyleSheet("background-color: #444; color: white; border: 1px solid #555; padding: 7px 20px; border-radius: 4px; font-weight: bold;")
         self.btn_search.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -559,8 +558,6 @@ class ApiSearchDialog(QDialog):
         
         scroll_content = QWidget()
         scroll_content.setStyleSheet("background-color: #444; border: none;") 
-        
-        # 🌟 메인 레이아웃을 다시 수직 배치(QVBoxLayout)로 복구했습니다.
         detail_layout = QVBoxLayout(scroll_content)
         detail_layout.setContentsMargins(15, 15, 15, 15)
         detail_layout.setSpacing(10)
@@ -586,7 +583,6 @@ class ApiSearchDialog(QDialog):
         line1 = QFrame(); line1.setFrameShape(QFrame.Shape.HLine); line1.setStyleSheet("color: #666;")
         detail_layout.addWidget(line1)
         
-        # 🌟 이미지와 정보 폼이 가로로 나란히(QHBoxLayout) 배치되도록 분리했습니다.
         info_layout = QHBoxLayout()
         info_layout.setSpacing(15)
         
@@ -707,7 +703,7 @@ class ApiSearchDialog(QDialog):
         self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_close.clicked.connect(self.reject)
         
-        self.btn_select = QPushButton(self.t.get("btn_select", "선택"))
+        self.btn_select = QPushButton(f"{self.t.get('btn_select', '선택')} (C)")
         self.btn_select.setIcon(qta.icon('fa5s.check', color='white'))
         self.btn_select.setStyleSheet("background-color: #3498DB; color: white; padding: 8px 25px; border-radius: 4px; font-weight: bold;")
         self.btn_select.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -715,6 +711,51 @@ class ApiSearchDialog(QDialog):
         
         btn_layout.addWidget(self.btn_close); btn_layout.addWidget(self.btn_select)
         main_layout.addLayout(btn_layout)
+
+        # 🌟 완벽한 전역 단축키 적용 (포커스 무관하게 작동)
+        self.shortcut_s = QShortcut(QKeySequence(Qt.Key.Key_S), self)
+        self.shortcut_s.activated.connect(self._trigger_s)
+        self.shortcut_s.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+
+        self.shortcut_c = QShortcut(QKeySequence(Qt.Key.Key_C), self)
+        self.shortcut_c.activated.connect(self._trigger_c)
+        self.shortcut_c.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+
+        # 🌟 텍스트 입력 방해를 막기 위해 포커스 감지기 연결
+        QApplication.instance().focusChanged.connect(self._on_focus_changed)
+        self._on_focus_changed(None, QApplication.focusWidget())
+
+    def _on_focus_changed(self, old, new):
+        if new is None:
+            self.shortcut_s.setEnabled(True)
+            self.shortcut_c.setEnabled(True)
+            return
+
+        is_input = isinstance(new, (QLineEdit, QTextEdit, QComboBox))
+        if not is_input and new.parent() is not None:
+            is_input = isinstance(new.parent(), (QLineEdit, QTextEdit, QComboBox))
+
+        if is_input:
+            self.shortcut_s.setEnabled(False)
+            self.shortcut_c.setEnabled(False)
+        else:
+            self.shortcut_s.setEnabled(True)
+            self.shortcut_c.setEnabled(True)
+
+    def _trigger_s(self):
+        if self.btn_search.isEnabled():
+            self.action_manual_search()
+
+    def _trigger_c(self):
+        if getattr(self, 'btn_select', None) and self.btn_select.isEnabled():
+            self.action_apply()
+
+    def done(self, r):
+        try:
+            QApplication.instance().focusChanged.disconnect(self._on_focus_changed)
+        except TypeError:
+            pass
+        super().done(r)
 
     def on_api_combo_changed(self, text):
         if self.parent() and hasattr(self.parent(), "main_app"):
