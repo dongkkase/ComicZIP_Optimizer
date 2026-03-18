@@ -1,17 +1,14 @@
 import os
 import threading
 import zipfile
-import platform
-import subprocess
-import sys
 from pathlib import Path
 import qtawesome as qta
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
-                             QLabel, QComboBox, QLineEdit, QFrame, QTableWidgetItem, QAbstractItemView, QHeaderView, QSizePolicy, QTableWidget, QMessageBox, QStackedWidget, QCheckBox, QMenu, QInputDialog)
+                             QLabel, QComboBox, QLineEdit, QFrame, QTableWidgetItem, QAbstractItemView, QHeaderView, QSizePolicy, QTableWidget, QMessageBox, QStackedWidget, QCheckBox)
 from PyQt6.QtCore import Qt, QTimer, QSize
-from PyQt6.QtGui import QImage, QPixmap, QPainter, QPainterPath, QColor, QAction
+from PyQt6.QtGui import QImage, QPixmap, QPainter, QPainterPath, QColor, QIntValidator
 
-from ui.widgets import ArchiveTableWidget, Toast
+from ui.widgets import ArchiveTableWidget
 from utils import natural_keys
 from config import get_resource_path
 from core.archive_utils import bg_load_image
@@ -38,6 +35,11 @@ class Tab2Renamer(QWidget):
     def update_icons(self, is_dark):
         empty_c = "#aaaaaa" if is_dark else "#9CA3AF"
         self.icon_empty_arch.setPixmap(qta.icon('fa5s.folder-open', color=empty_c).pixmap(64, 64))
+        
+        icon_c = 'white' if is_dark else '#1F2937'
+        if hasattr(self, 'btn_minus_num'):
+            self.btn_minus_num.setIcon(qta.icon('fa5s.minus', color=icon_c))
+            self.btn_plus_num.setIcon(qta.icon('fa5s.plus', color=icon_c))
 
     def setup_ui(self):
         t = self.main_app.i18n[self.main_app.lang]
@@ -94,14 +96,61 @@ class Tab2Renamer(QWidget):
         self.entry_custom.setEnabled(False)
         self.entry_custom.textChanged.connect(self.update_inner_preview_list)
         
+        # 🌟 시작 번호 라벨
+        self.lbl_start_num = QLabel(t.get("tab2_start_num", "시작 번호:"))
+        self.lbl_start_num.setObjectName("boldLabel")
+        
+        # 🌟 시작 번호 인풋 (숫자만 입력 가능)
+        self.le_start_num = QLineEdit("0")
+        self.le_start_num.setFixedWidth(50)
+        self.le_start_num.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.le_start_num.setValidator(QIntValidator(0, 999999))
+        
+        is_dark = getattr(self.main_app, 'is_dark_mode', True)
+        icon_c = 'white' if is_dark else '#1F2937'
+        
+        # 🌟 - 버튼 (어썸 폰트 적용)
+        self.btn_minus_num = QPushButton()
+        self.btn_minus_num.setIcon(qta.icon('fa5s.minus', color=icon_c))
+        self.btn_minus_num.setFixedWidth(28)
+        self.btn_minus_num.setCursor(Qt.CursorShape.PointingHandCursor)
+        
+        # 🌟 + 버튼 (어썸 폰트 적용)
+        self.btn_plus_num = QPushButton()
+        self.btn_plus_num.setIcon(qta.icon('fa5s.plus', color=icon_c))
+        self.btn_plus_num.setFixedWidth(28)
+        self.btn_plus_num.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        # 시작 번호 증감 함수
+        def change_num(delta):
+            try:
+                val = int(self.le_start_num.text() or 0)
+            except ValueError:
+                val = 0
+            new_val = max(0, val + delta)
+            self.le_start_num.setText(str(new_val))
+            self.update_inner_preview_list()
+
+        self.btn_minus_num.clicked.connect(lambda: change_num(-1))
+        self.btn_plus_num.clicked.connect(lambda: change_num(1))
+        self.le_start_num.textChanged.connect(self.update_inner_preview_list)
+        
+        # '내부 파일명 유지' 체크박스
         self.chk_keep_name = QCheckBox(t.get("tab2_keep_name", "내부 파일명 유지"))
         self.chk_keep_name.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.chk_keep_name.setStyleSheet("font-weight: bold; color: #3498DB;")
+        self.chk_keep_name.setStyleSheet("font-weight: bold; color: #E67E22;")
         self.chk_keep_name.toggled.connect(self.on_keep_name_toggled)
         
         options_layout.addWidget(self.lbl_pattern)
         options_layout.addWidget(self.cb_pattern, 1)
         options_layout.addWidget(self.entry_custom)
+        
+        # 🌟 순서대로 배치: 라벨 -> 입력창 -> 마이너스 -> 플러스
+        options_layout.addWidget(self.lbl_start_num)
+        options_layout.addWidget(self.le_start_num)
+        options_layout.addWidget(self.btn_minus_num)
+        options_layout.addWidget(self.btn_plus_num)
+        
         options_layout.addWidget(self.chk_keep_name)
         right_layout.addWidget(options_frame)
 
@@ -114,11 +163,12 @@ class Tab2Renamer(QWidget):
         layout_empty = QVBoxLayout(page_empty)
         
         self.icon_empty_arch = QLabel()
+        self.icon_empty_arch.setPixmap(qta.icon('fa5s.folder-open', color='#aaaaaa').pixmap(64, 64))
         self.icon_empty_arch.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         self.lbl_empty_arch = QLabel(t.get("drag_drop", ""))
         self.lbl_empty_arch.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_empty_arch.setStyleSheet("font-size: 16px; font-weight: bold;")
+        self.lbl_empty_arch.setStyleSheet("color: #aaaaaa; font-size: 16px; font-weight: bold;")
         
         layout_empty.addStretch()
         layout_empty.addWidget(self.icon_empty_arch)
@@ -130,10 +180,6 @@ class Tab2Renamer(QWidget):
         self.table_archives.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table_archives.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table_archives.verticalHeader().setVisible(False) 
-        
-        # 🌟 테이블 우클릭 컨텍스트 메뉴 연결
-        self.table_archives.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.table_archives.customContextMenuRequested.connect(self.show_context_menu)
         
         self.table_archives.itemSelectionChanged.connect(self.on_archive_select)
         self.table_archives.itemChanged.connect(self.on_table_item_changed)
@@ -176,123 +222,13 @@ class Tab2Renamer(QWidget):
         layout.addWidget(left_frame)
         layout.addWidget(right_frame, 1)
 
-    # 🌟 우클릭 컨텍스트 메뉴 표시
-    def show_context_menu(self, pos):
-        item = self.table_archives.itemAt(pos)
-        if not item: return
-        
-        row = item.row()
-        fp = self.table_archives.item(row, 0).data(Qt.ItemDataRole.UserRole)
-        if not fp: return
-        
-        menu = QMenu(self)
-        
-        action_open_dir = QAction(qta.icon('fa5s.folder-open'), "경로 찾기", self)
-        action_rename = QAction(qta.icon('fa5s.edit'), "파일 이름 변경", self)
-        action_reload = QAction(qta.icon('fa5s.sync-alt'), "다시 불러오기", self)
-        
-        action_open_dir.triggered.connect(lambda: self._open_file_location(fp))
-        action_rename.triggered.connect(lambda: self._rename_archive_file(fp, row))
-        action_reload.triggered.connect(lambda: self._reload_archive_file(fp))
-        
-        menu.addAction(action_open_dir)
-        menu.addAction(action_rename)
-        menu.addAction(action_reload)
-        
-        menu.exec(self.table_archives.viewport().mapToGlobal(pos))
-
-    # 🌟 기능 1: 경로 찾기 (크로스 플랫폼 지원)
-    def _open_file_location(self, filepath):
-        try:
-            if platform.system() == "Windows":
-                subprocess.Popen(f'explorer /select,"{os.path.normpath(filepath)}"')
-            elif platform.system() == "Darwin":
-                subprocess.Popen(["open", "-R", filepath])
-            else:
-                subprocess.Popen(["xdg-open", os.path.dirname(filepath)])
-        except Exception as e:
-            Toast.show(self.main_app, f"경로를 열 수 없습니다: {e}")
-
-    # 🌟 기능 2: 파일 이름 변경
-    def _rename_archive_file(self, old_filepath, row):
-        if not os.path.exists(old_filepath):
-            QMessageBox.warning(self, "오류", "파일이 존재하지 않습니다.\n(이미 외부에서 이름이 변경되었거나 삭제되었을 수 있습니다.)")
-            return
-            
-        old_dir = os.path.dirname(old_filepath)
-        old_name = os.path.basename(old_filepath)
-        
-        new_name, ok = QInputDialog.getText(
-            self, 
-            "파일 이름 변경", 
-            "새로운 파일 이름을 입력하세요 (확장자 포함):", 
-            QLineEdit.EchoMode.Normal, 
-            old_name
-        )
-        
-        if ok and new_name and new_name != old_name:
-            new_filepath = os.path.join(old_dir, new_name)
-            
-            if os.path.exists(new_filepath):
-                QMessageBox.warning(self, "오류", "동일한 이름의 파일이 이미 존재합니다.")
-                return
-                
-            try:
-                os.rename(old_filepath, new_filepath)
-                
-                # 메모리상의 archive_data 경로 키 교체 (동기화)
-                if old_filepath in self.archive_data:
-                    data = self.archive_data.pop(old_filepath)
-                    data['name'] = new_name
-                    data['ext'] = Path(new_filepath).suffix.lower()
-                    self.archive_data[new_filepath] = data
-                
-                if self.current_archive_path == old_filepath:
-                    self.current_archive_path = new_filepath
-                
-                Toast.show(self.main_app, "파일 이름이 성공적으로 변경되었습니다.")
-                self.refresh_list()
-                
-                # 변경된 파일의 행을 다시 선택
-                for i in range(self.table_archives.rowCount()):
-                    if self.table_archives.item(i, 0).data(Qt.ItemDataRole.UserRole) == new_filepath:
-                        self.table_archives.selectRow(i)
-                        break
-                        
-            except PermissionError:
-                QMessageBox.critical(self, "권한 오류", "파일을 다른 프로그램에서 사용 중이거나 이름 변경 권한이 없습니다.")
-            except Exception as e:
-                QMessageBox.critical(self, "오류", f"이름 변경 실패:\n{str(e)}")
-
-    # 🌟 기능 3: 다시 불러오기
-    def _reload_archive_file(self, filepath):
-        if filepath in self.archive_data:
-            is_checked = self.archive_data[filepath].get('checked', True)
-            del self.archive_data[filepath]
-            
-            if os.path.exists(filepath):
-                success = self.load_archive_info(filepath)
-                if success == True:
-                    self.archive_data[filepath]['checked'] = is_checked
-                    Toast.show(self.main_app, f"파일 구조를 다시 불러왔습니다.")
-                elif success == "nested":
-                    Toast.show(self.main_app, f"내부 압축 파일 포함으로 작업에서 제외되었습니다.")
-                else:
-                    Toast.show(self.main_app, f"파일을 불러오지 못했습니다.")
-            else:
-                Toast.show(self.main_app, f"경로에 파일이 존재하지 않습니다.\n(외부에서 삭제되거나 이름이 변경되었습니다.)")
-                
-            self.refresh_list()
-            
-            if self.table_archives.rowCount() > 0:
-                self.table_archives.selectRow(0)
-
     def retranslate_ui(self, t, lang):
         self.lbl_cover_title.setText(t["cover_preview"])
         self.lbl_inner_title.setText(t["inner_preview"])
         self.lbl_pattern.setText(t["pattern_lbl"])
         self.lbl_empty_arch.setText(t.get("drag_drop", ""))
         self.chk_keep_name.setText(t.get("tab2_keep_name", "내부 파일명 유지"))
+        self.lbl_start_num.setText(t.get("tab2_start_num", "시작 번호:"))
         
         self.cb_pattern.blockSignals(True)
         self.cb_pattern.clear()
@@ -318,6 +254,9 @@ class Tab2Renamer(QWidget):
 
     def on_keep_name_toggled(self, checked):
         self.cb_pattern.setEnabled(not checked)
+        self.le_start_num.setEnabled(not checked)
+        self.btn_minus_num.setEnabled(not checked)
+        self.btn_plus_num.setEnabled(not checked)
         if checked:
             self.entry_custom.setEnabled(False)
         else:
@@ -394,18 +333,27 @@ class Tab2Renamer(QWidget):
         flatten = self.main_app.config.get("flatten_folders", False)
         webp_on = self.main_app.config.get("webp_conversion", False)
         keep_name = self.chk_keep_name.isChecked()
+        
+        # 🌟 시작 번호 가져오기
+        try:
+            start_num = int(self.le_start_num.text() or 0)
+        except ValueError:
+            start_num = 0
 
         for idx, e in enumerate(entries):
             old = e['filename']
             ext = ".webp" if webp_on else (os.path.splitext(old)[1] or ".jpg")
             pad = 2 if total < 100 else (3 if total < 1000 else 4)
             
+            # 🌟 현재 인덱스에 시작 번호를 더해서 오프셋 적용
+            n = start_num + idx
+            
             if keep_name: new = os.path.splitext(os.path.basename(old))[0] + ext
-            elif pat_idx == 1: new = f"Cover{ext}" if idx==0 else f"Page_{idx:0{pad}d}{ext}"
-            elif pat_idx == 2: new = f"{stem.replace(' ','_')}_{idx:0{pad}d}{ext}"
-            elif pat_idx == 3: new = f"{stem.replace(' ','_')}_Cover{ext}" if idx==0 else f"{stem.replace(' ','_')}_Page_{idx:0{pad}d}{ext}"
-            elif pat_idx == 4: new = f"{cust_txt.strip() or 'Custom'}_{idx:0{pad}d}{ext}"
-            else: new = f"{idx:0{pad}d}{ext}"
+            elif pat_idx == 1: new = f"Cover{ext}" if idx==0 else f"Page_{n:0{pad}d}{ext}"
+            elif pat_idx == 2: new = f"{stem.replace(' ','_')}_{n:0{pad}d}{ext}"
+            elif pat_idx == 3: new = f"{stem.replace(' ','_')}_Cover{ext}" if idx==0 else f"{stem.replace(' ','_')}_Page_{n:0{pad}d}{ext}"
+            elif pat_idx == 4: new = f"{cust_txt.strip() or 'Custom'}_{n:0{pad}d}{ext}"
+            else: new = f"{n:0{pad}d}{ext}"
 
             dir_name = os.path.dirname(old)
             if not flatten and dir_name: new = os.path.join(dir_name, new).replace('\\', '/')
@@ -541,6 +489,13 @@ class Tab2Renamer(QWidget):
 
     def get_custom_text(self):
         return self.entry_custom.text()
+
+    # 🌟 메인 작업 객체(RenameTask)에 값을 전달하기 위한 함수
+    def get_start_num(self):
+        try:
+            return int(self.le_start_num.text() or 0)
+        except ValueError:
+            return 0
         
     def load_archive_info(self, filepath, batch_mode=False):
         try:
