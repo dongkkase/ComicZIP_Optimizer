@@ -1,14 +1,17 @@
 import os
 import threading
 import zipfile
+import platform
+import subprocess
+import sys
 from pathlib import Path
 import qtawesome as qta
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
-                             QLabel, QComboBox, QLineEdit, QFrame, QTableWidgetItem, QAbstractItemView, QHeaderView, QSizePolicy, QTableWidget, QMessageBox, QStackedWidget, QCheckBox)
+                             QLabel, QComboBox, QLineEdit, QFrame, QTableWidgetItem, QAbstractItemView, QHeaderView, QSizePolicy, QTableWidget, QMessageBox, QStackedWidget, QCheckBox, QMenu, QInputDialog)
 from PyQt6.QtCore import Qt, QTimer, QSize
-from PyQt6.QtGui import QImage, QPixmap, QPainter, QPainterPath, QColor
+from PyQt6.QtGui import QImage, QPixmap, QPainter, QPainterPath, QColor, QAction
 
-from ui.widgets import ArchiveTableWidget
+from ui.widgets import ArchiveTableWidget, Toast
 from utils import natural_keys
 from config import get_resource_path
 from core.archive_utils import bg_load_image
@@ -31,6 +34,10 @@ class Tab2Renamer(QWidget):
         self.inner_timer.timeout.connect(self._process_inner_select)
         
         self.setup_ui()
+
+    def update_icons(self, is_dark):
+        empty_c = "#aaaaaa" if is_dark else "#9CA3AF"
+        self.icon_empty_arch.setPixmap(qta.icon('fa5s.folder-open', color=empty_c).pixmap(64, 64))
 
     def setup_ui(self):
         t = self.main_app.i18n[self.main_app.lang]
@@ -87,10 +94,9 @@ class Tab2Renamer(QWidget):
         self.entry_custom.setEnabled(False)
         self.entry_custom.textChanged.connect(self.update_inner_preview_list)
         
-        # 🌟 '내부 파일명 유지' 체크박스 추가
         self.chk_keep_name = QCheckBox(t.get("tab2_keep_name", "내부 파일명 유지"))
         self.chk_keep_name.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.chk_keep_name.setStyleSheet("font-weight: bold; color: #E67E22;")
+        self.chk_keep_name.setStyleSheet("font-weight: bold; color: #3498DB;")
         self.chk_keep_name.toggled.connect(self.on_keep_name_toggled)
         
         options_layout.addWidget(self.lbl_pattern)
@@ -108,12 +114,11 @@ class Tab2Renamer(QWidget):
         layout_empty = QVBoxLayout(page_empty)
         
         self.icon_empty_arch = QLabel()
-        self.icon_empty_arch.setPixmap(qta.icon('fa5s.folder-open', color='#aaaaaa').pixmap(64, 64))
         self.icon_empty_arch.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         self.lbl_empty_arch = QLabel(t.get("drag_drop", ""))
         self.lbl_empty_arch.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_empty_arch.setStyleSheet("color: #aaaaaa; font-size: 16px; font-weight: bold;")
+        self.lbl_empty_arch.setStyleSheet("font-size: 16px; font-weight: bold;")
         
         layout_empty.addStretch()
         layout_empty.addWidget(self.icon_empty_arch)
@@ -125,6 +130,10 @@ class Tab2Renamer(QWidget):
         self.table_archives.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table_archives.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table_archives.verticalHeader().setVisible(False) 
+        
+        # 🌟 테이블 우클릭 컨텍스트 메뉴 연결
+        self.table_archives.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table_archives.customContextMenuRequested.connect(self.show_context_menu)
         
         self.table_archives.itemSelectionChanged.connect(self.on_archive_select)
         self.table_archives.itemChanged.connect(self.on_table_item_changed)
@@ -166,6 +175,117 @@ class Tab2Renamer(QWidget):
 
         layout.addWidget(left_frame)
         layout.addWidget(right_frame, 1)
+
+    # 🌟 우클릭 컨텍스트 메뉴 표시
+    def show_context_menu(self, pos):
+        item = self.table_archives.itemAt(pos)
+        if not item: return
+        
+        row = item.row()
+        fp = self.table_archives.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        if not fp: return
+        
+        menu = QMenu(self)
+        
+        action_open_dir = QAction(qta.icon('fa5s.folder-open'), "경로 찾기", self)
+        action_rename = QAction(qta.icon('fa5s.edit'), "파일 이름 변경", self)
+        action_reload = QAction(qta.icon('fa5s.sync-alt'), "다시 불러오기", self)
+        
+        action_open_dir.triggered.connect(lambda: self._open_file_location(fp))
+        action_rename.triggered.connect(lambda: self._rename_archive_file(fp, row))
+        action_reload.triggered.connect(lambda: self._reload_archive_file(fp))
+        
+        menu.addAction(action_open_dir)
+        menu.addAction(action_rename)
+        menu.addAction(action_reload)
+        
+        menu.exec(self.table_archives.viewport().mapToGlobal(pos))
+
+    # 🌟 기능 1: 경로 찾기 (크로스 플랫폼 지원)
+    def _open_file_location(self, filepath):
+        try:
+            if platform.system() == "Windows":
+                subprocess.Popen(f'explorer /select,"{os.path.normpath(filepath)}"')
+            elif platform.system() == "Darwin":
+                subprocess.Popen(["open", "-R", filepath])
+            else:
+                subprocess.Popen(["xdg-open", os.path.dirname(filepath)])
+        except Exception as e:
+            Toast.show(self.main_app, f"경로를 열 수 없습니다: {e}")
+
+    # 🌟 기능 2: 파일 이름 변경
+    def _rename_archive_file(self, old_filepath, row):
+        if not os.path.exists(old_filepath):
+            QMessageBox.warning(self, "오류", "파일이 존재하지 않습니다.\n(이미 외부에서 이름이 변경되었거나 삭제되었을 수 있습니다.)")
+            return
+            
+        old_dir = os.path.dirname(old_filepath)
+        old_name = os.path.basename(old_filepath)
+        
+        new_name, ok = QInputDialog.getText(
+            self, 
+            "파일 이름 변경", 
+            "새로운 파일 이름을 입력하세요 (확장자 포함):", 
+            QLineEdit.EchoMode.Normal, 
+            old_name
+        )
+        
+        if ok and new_name and new_name != old_name:
+            new_filepath = os.path.join(old_dir, new_name)
+            
+            if os.path.exists(new_filepath):
+                QMessageBox.warning(self, "오류", "동일한 이름의 파일이 이미 존재합니다.")
+                return
+                
+            try:
+                os.rename(old_filepath, new_filepath)
+                
+                # 메모리상의 archive_data 경로 키 교체 (동기화)
+                if old_filepath in self.archive_data:
+                    data = self.archive_data.pop(old_filepath)
+                    data['name'] = new_name
+                    data['ext'] = Path(new_filepath).suffix.lower()
+                    self.archive_data[new_filepath] = data
+                
+                if self.current_archive_path == old_filepath:
+                    self.current_archive_path = new_filepath
+                
+                Toast.show(self.main_app, "파일 이름이 성공적으로 변경되었습니다.")
+                self.refresh_list()
+                
+                # 변경된 파일의 행을 다시 선택
+                for i in range(self.table_archives.rowCount()):
+                    if self.table_archives.item(i, 0).data(Qt.ItemDataRole.UserRole) == new_filepath:
+                        self.table_archives.selectRow(i)
+                        break
+                        
+            except PermissionError:
+                QMessageBox.critical(self, "권한 오류", "파일을 다른 프로그램에서 사용 중이거나 이름 변경 권한이 없습니다.")
+            except Exception as e:
+                QMessageBox.critical(self, "오류", f"이름 변경 실패:\n{str(e)}")
+
+    # 🌟 기능 3: 다시 불러오기
+    def _reload_archive_file(self, filepath):
+        if filepath in self.archive_data:
+            is_checked = self.archive_data[filepath].get('checked', True)
+            del self.archive_data[filepath]
+            
+            if os.path.exists(filepath):
+                success = self.load_archive_info(filepath)
+                if success == True:
+                    self.archive_data[filepath]['checked'] = is_checked
+                    Toast.show(self.main_app, f"파일 구조를 다시 불러왔습니다.")
+                elif success == "nested":
+                    Toast.show(self.main_app, f"내부 압축 파일 포함으로 작업에서 제외되었습니다.")
+                else:
+                    Toast.show(self.main_app, f"파일을 불러오지 못했습니다.")
+            else:
+                Toast.show(self.main_app, f"경로에 파일이 존재하지 않습니다.\n(외부에서 삭제되거나 이름이 변경되었습니다.)")
+                
+            self.refresh_list()
+            
+            if self.table_archives.rowCount() > 0:
+                self.table_archives.selectRow(0)
 
     def retranslate_ui(self, t, lang):
         self.lbl_cover_title.setText(t["cover_preview"])

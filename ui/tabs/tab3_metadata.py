@@ -44,6 +44,30 @@ class Tab3Metadata(QWidget):
         
         self.setup_ui()
 
+    def update_icons(self, is_dark):
+        icon_color = 'white' if is_dark else '#1F2937'
+        empty_c = "#aaaaaa" if is_dark else "#9CA3AF"
+        
+        self.icon_empty_meta.setPixmap(qta.icon('fa5s.folder-open', color=empty_c).pixmap(64, 64))
+        self.btn_meta_search.setIcon(qta.icon('fa5s.search', color='white'))
+        self.btn_prev_vol.setIcon(qta.icon('fa5s.caret-left', color=icon_color))
+        self.btn_next_vol.setIcon(qta.icon('fa5s.caret-right', color=icon_color))
+        
+        self.btn_reset_series.setIcon(qta.icon('fa5s.undo', color=icon_color))
+        self.btn_copy_orig.setIcon(qta.icon('fa5s.copy', color=icon_color))
+        self.btn_apply_all.setIcon(qta.icon('fa5s.check', color=icon_color))
+        self.btn_apply_series.setIcon(qta.icon('fa5s.layer-group', color='white')) 
+        
+        self.btn_auto_match.setIcon(qta.icon('fa5s.magic', color='white'))
+        self.btn_meta_save.setIcon(qta.icon('fa5s.save', color='white'))
+        self.btn_meta_save_all.setIcon(qta.icon('fa5s.save', color='white'))
+        
+        self.update_nav_buttons_state(self._current_active_nav_btn)
+
+        
+    def update_theme(self):
+        self.update_nav_buttons_state(self._current_active_nav_btn)
+
     def setup_ui(self):
         t = self.main_app.i18n[self.main_app.lang]
         
@@ -52,27 +76,56 @@ class Tab3Metadata(QWidget):
         tab3_main_layout.setContentsMargins(0, 0, 0, 0)
         tab3_main_layout.addWidget(self.meta_stacked)
 
+        self._setup_empty_page(t)
+        self._setup_content_page(t)
+        
+        self.meta_stacked.setCurrentIndex(0)
+        self.set_right_panel_active(False)
+        self._setup_shortcuts()
+
+    def _setup_empty_page(self, t):
         page_empty = QWidget()
         layout_empty = QVBoxLayout(page_empty)
-        
         self.icon_empty_meta = QLabel()
-        self.icon_empty_meta.setPixmap(qta.icon('fa5s.folder-open', color='#aaaaaa').pixmap(64, 64))
         self.icon_empty_meta.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
         self.lbl_empty = QLabel(t.get("t3_empty", "폴더 및 파일을 이 화면으로 드래그 앤 드롭하세요"))
         self.lbl_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_empty.setStyleSheet("color: #aaaaaa; font-size: 16px; font-weight: bold;")
-        
+        self.lbl_empty.setStyleSheet("font-size: 16px; font-weight: bold;")
         layout_empty.addStretch()
         layout_empty.addWidget(self.icon_empty_meta)
         layout_empty.addWidget(self.lbl_empty)
         layout_empty.addStretch()
         self.meta_stacked.addWidget(page_empty)
 
+    def _setup_content_page(self, t):
         page_content = QWidget()
         layout_content = QHBoxLayout(page_content)
         layout_content.setContentsMargins(5, 5, 5, 5)
 
+        self._setup_left_panel(layout_content, t)
+        
+        self.right_frame = QFrame()
+        right_layout = QVBoxLayout(self.right_frame)
+        right_layout.setContentsMargins(10, 0, 0, 0)
+
+        self.right_overlay = QWidget(self.right_frame)
+        self.right_overlay.setStyleSheet("background: rgba(0, 0, 0, 80);")
+        self.right_overlay.mousePressEvent = lambda e: (QMessageBox.information(self, t.get("msg_notice", "안내"), t.get("t3_msg_sel", "왼쪽 리스트에서 작업할 책을 선택해주세요.")), e.accept())
+        
+        def right_frame_resize(event):
+            QFrame.resizeEvent(self.right_frame, event)
+            self.right_overlay.setGeometry(self.right_frame.rect())
+        self.right_frame.resizeEvent = right_frame_resize
+
+        self._setup_search_panel(right_layout, t)
+        self._setup_nav_panel(right_layout, t)
+        self._setup_scroll_area(right_layout, t)
+        self._setup_bottom_buttons(right_layout, t)
+
+        layout_content.addWidget(self.right_frame, 1)
+        self.meta_stacked.addWidget(page_content)
+
+    def _setup_left_panel(self, layout_content, t):
         left_frame = QFrame()
         left_frame.setFixedWidth(280)
         left_frame.setObjectName("panelFrame")
@@ -89,37 +142,20 @@ class Tab3Metadata(QWidget):
         self.tree_meta_files.setIndentation(10) 
         self.tree_meta_files.itemSelectionChanged.connect(self.on_tree_select)
         self.tree_meta_files.delete_pressed.connect(self.remove_selected)
-        
         self.tree_meta_files.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.tree_meta_files.verticalScrollBar().setSingleStep(15)
         
         left_layout.addWidget(self.lbl_meta_cover)
         left_layout.addWidget(self.tree_meta_files)
+        layout_content.addWidget(left_frame)
 
-        self.right_frame = QFrame()
-        right_layout = QVBoxLayout(self.right_frame)
-        right_layout.setContentsMargins(10, 0, 0, 0)
-
-        self.right_overlay = QWidget(self.right_frame)
-        self.right_overlay.setStyleSheet("background: rgba(0, 0, 0, 80);")
-        def overlay_click(event):
-            QMessageBox.information(self, t.get("msg_notice", "안내"), t.get("t3_msg_sel", "왼쪽 리스트에서 작업할 책을 선택해주세요."))
-            event.accept()
-        self.right_overlay.mousePressEvent = overlay_click
-        
-        def right_frame_resize(event):
-            QFrame.resizeEvent(self.right_frame, event)
-            self.right_overlay.setGeometry(self.right_frame.rect())
-        self.right_frame.resizeEvent = right_frame_resize
-
+    def _setup_search_panel(self, right_layout, t):
         search_layout = QHBoxLayout()
         self.lbl_search_api = QLabel(t.get("t3_search_api", "검색 API :"))
         search_layout.addWidget(self.lbl_search_api)
         
         self.cb_meta_api = QComboBox()
         self.cb_meta_api.addItems(["리디북스", "알라딘", "Google Books", "Anilist", "Vine"])
-        self.cb_meta_api.setStyleSheet("padding: 5px; border: 1px solid #555; border-radius: 4px; color:#aaa; background-color: #2b2b2b;")
-        
         last_api = self.main_app.config.get("last_meta_api", "리디북스")
         idx = self.cb_meta_api.findText(last_api)
         if idx >= 0: self.cb_meta_api.setCurrentIndex(idx)
@@ -133,24 +169,22 @@ class Tab3Metadata(QWidget):
         self.cb_meta_api.currentTextChanged.connect(on_meta_api_changed)
 
         search_layout.addWidget(self.cb_meta_api)
-        
         self.lbl_search_query = QLabel(t.get("t3_search_query", "검색어 :"))
         search_layout.addWidget(self.lbl_search_query)
         
         self.le_meta_search = QLineEdit()
         self.le_meta_search.setPlaceholderText(t.get("t3_search_ph", "작품 제목을 입력하세요..."))
-        self.le_meta_search.setStyleSheet("padding: 6px; border: 1px solid #555; border-radius: 4px; background-color: #2b2b2b;")
         search_layout.addWidget(self.le_meta_search, 1)
         
         self.btn_meta_search = QPushButton(f" {t.get('btn_search', '검색')} (S)")
-        self.btn_meta_search.setIcon(qta.icon('fa5s.search', color='white'))
         self.btn_meta_search.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_meta_search.setStyleSheet("QPushButton { padding: 6px 14px; font-size: 12px; background-color: #333333; color: white; border: 1px solid #555; border-radius: 4px; } QPushButton:hover { background-color: #444444; }")
+        self.btn_meta_search.setObjectName("actionBtnBlue") 
         search_layout.addWidget(self.btn_meta_search)
         self.btn_meta_search.clicked.connect(self.action_search_api) 
         self.le_meta_search.returnPressed.connect(self.action_search_api)
         right_layout.addLayout(search_layout)
 
+    def _setup_nav_panel(self, right_layout, t):
         self.btn_goto_basic = QPushButton(t.get("t3_nav_basic", "기본\n정보"))
         self.btn_goto_crew = QPushButton(t.get("t3_nav_crew", "작가 및\n제작진"))
         self.btn_goto_publish = QPushButton(t.get("t3_nav_publish", "출판\n정보"))
@@ -158,75 +192,55 @@ class Tab3Metadata(QWidget):
         self.btn_goto_etc = QPushButton(t.get("t3_nav_etc", "기타\n정보"))
         
         self.btn_prev_vol = QPushButton(t.get("t3_btn_prev", "이전 권"))
-        self.btn_prev_vol.setIcon(qta.icon('fa5s.caret-left', color='white'))
         self.btn_next_vol = QPushButton(t.get("t3_btn_next", "다음 권"))
-        self.btn_next_vol.setIcon(qta.icon('fa5s.caret-right', color='white'))
+        self.btn_next_vol.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         
-        self.btn_copy_orig = QPushButton(t.get("t3_btn_copy_orig", "원본 카피 편집"))
-        self.btn_copy_orig.setIcon(qta.icon('fa5s.copy', color='white'))
-        self.btn_apply_all = QPushButton(t.get("t3_btn_apply_all", "편집 적용"))
-        self.btn_apply_all.setIcon(qta.icon('fa5s.check', color='white'))
-        
-        self.btn_apply_series = QPushButton(f"{t.get('t3_btn_apply_series', '시리즈 편집 적용')} (C)")
-        self.btn_apply_series.setIcon(qta.icon('fa5s.layer-group', color='white'))
+        self.btn_reset_series = QPushButton(t.get("t3_btn_reset_series", "시리즈\n초기화"))
+        self.btn_copy_orig = QPushButton(t.get("t3_btn_copy_orig", "원본\n카피 편집"))
+        self.btn_apply_all = QPushButton(t.get("t3_btn_apply_all", "편집\n적용"))
+        self.btn_apply_series = QPushButton(f"{t.get('t3_btn_apply_series', '시리즈\n편집 적용')} (C)")
+        self.btn_apply_series.setObjectName("actionBtnBlue")
 
+        self.btn_reset_series.setToolTip(t.get("t3_tt_reset_series", ""))
         self.btn_copy_orig.setToolTip(t.get("t3_tt_copy_orig", ""))
         self.btn_apply_all.setToolTip(t.get("t3_tt_apply_all", ""))
         self.btn_apply_series.setToolTip(t.get("t3_tt_apply_series", ""))
 
         def set_segmented_btn_style(btn, pos, is_primary=False, is_active=False):
-            bg = "#3498DB" if is_active else ("#2b5797" if is_primary else "#333333")
-            hover_bg = "#2980B9" if is_active else ("#366cb5" if is_primary else "#444444")
-            border = "#555555"
-            text_color = "#ffffff" if (is_primary or is_active) else "#dddddd"
-            radius = "5px"
-            
-            style = f"""
-                QPushButton {{
-                    background-color: {bg};
-                    color: {text_color};
-                    border: 1px solid {border};
-                    padding: 5px 8px;
-                    font-size: 11px;
-                    border-radius: 0px;
-                    margin-top: 10px;
-                    {'font-weight: bold;' if (is_primary or is_active) else ''}
-                }}
-                QPushButton:hover {{
-                    background-color: {hover_bg};
-                }}
-            """
-            
-            if pos == "left_end":
-                style += f"QPushButton {{ border-top-left-radius: {radius}; border-bottom-left-radius: {radius}; }}"
-            elif pos == "right_end":
-                style += f"QPushButton {{ border-top-right-radius: {radius}; border-bottom-right-radius: {radius}; }}"
-            elif pos == "middle":
-                style += "QPushButton { border-left: none; }"
+            is_dark = getattr(self.main_app, 'is_dark_mode', True)
+            if is_dark:
+                bg = "#3498DB" if is_active else ("#2b5797" if is_primary else "#374151")
+                hover_bg = "#2980B9" if is_active else ("#366cb5" if is_primary else "#4B5563")
+                border = "#4B5563"
+                text_color = "#ffffff" if (is_primary or is_active) else "#E5E7EB"
+            else:
+                bg = "#3498DB" if is_active else ("#2b5797" if is_primary else "#FFFFFF")
+                hover_bg = "#2980B9" if is_active else ("#366cb5" if is_primary else "#F3F4F6")
+                border = "#D1D5DB"
+                text_color = "#ffffff" if (is_primary or is_active) else "#374151"
                 
+            radius = "5px"
+            style = f"QPushButton {{ background-color: {bg}; color: {text_color}; border: 1px solid {border}; padding: 5px 8px; font-size: 11px; border-radius: 0px; margin-top: 10px; {'font-weight: bold;' if (is_primary or is_active) else ''} }} QPushButton:hover {{ background-color: {hover_bg}; }}"
+            if pos == "left_end": style += f"QPushButton {{ border-top-left-radius: {radius}; border-bottom-left-radius: {radius}; }}"
+            elif pos == "right_end": style += f"QPushButton {{ border-top-right-radius: {radius}; border-bottom-right-radius: {radius}; }}"
+            elif pos == "middle": style += "QPushButton { border-left: none; }"
             btn.setStyleSheet(style)
             
         self.set_segmented_btn_style = set_segmented_btn_style
 
-        nav_layout = QHBoxLayout()
-        nav_layout.setSpacing(12) 
-        
-        group1_layout = QHBoxLayout()
-        group1_layout.setSpacing(0)
+        nav_layout = QHBoxLayout(); nav_layout.setSpacing(12) 
+        group1_layout = QHBoxLayout(); group1_layout.setSpacing(0)
         
         self.section_btns = [self.btn_goto_basic, self.btn_goto_crew, self.btn_goto_publish, self.btn_goto_genre, self.btn_goto_etc]
         for b in self.section_btns:
-            b.setCursor(Qt.CursorShape.PointingHandCursor)
-            group1_layout.addWidget(b)
+            b.setCursor(Qt.CursorShape.PointingHandCursor); group1_layout.addWidget(b)
             
         self._current_active_nav_btn = None
         def update_nav_buttons_state(active_btn):
             if getattr(self, '_current_active_nav_btn', None) == active_btn: return
             self._current_active_nav_btn = active_btn
-            
             for i, b in enumerate(self.section_btns):
-                is_active = (b == active_btn)
-                pos = "middle"
+                is_active = (b == active_btn); pos = "middle"
                 if i == 0: pos = "left_end"
                 elif i == len(self.section_btns) - 1: pos = "right_end"
                 self.set_segmented_btn_style(b, pos, is_active=is_active)
@@ -234,216 +248,222 @@ class Tab3Metadata(QWidget):
         self.update_nav_buttons_state = update_nav_buttons_state
         self.update_nav_buttons_state(self.btn_goto_basic)
         
-        group2_layout = QHBoxLayout()
-        group2_layout.setSpacing(2)
-        self.btn_prev_vol.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_next_vol.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.set_segmented_btn_style(self.btn_prev_vol, "left_end")
-        self.set_segmented_btn_style(self.btn_next_vol, "right_end")
-        self.btn_prev_vol.clicked.connect(self.action_prev_vol)
-        self.btn_next_vol.clicked.connect(self.action_next_vol)
-        group2_layout.addWidget(self.btn_prev_vol)
-        group2_layout.addWidget(self.btn_next_vol)
+        group2_layout = QHBoxLayout(); group2_layout.setSpacing(2)
+        self.btn_prev_vol.setCursor(Qt.CursorShape.PointingHandCursor); self.btn_next_vol.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.set_segmented_btn_style(self.btn_prev_vol, "left_end"); self.set_segmented_btn_style(self.btn_next_vol, "right_end")
+        self.btn_prev_vol.clicked.connect(self.action_prev_vol); self.btn_next_vol.clicked.connect(self.action_next_vol)
+        group2_layout.addWidget(self.btn_prev_vol); group2_layout.addWidget(self.btn_next_vol)
         
-        group3_layout = QHBoxLayout()
-        group3_layout.setSpacing(2)
+        group3_layout = QHBoxLayout(); group3_layout.setSpacing(2)
+        self.btn_reset_series.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_copy_orig.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_apply_all.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_apply_series.setCursor(Qt.CursorShape.PointingHandCursor)
         
-        self.set_segmented_btn_style(self.btn_copy_orig, "left_end")
+        self.set_segmented_btn_style(self.btn_reset_series, "left_end")
+        self.set_segmented_btn_style(self.btn_copy_orig, "middle")
         self.set_segmented_btn_style(self.btn_apply_all, "middle")
         self.set_segmented_btn_style(self.btn_apply_series, "right_end", is_primary=True)
         
+        self.btn_reset_series.clicked.connect(self.action_reset_series)
         self.btn_copy_orig.clicked.connect(self.action_copy_orig)
         self.btn_apply_all.clicked.connect(self.action_apply_all)
         self.btn_apply_series.clicked.connect(self.action_apply_series)
         
-        group3_layout.addWidget(self.btn_copy_orig)
-        group3_layout.addWidget(self.btn_apply_all)
-        group3_layout.addWidget(self.btn_apply_series)
-
-        nav_layout.addLayout(group1_layout)
-        nav_layout.addStretch()
-        nav_layout.addLayout(group2_layout)
-        nav_layout.addStretch()
-        nav_layout.addLayout(group3_layout)
-
+        group3_layout.addWidget(self.btn_reset_series); group3_layout.addWidget(self.btn_copy_orig); group3_layout.addWidget(self.btn_apply_all); group3_layout.addWidget(self.btn_apply_series)
+        nav_layout.addLayout(group1_layout); nav_layout.addStretch(); nav_layout.addLayout(group2_layout); nav_layout.addStretch(); nav_layout.addLayout(group3_layout)
         right_layout.addLayout(nav_layout)
 
+    def _create_group_box(self, title):
+        group = QGroupBox(title)
+        layout = QGridLayout(group)
+        layout.setContentsMargins(10, 15, 10, 10)
+        layout.setSpacing(10)
+        return group, layout
+
+    def _create_number_input(self, is_date=False, date_type=None):
+        widget = QWidget(); h_layout = QHBoxLayout(widget)
+        h_layout.setContentsMargins(0,0,0,0); h_layout.setSpacing(2)
+        le_num = QLineEdit(); le_num.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        # 다크/라이트 테마에 따른 아이콘 색상 설정
+        is_dark = getattr(self.main_app, 'is_dark_mode', True)
+        icon_c = 'white' if is_dark else '#1F2937'
+        
+        btn_minus = QPushButton()
+        btn_minus.setIcon(qta.icon('fa5s.minus', color=icon_c))
+        btn_minus.setFixedWidth(30)
+        btn_minus.setObjectName("smallBtn")
+        btn_minus.setCursor(Qt.CursorShape.PointingHandCursor)
+        
+        btn_plus = QPushButton()
+        btn_plus.setIcon(qta.icon('fa5s.plus', color=icon_c))
+        btn_plus.setFixedWidth(30)
+        btn_plus.setObjectName("smallBtn")
+        btn_plus.setCursor(Qt.CursorShape.PointingHandCursor)
+        
+        h_layout.addWidget(le_num, 1); h_layout.addWidget(btn_minus); h_layout.addWidget(btn_plus)
+        def get_current(): return datetime.now().year if date_type == 'Y' else (datetime.now().month if date_type == 'M' else (datetime.now().day if date_type == 'D' else 0))
+        def clamp(val):
+            if date_type == 'Y': return max(1800, min(2100, val))
+            if date_type == 'M': return max(1, min(12, val))
+            if date_type == 'D': return max(1, min(31, val))
+            return max(0, val)
+        def change(delta):
+            txt = le_num.text().strip()
+            val = get_current() if not txt and is_date else (int(txt) if txt else 0)
+            le_num.setText(str(clamp(val + delta)))
+        def strip_zeros():
+            txt = le_num.text().strip()
+            if txt.isdigit(): le_num.setText(str(clamp(int(txt))))
+            else: le_num.setText("")
+        btn_minus.clicked.connect(lambda: change(-1)); btn_plus.clicked.connect(lambda: change(1))
+        le_num.editingFinished.connect(strip_zeros)
+        return widget, le_num
+
+    def _add_row(self, layout, row, key, t_key, t_dict, is_num=False, is_text=False, is_date=False, date_type=None, combo_items=None, editable_combo=False):
+        lbl_widget = QLabel(t_dict.get(t_key, t_key))
+        lbl_widget.setAlignment(Qt.AlignmentFlag.AlignRight | (Qt.AlignmentFlag.AlignTop if is_text else Qt.AlignmentFlag.AlignVCenter))
+        layout.addWidget(lbl_widget, row, 0)
+        if is_text:
+            le_my = QTextEdit(); le_my.setMinimumHeight(80); le_res = QTextEdit(); le_res.setMinimumHeight(80)
+            def sync_resize():
+                max_h = max(80, min(500, int(max(le_my.document().size().height(), le_res.document().size().height())) + 12))
+                le_my.setMinimumHeight(max_h); le_my.setMaximumHeight(max_h); le_res.setMinimumHeight(max_h); le_res.setMaximumHeight(max_h)
+            le_my.textChanged.connect(sync_resize); le_res.textChanged.connect(sync_resize)
+        elif is_num:
+            le_my_widget, le_my = self._create_number_input(is_date=is_date, date_type=date_type); le_res = QLineEdit()
+        elif combo_items is not None:
+            le_my_widget = le_my = QComboBox(); le_my.setEditable(editable_combo); le_my.addItem("", "")
+            le_res = QComboBox(); le_res.setEditable(editable_combo); le_res.addItem("", "")
+            for k, v in combo_items.items(): 
+                le_my.addItem(v, k)
+                le_res.addItem(v, k)
+        else:
+            le_my_widget = le_my = QLineEdit(); le_res = QLineEdit()
+            
+        if not is_num: le_my_widget = le_my
+        
+        is_dark = getattr(self.main_app, 'is_dark_mode', True)
+        icon_c = 'white' if is_dark else '#1F2937'
+        
+        btn_map = QPushButton()
+        btn_map.setIcon(qta.icon('fa5s.angle-left', color=icon_c))
+        btn_map.setFixedWidth(35)
+        btn_map.setObjectName("smallBtn")
+        btn_map.setCursor(Qt.CursorShape.PointingHandCursor)
+        
+        def do_map():
+            if combo_items is not None:
+                val = le_res.currentText()
+                if editable_combo: le_my.setCurrentText(val)
+                else:
+                    idx = le_my.findText(val)
+                    if idx < 0: idx = le_my.findData(val)
+                    if idx >= 0: le_my.setCurrentIndex(idx)
+                    else: le_my.setCurrentIndex(0)
+            else:
+                val = le_res.toPlainText() if is_text else le_res.text()
+                if is_num and val.isdigit(): val = str(int(val))
+                if is_text: le_my.setPlainText(val)
+                else: le_my.setText(val)
+        btn_map.clicked.connect(do_map)
+        layout.addWidget(le_my_widget, row, 1); layout.addWidget(btn_map, row, 2, alignment=Qt.AlignmentFlag.AlignCenter); layout.addWidget(le_res, row, 3)
+        self.meta_ui_fields[key] = {'my': le_my, 'res': le_res, 'is_text': is_text, 'is_combo': combo_items is not None, 'lbl': lbl_widget, 't_key': t_key}
+
+    def _add_checkbox_group(self, layout, start_row, key, t_key, items_dict, t_dict):
+        lbl_widget = QLabel(f"<b>{t_dict.get(t_key, t_key)}</b>"); lbl_widget.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+        layout.addWidget(lbl_widget, start_row, 0)
+        cb_container = QWidget(); cb_layout = QGridLayout(cb_container); cb_layout.setContentsMargins(0, 0, 0, 5); cb_layout.setSpacing(5)
+        checkboxes = {}; r, c = 0, 0
+        for orig, loc in items_dict.items():
+            cb = QCheckBox(loc); checkboxes[loc] = cb; cb_layout.addWidget(cb, r, c); c += 1
+            if c >= 5: c = 0; r += 1
+        layout.addWidget(cb_container, start_row, 1, 1, 3); start_row += 1
+        
+        le_my = TagInputArea(t_dict)
+        
+        is_dark = getattr(self.main_app, 'is_dark_mode', True)
+        icon_c = 'white' if is_dark else '#1F2937'
+        
+        btn_map = QPushButton()
+        btn_map.setIcon(qta.icon('fa5s.angle-left', color=icon_c))
+        btn_map.setFixedWidth(35)
+        btn_map.setObjectName("smallBtn")
+        btn_map.setCursor(Qt.CursorShape.PointingHandCursor)
+        
+        le_res = QTextEdit(); le_res.setMaximumHeight(80); le_res.setObjectName("readOnlyText")
+        layout.addWidget(le_my, start_row, 1); layout.addWidget(btn_map, start_row, 2, alignment=Qt.AlignmentFlag.AlignCenter); layout.addWidget(le_res, start_row, 3); start_row += 1
+        btn_series = QPushButton(t_dict.get("t3_btn_apply_series_tag", ""))
+        btn_series.setCursor(Qt.CursorShape.PointingHandCursor)
+        layout.addWidget(btn_series, start_row, 1)
+        self.dynamic_series_btns.append(btn_series); start_row += 1
+        layout.addItem(QSpacerItem(10, 20, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed), start_row, 1)
+        def on_cb_changed():
+            cur = le_my.tags.copy(); chk = [txt for txt, cb in checkboxes.items() if cb.isChecked()]
+            un = [txt for txt, cb in checkboxes.items() if not cb.isChecked()]
+            new = [tg for tg in cur if tg not in un]
+            for tg in chk:
+                if tg not in new: new.append(tg)
+            le_my.on_change_cb = None; le_my.set_tags(new); le_my.on_change_cb = on_tag_changed
+        def on_tag_changed():
+            for txt_loc, cb in checkboxes.items():
+                cb.blockSignals(True); cb.setChecked(txt_loc in le_my.tags); cb.blockSignals(False)
+        for cb in checkboxes.values(): cb.stateChanged.connect(on_cb_changed)
+        le_my.on_change_cb = on_tag_changed; btn_map.clicked.connect(lambda: le_my.setText(le_res.toPlainText()))
+        def apply_to_series():
+            if not self.current_meta_file: return
+            val = le_my.text().strip(); parent_dir = str(Path(self.current_meta_file).parent)
+            if parent_dir not in self.meta_data: return
+            count = 0
+            for f in self.meta_data[parent_dir]:
+                fp = str(f)
+                if fp in self.book_meta: self.book_meta[fp][key] = val; count += 1
+            Toast.show(self.main_app, self.main_app.i18n[self.main_app.lang].get("t3_msg_applied_char_series", "").format(count=count))
+        btn_series.clicked.connect(apply_to_series)
+        self.meta_ui_fields[key] = {'my': le_my, 'res': le_res, 'is_text': False, 'is_combo': False, 'is_tag': True, 'lbl': lbl_widget, 't_key': t_key, 'is_cb': True}
+        return start_row + 1
+
+    def _setup_scroll_area(self, right_layout, t):
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_content = QWidget()
-        self.scroll_content.setObjectName("scrollContent")
-        self.scroll_content.setStyleSheet("#scrollContent { background-color: transparent; }")
+        
         scroll_layout = QVBoxLayout(self.scroll_content)
-        scroll_layout.setContentsMargins(0, 0, 10, 0)
-        scroll_layout.setSpacing(20)
+        scroll_layout.setContentsMargins(0, 0, 10, 0); scroll_layout.setSpacing(20)
 
         self.meta_ui_fields = {}
 
-        def create_group_box(title):
-            group = QGroupBox(title)
-            group.setStyleSheet("QGroupBox { font-weight: bold; border: 1px solid #555; border-radius: 6px; margin-top: 15px; padding-top: 20px; background-color: #2b2b2b; } QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; color: #3498DB; }")
-            layout = QGridLayout(group)
-            layout.setContentsMargins(10, 15, 10, 10)
-            layout.setSpacing(10)
-            return group, layout
-
-        def create_number_input(is_date=False, date_type=None):
-            widget = QWidget(); h_layout = QHBoxLayout(widget)
-            h_layout.setContentsMargins(0,0,0,0); h_layout.setSpacing(2)
-            le_num = QLineEdit(); le_num.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            btn_minus = QPushButton("-"); btn_minus.setFixedWidth(30)
-            btn_plus = QPushButton("+"); btn_plus.setFixedWidth(30)
-            h_layout.addWidget(le_num, 1); h_layout.addWidget(btn_minus); h_layout.addWidget(btn_plus)
-            def get_current(): return datetime.now().year if date_type == 'Y' else (datetime.now().month if date_type == 'M' else (datetime.now().day if date_type == 'D' else 0))
-            def clamp(val):
-                if date_type == 'Y': return max(1800, min(2100, val))
-                if date_type == 'M': return max(1, min(12, val))
-                if date_type == 'D': return max(1, min(31, val))
-                return max(0, val)
-            def change(delta):
-                txt = le_num.text().strip()
-                val = get_current() if not txt and is_date else (int(txt) if txt else 0)
-                le_num.setText(str(clamp(val + delta)))
-            def strip_zeros():
-                txt = le_num.text().strip()
-                if txt.isdigit(): le_num.setText(str(clamp(int(txt))))
-                else: le_num.setText("")
-            btn_minus.clicked.connect(lambda: change(-1))
-            btn_plus.clicked.connect(lambda: change(1))
-            le_num.editingFinished.connect(strip_zeros)
-            return widget, le_num
-
-        def add_row(layout, row, key, t_key, is_num=False, is_text=False, is_date=False, date_type=None, combo_items=None, editable_combo=False):
-            lbl_widget = QLabel(t.get(t_key, t_key))
-            lbl_widget.setAlignment(Qt.AlignmentFlag.AlignRight | (Qt.AlignmentFlag.AlignTop if is_text else Qt.AlignmentFlag.AlignVCenter))
-            layout.addWidget(lbl_widget, row, 0)
-            if is_text:
-                le_my = QTextEdit(); le_my.setMinimumHeight(80); le_res = QTextEdit(); le_res.setMinimumHeight(80)
-                def sync_resize():
-                    max_h = max(80, min(500, int(max(le_my.document().size().height(), le_res.document().size().height())) + 12))
-                    le_my.setMinimumHeight(max_h); le_my.setMaximumHeight(max_h)
-                    le_res.setMinimumHeight(max_h); le_res.setMaximumHeight(max_h)
-                le_my.textChanged.connect(sync_resize); le_res.textChanged.connect(sync_resize)
-            elif is_num:
-                le_my_widget, le_my = create_number_input(is_date=is_date, date_type=date_type); le_res = QLineEdit()
-            elif combo_items is not None:
-                le_my_widget = le_my = QComboBox(); le_my.setEditable(editable_combo); le_my.addItem("", "")
-                le_res = QComboBox(); le_res.setEditable(editable_combo); le_res.addItem("", "")
-                for k, v in combo_items.items(): 
-                    le_my.addItem(v, k)
-                    le_res.addItem(v, k)
-                le_res.setStyleSheet("background-color: #1a1a1a; color: #888888; border: 1px solid #444;")
-            else:
-                le_my_widget = le_my = QLineEdit(); le_res = QLineEdit()
-                
-            if not is_num: le_my_widget = le_my
-            if isinstance(le_res, (QLineEdit, QTextEdit)) and combo_items is None: 
-                le_res.setStyleSheet("background-color: #1a1a1a; color: #888888;")
-            btn_map = QPushButton("<"); btn_map.setFixedWidth(35)
-            
-            def do_map():
-                if combo_items is not None:
-                    val = le_res.currentText()
-                    if editable_combo: le_my.setCurrentText(val)
-                    else:
-                        idx = le_my.findText(val)
-                        if idx < 0: idx = le_my.findData(val)
-                        if idx >= 0: le_my.setCurrentIndex(idx)
-                        else: le_my.setCurrentIndex(0)
-                else:
-                    val = le_res.toPlainText() if is_text else le_res.text()
-                    if is_num and val.isdigit(): val = str(int(val))
-                    if is_text: le_my.setPlainText(val)
-                    else: le_my.setText(val)
-            btn_map.clicked.connect(do_map)
-            layout.addWidget(le_my_widget, row, 1); layout.addWidget(btn_map, row, 2, alignment=Qt.AlignmentFlag.AlignCenter); layout.addWidget(le_res, row, 3)
-            self.meta_ui_fields[key] = {'my': le_my, 'res': le_res, 'is_text': is_text, 'is_combo': combo_items is not None, 'lbl': lbl_widget, 't_key': t_key}
-
-        def add_checkbox_group(layout, start_row, key, t_key, items_dict):
-            lbl_widget = QLabel(f"<b>{t.get(t_key, t_key)}</b>"); lbl_widget.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
-            layout.addWidget(lbl_widget, start_row, 0)
-            cb_container = QWidget(); cb_layout = QGridLayout(cb_container); cb_layout.setContentsMargins(0, 0, 0, 5); cb_layout.setSpacing(5)
-            checkboxes = {}; r, c = 0, 0
-            for orig, loc in items_dict.items():
-                cb = QCheckBox(loc); checkboxes[loc] = cb; cb_layout.addWidget(cb, r, c); c += 1
-                if c >= 5: c = 0; r += 1
-            layout.addWidget(cb_container, start_row, 1, 1, 3); start_row += 1
-            
-            le_my = TagInputArea(t); btn_map = QPushButton("<"); btn_map.setFixedWidth(35)
-            le_res = QTextEdit(); le_res.setMaximumHeight(80); le_res.setStyleSheet("background-color: #1a1a1a; color: #888888;")
-            layout.addWidget(le_my, start_row, 1); layout.addWidget(btn_map, start_row, 2, alignment=Qt.AlignmentFlag.AlignCenter); layout.addWidget(le_res, start_row, 3); start_row += 1
-            btn_series = QPushButton(t.get("t3_btn_apply_series_tag", ""))
-            btn_series.setStyleSheet("background-color: #3a3a3a; color: #dddddd; padding: 6px; border-radius: 4px; border: 1px solid #555; font-weight: bold;")
-            btn_series.setCursor(Qt.CursorShape.PointingHandCursor)
-            layout.addWidget(btn_series, start_row, 1)
-            self.dynamic_series_btns.append(btn_series); start_row += 1
-            layout.addItem(QSpacerItem(10, 20, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed), start_row, 1)
-            def on_cb_changed():
-                cur = le_my.tags.copy()
-                chk = [txt for txt, cb in checkboxes.items() if cb.isChecked()]
-                un = [txt for txt, cb in checkboxes.items() if not cb.isChecked()]
-                new = [tg for tg in cur if tg not in un]
-                for tg in chk:
-                    if tg not in new: new.append(tg)
-                le_my.on_change_cb = None; le_my.set_tags(new); le_my.on_change_cb = on_tag_changed
-            def on_tag_changed():
-                for txt_loc, cb in checkboxes.items():
-                    cb.blockSignals(True); cb.setChecked(txt_loc in le_my.tags); cb.blockSignals(False)
-            for cb in checkboxes.values(): cb.stateChanged.connect(on_cb_changed)
-            le_my.on_change_cb = on_tag_changed; btn_map.clicked.connect(lambda: le_my.setText(le_res.toPlainText()))
-            def apply_to_series():
-                if not self.current_meta_file: return
-                val = le_my.text().strip(); parent_dir = str(Path(self.current_meta_file).parent)
-                if parent_dir not in self.meta_data: return
-                count = 0
-                for f in self.meta_data[parent_dir]:
-                    fp = str(f)
-                    if fp in self.book_meta: self.book_meta[fp][key] = val; count += 1
-                t_now = self.main_app.i18n[self.main_app.lang]
-                Toast.show(self.main_app, t_now.get("t3_msg_applied_char_series", "").format(count=count))
-            btn_series.clicked.connect(apply_to_series)
-            self.meta_ui_fields[key] = {'my': le_my, 'res': le_res, 'is_text': False, 'is_combo': False, 'is_tag': True, 'lbl': lbl_widget, 't_key': t_key, 'is_cb': True}
-            return start_row + 1
-
-        self.group_basic, gl_basic = create_group_box(t.get("t3_nav_basic", "").replace("\n"," "))
-        
-        self.lbl_col_orig = QLabel(t.get('t3_col_orig', '원본'))
-        self.lbl_col_res = QLabel(t.get('t3_col_res', '일괄 편집'))
-        
-        self.lbl_col_orig.setStyleSheet("color: #3498DB; font-size: 13px; font-weight: bold;")
-        self.lbl_col_res.setStyleSheet("color: #E67E22; font-size: 13px; font-weight: bold;")
-        
+        self.group_basic, gl_basic = self._create_group_box(t.get("t3_nav_basic", "").replace("\n"," "))
+        self.lbl_col_orig = QLabel(t.get('t3_col_orig', '원본')); self.lbl_col_res = QLabel(t.get('t3_col_res', '일괄 편집'))
         gl_basic.addWidget(self.lbl_col_orig, 0, 1, alignment=Qt.AlignmentFlag.AlignCenter)
         gl_basic.addWidget(self.lbl_col_res, 0, 3, alignment=Qt.AlignmentFlag.AlignCenter)
         
-        add_row(gl_basic, 1, 'Title', 't3_f_title'); add_row(gl_basic, 2, 'Series', 't3_f_series'); add_row(gl_basic, 3, 'SeriesGroup', 't3_f_sgroup')
-        add_row(gl_basic, 4, 'Count', 't3_f_count', is_num=True); add_row(gl_basic, 5, 'Volume', 't3_f_vol', is_num=True); add_row(gl_basic, 6, 'Number', 't3_f_num', is_num=True)
-        add_row(gl_basic, 7, 'PageCount', 't3_f_page', is_num=True); add_row(gl_basic, 8, 'Summary', 't3_f_sum', is_text=True); scroll_layout.addWidget(self.group_basic)
+        
+        self._add_row(gl_basic, 1, 'Title', 't3_f_title', t); self._add_row(gl_basic, 2, 'Series', 't3_f_series', t); self._add_row(gl_basic, 3, 'SeriesGroup', 't3_f_sgroup', t)
+        self._add_row(gl_basic, 4, 'Count', 't3_f_count', t, is_num=True); self._add_row(gl_basic, 5, 'Volume', 't3_f_vol', t, is_num=True); self._add_row(gl_basic, 6, 'Number', 't3_f_num', t, is_num=True)
+        self._add_row(gl_basic, 7, 'PageCount', 't3_f_page', t, is_num=True); self._add_row(gl_basic, 8, 'Summary', 't3_f_sum', t, is_text=True); scroll_layout.addWidget(self.group_basic)
 
-        self.group_crew, gl_crew = create_group_box(t.get("t3_nav_crew", "").replace("\n"," "))
-        add_row(gl_crew, 0, 'Writer', 't3_f_writer'); add_row(gl_crew, 1, 'Penciller', 't3_f_pen'); add_row(gl_crew, 2, 'Inker', 't3_f_inker'); add_row(gl_crew, 3, 'Colorist', 't3_f_color')
-        add_row(gl_crew, 4, 'Letterer', 't3_f_letter'); add_row(gl_crew, 5, 'CoverArtist', 't3_f_cover'); add_row(gl_crew, 6, 'Editor', 't3_f_editor'); scroll_layout.addWidget(self.group_crew)
+        self.group_crew, gl_crew = self._create_group_box(t.get("t3_nav_crew", "").replace("\n"," "))
+        self._add_row(gl_crew, 0, 'Writer', 't3_f_writer', t); self._add_row(gl_crew, 1, 'Penciller', 't3_f_pen', t); self._add_row(gl_crew, 2, 'Inker', 't3_f_inker', t); self._add_row(gl_crew, 3, 'Colorist', 't3_f_color', t)
+        self._add_row(gl_crew, 4, 'Letterer', 't3_f_letter', t); self._add_row(gl_crew, 5, 'CoverArtist', 't3_f_cover', t); self._add_row(gl_crew, 6, 'Editor', 't3_f_editor', t); scroll_layout.addWidget(self.group_crew)
 
-        self.group_publish, gl_publish = create_group_box(t.get("t3_nav_publish", "").replace("\n"," "))
-        add_row(gl_publish, 0, 'Publisher', 't3_f_pub'); add_row(gl_publish, 1, 'Imprint', 't3_f_imp')
-        add_row(gl_publish, 2, 'Web', 't3_f_web', is_text=True)
-        add_row(gl_publish, 3, 'Format', 't3_f_format', combo_items=t.get("meta_formats", {}), editable_combo=True)
-        add_row(gl_publish, 4, 'Year', 't3_f_year', is_num=True, is_date=True, date_type='Y'); add_row(gl_publish, 5, 'Month', 't3_f_month', is_num=True, is_date=True, date_type='M')
-        add_row(gl_publish, 6, 'Day', 't3_f_day', is_num=True, is_date=True, date_type='D'); scroll_layout.addWidget(self.group_publish)
+        self.group_publish, gl_publish = self._create_group_box(t.get("t3_nav_publish", "").replace("\n"," "))
+        self._add_row(gl_publish, 0, 'Publisher', 't3_f_pub', t); self._add_row(gl_publish, 1, 'Imprint', 't3_f_imp', t)
+        self._add_row(gl_publish, 2, 'Web', 't3_f_web', t, is_text=True)
+        self._add_row(gl_publish, 3, 'Format', 't3_f_format', t, combo_items=t.get("meta_formats", {}), editable_combo=True)
+        self._add_row(gl_publish, 4, 'Year', 't3_f_year', t, is_num=True, is_date=True, date_type='Y'); self._add_row(gl_publish, 5, 'Month', 't3_f_month', t, is_num=True, is_date=True, date_type='M')
+        self._add_row(gl_publish, 6, 'Day', 't3_f_day', t, is_num=True, is_date=True, date_type='D'); scroll_layout.addWidget(self.group_publish)
 
-        self.group_genre_tags, gl_genre_tags = create_group_box(t.get("t3_nav_genre", "").replace("\n"," "))
-        r = add_checkbox_group(gl_genre_tags, 0, 'Genre', 't3_f_genre', t.get("meta_genres", {}))
-        r = add_checkbox_group(gl_genre_tags, r, 'Tags', 't3_f_tags_lbl', t.get("meta_tags", {}))
+        self.group_genre_tags, gl_genre_tags = self._create_group_box(t.get("t3_nav_genre", "").replace("\n",""))
+        r = self._add_checkbox_group(gl_genre_tags, 0, 'Genre', 't3_f_genre', t.get("meta_genres", {}), t)
+        r = self._add_checkbox_group(gl_genre_tags, r, 'Tags', 't3_f_tags_lbl', t.get("meta_tags", {}), t)
         lbl_char = QLabel(t.get('t3_f_char', '')); lbl_char.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop); gl_genre_tags.addWidget(lbl_char, r, 0)
         
-        le_char_my = TagInputArea(t); le_char_res = QTextEdit(); le_char_res.setMaximumHeight(80); le_char_res.setStyleSheet("background-color: #1a1a1a; color: #888888;")
+        le_char_my = TagInputArea(t); le_char_res = QTextEdit(); le_char_res.setMaximumHeight(80)
         btn_char_map = QPushButton("<"); btn_char_map.setFixedWidth(35); gl_genre_tags.addWidget(le_char_my, r, 1); gl_genre_tags.addWidget(btn_char_map, r, 2, alignment=Qt.AlignmentFlag.AlignCenter); gl_genre_tags.addWidget(le_char_res, r, 3)
         r += 1
         btn_char_series = QPushButton(t.get("t3_btn_apply_series_tag", ""))
-        btn_char_series.setStyleSheet("background-color: #3a3a3a; color: #dddddd; padding: 6px; border-radius: 4px; border: 1px solid #555; font-weight: bold;")
         btn_char_series.setCursor(Qt.CursorShape.PointingHandCursor); gl_genre_tags.addWidget(btn_char_series, r, 1); self.dynamic_series_btns.append(btn_char_series)
         r += 1; gl_genre_tags.addItem(QSpacerItem(10, 20, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed), r, 1)
         btn_char_map.clicked.connect(lambda _, m=le_char_my, res=le_char_res: m.setText(res.toPlainText()))
@@ -455,15 +475,14 @@ class Tab3Metadata(QWidget):
             for f in self.meta_data[parent_dir]:
                 fp = str(f)
                 if fp in self.book_meta: self.book_meta[fp]['Characters'] = val; count += 1
-            t_now = self.main_app.i18n[self.main_app.lang]
-            Toast.show(self.main_app, t_now.get("t3_msg_applied_char_series", "").format(count=count))
+            Toast.show(self.main_app, self.main_app.i18n[self.main_app.lang].get("t3_msg_applied_char_series", "").format(count=count))
         btn_char_series.clicked.connect(apply_char_to_series)
-        self.meta_ui_fields['Characters'] = {'my': le_char_my, 'res': le_char_res, 'is_text': False, 'is_combo': False, 'is_tag': True, 'lbl': lbl_char, 't_key': 't3_f_char'}
+        self.meta_ui_fields['Characters'] = {'my': le_char_my, 'res': le_char_res, 'is_text': False, 'is_combo': False, 'is_tag': True, 'lbl': lbl_char, 't_key': 't3_f_char', 'is_cb': True}
         scroll_layout.addWidget(self.group_genre_tags)
 
-        self.group_etc, gl_etc = create_group_box(t.get("t3_nav_etc", "").replace("\n"," "))
-        add_row(gl_etc, 0, 'AgeRating', 't3_f_age', combo_items=t.get("meta_age", {}), editable_combo=False); add_row(gl_etc, 1, 'CommunityRating', 't3_f_rate') 
-        add_row(gl_etc, 2, 'LanguageISO', 't3_f_iso'); add_row(gl_etc, 3, 'Manga', 't3_f_dir', combo_items=t.get("meta_manga", {}), editable_combo=False)
+        self.group_etc, gl_etc = self._create_group_box(t.get("t3_nav_etc", "").replace("\n"," "))
+        self._add_row(gl_etc, 0, 'AgeRating', 't3_f_age', t, combo_items=t.get("meta_age", {}), editable_combo=False); self._add_row(gl_etc, 1, 'CommunityRating', 't3_f_rate', t) 
+        self._add_row(gl_etc, 2, 'LanguageISO', 't3_f_iso', t); self._add_row(gl_etc, 3, 'Manga', 't3_f_dir', t, combo_items=t.get("meta_manga", {}), editable_combo=False)
         scroll_layout.addWidget(self.group_etc)
         
         scroll_layout.addStretch(); self.scroll_area.setWidget(self.scroll_content); right_layout.addWidget(self.scroll_area, 1)
@@ -475,32 +494,27 @@ class Tab3Metadata(QWidget):
 
         def on_scroll(value):
             if not hasattr(self, 'group_basic'): return
-            groups = [
-                (self.group_basic, self.btn_goto_basic),
-                (self.group_crew, self.btn_goto_crew),
-                (self.group_publish, self.btn_goto_publish),
-                (self.group_genre_tags, self.btn_goto_genre),
-                (self.group_etc, self.btn_goto_etc)
-            ]
+            groups = [(self.group_basic, self.btn_goto_basic), (self.group_crew, self.btn_goto_crew), (self.group_publish, self.btn_goto_publish), (self.group_genre_tags, self.btn_goto_genre), (self.group_etc, self.btn_goto_etc)]
             active_btn = self.btn_goto_basic
             for group, btn in groups:
-                if group.pos().y() <= value + 80: 
-                    active_btn = btn
+                if group.pos().y() <= value + 80: active_btn = btn
             self.update_nav_buttons_state(active_btn)
             
         self.scroll_area.verticalScrollBar().valueChanged.connect(on_scroll)
 
+    def _setup_bottom_buttons(self, right_layout, t):
         bottom_btn_layout = QHBoxLayout()
         self.btn_auto_title = QPushButton(t.get("t3_auto_title", ""))
         self.btn_auto_vol = QPushButton(t.get("t3_auto_vol", ""))
         self.btn_auto_chap = QPushButton(t.get("t3_auto_chap", ""))
         self.btn_auto_pages = QPushButton(t.get("t3_auto_pages", ""))
         
-        self.btn_auto_match = QPushButton(t.get("t3_auto_match", "🤖 시리즈 자동 매칭"))
+        self.btn_auto_match = QPushButton(t.get("t3_auto_match", "시리즈 자동 매칭"))
         self.btn_auto_match.setToolTip(t.get("t3_tt_auto_match", ""))
         self.btn_auto_match.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_auto_match.setStyleSheet("background-color: #E67E22; color: white; font-weight: bold; padding: 6px 12px; border-radius: 4px;")
+        self.btn_auto_match.setObjectName("actionBtnOrange")
         self.btn_auto_match.clicked.connect(self.action_auto_match_series)
+        self.btn_auto_match.setStyleSheet('font-size:11px; padding: 5px 8px;')
         
         self.btn_meta_save = QPushButton(t.get("t3_save", ""))
         self.btn_meta_save_all = QPushButton(t.get("t3_save_all", ""))
@@ -512,13 +526,16 @@ class Tab3Metadata(QWidget):
         self.btn_meta_save.setToolTip(t.get("t3_tt_save", ""))
         self.btn_meta_save_all.setToolTip(t.get("t3_tt_save_all", ""))
         
-        self.btn_meta_save.setIcon(qta.icon('fa5s.save', color='white'))
-        self.btn_meta_save_all.setIcon(qta.icon('fa5s.save', color='white'))
-        
-        for btn in [self.btn_auto_title, self.btn_auto_vol, self.btn_auto_chap, self.btn_auto_pages, self.btn_meta_save, self.btn_meta_save_all]:
+        for btn in [self.btn_auto_title, self.btn_auto_vol, self.btn_auto_chap, self.btn_auto_pages]:
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_meta_save_all.setStyleSheet("background-color: #27AE60; color: white; font-weight: bold; padding: 6px 12px; border-radius: 4px;")
-        self.btn_meta_save.setStyleSheet("background-color: #3498DB; color: white; font-weight: bold; padding: 6px 12px; border-radius: 4px;")
+            btn.setStyleSheet("font-size: 11px; padding: 5px 8px;")
+            
+        self.btn_meta_save_all.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_meta_save_all.setObjectName("actionBtn") # 🌟 모두 저장: 파란색 테마
+        self.btn_meta_save_all.setStyleSheet("background-color: #0078d7;")
+        self.btn_meta_save.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_meta_save.setObjectName("actionBtnGreen") # 🌟 저장: 초록색 테마
+        self.btn_meta_save.setStyleSheet("background-color: #27ae60;")
         
         self.btn_auto_title.clicked.connect(self.action_auto_title)
         self.btn_auto_vol.clicked.connect(self.action_auto_volume)
@@ -533,41 +550,28 @@ class Tab3Metadata(QWidget):
         bottom_btn_layout.addStretch(); bottom_btn_layout.addWidget(self.btn_meta_save); bottom_btn_layout.addWidget(self.btn_meta_save_all)
         right_layout.addLayout(bottom_btn_layout)
 
-        layout_content.addWidget(left_frame); layout_content.addWidget(self.right_frame, 1)
-        self.meta_stacked.addWidget(page_content); self.meta_stacked.setCurrentIndex(0); self.set_right_panel_active(False)
-
+    def _setup_shortcuts(self):
+        # 🌟 단축키 S 예외 처리: 현재 텍스트 입력창이 포커스 된 경우를 제외하고 어디서든 작동
         self.shortcut_s = QShortcut(QKeySequence(Qt.Key.Key_S), self)
         self.shortcut_s.activated.connect(self._trigger_s)
-        self.shortcut_s.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.shortcut_s.setContext(Qt.ShortcutContext.WindowShortcut)
 
         self.shortcut_c = QShortcut(QKeySequence(Qt.Key.Key_C), self)
         self.shortcut_c.activated.connect(self._trigger_c)
-        self.shortcut_c.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-
-        QApplication.instance().focusChanged.connect(self._on_focus_changed)
-
-    def _on_focus_changed(self, old, new):
-        if new is None:
-            self.shortcut_s.setEnabled(True)
-            self.shortcut_c.setEnabled(True)
-            return
-
-        is_input = isinstance(new, (QLineEdit, QTextEdit, QComboBox))
-        if not is_input and new.parent() is not None:
-            is_input = isinstance(new.parent(), (QLineEdit, QTextEdit, QComboBox))
-
-        if is_input:
-            self.shortcut_s.setEnabled(False)
-            self.shortcut_c.setEnabled(False)
-        else:
-            self.shortcut_s.setEnabled(True)
-            self.shortcut_c.setEnabled(True)
+        self.shortcut_c.setContext(Qt.ShortcutContext.WindowShortcut)
 
     def _trigger_s(self):
-        if self.btn_search.isEnabled():
+        focus_widget = QApplication.focusWidget()
+        # 입력창에서 타이핑 중이면 단축키(S)를 가로채지 않고 무시합니다.
+        if isinstance(focus_widget, (QLineEdit, QTextEdit, QComboBox)): return
+        
+        if self.btn_meta_search.isEnabled():
             self.action_search_api()
 
     def _trigger_c(self):
+        focus_widget = QApplication.focusWidget()
+        if isinstance(focus_widget, (QLineEdit, QTextEdit, QComboBox)): return
+        
         if getattr(self, 'btn_apply_series', None) and self.btn_apply_series.isEnabled():
             self.action_apply_series()
 
@@ -587,7 +591,8 @@ class Tab3Metadata(QWidget):
         self.btn_copy_orig.setText(t.get("t3_btn_copy_orig", ""))
         self.btn_apply_all.setText(t.get("t3_btn_apply_all", ""))
         
-        self.btn_apply_series.setText(f"{t.get('t3_btn_apply_series', '시리즈 편집 적용')} (C)")
+        self.btn_reset_series.setText(t.get("t3_btn_reset_series", "시리즈\n초기화"))
+        self.btn_apply_series.setText(f"{t.get('t3_btn_apply_series', '시리즈\n편집 적용')} (C)")
         
         self.lbl_col_orig.setText(t.get('t3_col_orig', '원본'))
         self.lbl_col_res.setText(t.get('t3_col_res', '일괄 편집'))
@@ -595,7 +600,7 @@ class Tab3Metadata(QWidget):
         self.group_basic.setTitle(t.get("t3_nav_basic", "").replace("\n"," "))
         self.group_crew.setTitle(t.get("t3_nav_crew", "").replace("\n"," "))
         self.group_publish.setTitle(t.get("t3_nav_publish", "").replace("\n"," "))
-        self.group_genre_tags.setTitle(t.get("t3_nav_genre", "").replace("\n"," "))
+        self.group_genre_tags.setTitle(t.get("t3_nav_genre", "").replace("\n",""))
         self.group_etc.setTitle(t.get("t3_nav_etc", "").replace("\n"," "))
         
         self.btn_auto_match.setText(t.get("t3_auto_match", "🤖 시리즈 자동 매칭"))
@@ -611,6 +616,7 @@ class Tab3Metadata(QWidget):
         self.btn_prev_vol.setText(t.get("t3_btn_prev", "이전 권"))
         self.btn_next_vol.setText(t.get("t3_btn_next", "다음 권"))
         
+        self.btn_reset_series.setToolTip(t.get("t3_tt_reset_series", ""))
         self.btn_copy_orig.setToolTip(t.get("t3_tt_copy_orig", ""))
         self.btn_apply_all.setToolTip(t.get("t3_tt_apply_all", ""))
         self.btn_apply_series.setToolTip(t.get("t3_tt_apply_series", ""))
@@ -637,6 +643,45 @@ class Tab3Metadata(QWidget):
         for b in [self.btn_auto_match, self.btn_auto_title, self.btn_auto_vol, self.btn_auto_chap, self.btn_auto_pages, self.btn_meta_save, self.btn_meta_save_all]: b.setEnabled(active)
         if active: self.right_overlay.hide()
         else: self.right_overlay.show(); self.right_overlay.raise_()
+
+    # 🌟 기능: 시리즈 초기화 (원본 카피본으로 되돌리기)
+    def action_reset_series(self):
+        t = self.main_app.i18n[self.main_app.lang]
+        if not self.current_meta_file: return
+        parent_dir = str(Path(self.current_meta_file).parent)
+        if parent_dir not in self.meta_data: return
+
+        reply = QMessageBox.question(
+            self, "안내" if self.main_app.lang == "ko" else "Notice", 
+            "현재 책이 속한 시리즈 전체의 메타데이터를 저장 전 원본 상태로 되돌리시겠습니까?" if self.main_app.lang == "ko" else "Are you sure you want to reset metadata for this entire series to its original state?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes: return
+
+        self.main_app.progress_bar.show()
+        self.main_app.progress_bar.setRange(0, 0)
+        self.main_app.lbl_status.setText("초기화 중..." if self.main_app.lang == "ko" else "Resetting...")
+        threading.Thread(target=self._bg_reset_series, args=(parent_dir,), daemon=True).start()
+
+    def _bg_reset_series(self, parent_dir):
+        files = self.meta_data[parent_dir]
+        for f in files:
+            fp = str(f)
+            self.book_meta[fp] = {key: "" for key in self.meta_ui_fields.keys()}
+            self.book_meta[fp]['Title'] = f.stem
+            xml_data = self._read_xml_from_archive(fp)
+            if xml_data:
+                for k, v in xml_data.items():
+                    if k in self.book_meta[fp] or k in ['ComicZipAddedDate', 'ComicZipModifiedDate']:
+                        self.book_meta[fp][k] = v
+        QTimer.singleShot(0, self._on_reset_series_finished)
+
+    def _on_reset_series_finished(self):
+        self.main_app.progress_bar.hide()
+        self.main_app.lbl_status.setText(self.main_app.i18n[self.main_app.lang].get("status_wait", ""))
+        if self.current_meta_file:
+            self._load_dict_to_ui(self.current_meta_file)
+        Toast.show(self.main_app, "시리즈 데이터가 초기화되었습니다." if self.main_app.lang == "ko" else "Series reset complete.")
 
     def action_auto_match_series(self):
         t = self.main_app.i18n[self.main_app.lang]
@@ -856,7 +901,7 @@ class Tab3Metadata(QWidget):
                 icon_lbl = QLabel()
                 icon_lbl.setPixmap(qta.icon('fa5s.file-alt', color='#bdc3c7').pixmap(12, 12))
                 lbl_title = QLabel(title)
-                lbl_title.setStyleSheet("color: #ffffff; font-size: 13px; margin-bottom:0;")
+                lbl_title.setStyleSheet("font-size: 13px; margin-bottom:0;")
                 lbl_title.setWordWrap(True) 
                 title_layout.addWidget(icon_lbl)
                 title_layout.addWidget(lbl_title, 1)
@@ -1365,18 +1410,23 @@ class Tab3Metadata(QWidget):
             summary = re.sub(r'\n{2,}', '\n', summary)
             data['Summary'] = summary.strip()
 
-        for d_key, val in data.items():
-            if not val: continue
+        for d_key, field in self.meta_ui_fields.items():
+            res_widget = field['res']
+            val = data.get(d_key, "")
             
-            if d_key in self.meta_ui_fields:
-                res_widget = self.meta_ui_fields[d_key]['res']
+            if not val or val == "-":
+                val = ""
                 
-                if hasattr(res_widget, "setCurrentText") and res_widget.isEditable():
-                    res_widget.setCurrentText(val)
-                elif hasattr(res_widget, "findText"):
-                    idx = res_widget.findText(val)
+            if hasattr(res_widget, "setCurrentText") and res_widget.isEditable():
+                res_widget.setCurrentText(str(val))
+            elif hasattr(res_widget, "findText"):
+                if val:
+                    idx = res_widget.findText(str(val))
                     if idx >= 0: res_widget.setCurrentIndex(idx)
-                elif hasattr(res_widget, "setPlainText"):
-                    res_widget.setPlainText(val)
-                elif hasattr(res_widget, "setText"):
-                    res_widget.setText(val)
+                    else: res_widget.setCurrentIndex(0)
+                else:
+                    res_widget.setCurrentIndex(0) 
+            elif hasattr(res_widget, "setPlainText"):
+                res_widget.setPlainText(str(val))
+            elif hasattr(res_widget, "setText"):
+                res_widget.setText(str(val))

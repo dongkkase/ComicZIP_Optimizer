@@ -221,14 +221,13 @@ class RenamerApp(QMainWindow):
         main_layout.addLayout(bottom_layout)
 
     def apply_dark_theme(self):
+        self.is_dark_mode = True  # 현재 다크 모드 상태임을 저장
+        
         style = """
         QMainWindow, QDialog { background-color: #1e1e1e; }
         QFrame#panelFrame { background-color: #2b2b2b; border-radius: 10px; }
         QFrame#optionsFrame { background-color: #2b2b2b; border-radius: 8px; }
         QFrame#divider { background-color: #444444; }
-
-        QCheckBox, QGroupBox { color: #ffffff; }
-
         QLabel { color: #ffffff; font-family: '맑은 고딕', 'Segoe UI Emoji'; }
         QLabel#titleLabel { font-size: 14px; font-weight: bold; margin-bottom: 5px; }
         QLabel#boldLabel { font-size: 12px; font-weight: bold; margin-top: 5px; }
@@ -237,7 +236,7 @@ class RenamerApp(QMainWindow):
         QLabel#infoLabel { color: #aaaaaa; font-size: 11px; }
         QLabel#imageLabel { background-color: #1a1a1a; border-radius: 8px; }
         
-        QTabWidget::pane { border: 1px solid #444; border-radius: 5px; top: -1px; background: ; }
+        QTabWidget::pane { border: 1px solid #444; border-radius: 5px; top: -1px; background: #1e1e1e; }
         QTabBar::tab { background: #2b2b2b; color: #888; border: 1px solid #444; padding: 10px 20px; margin-right: 2px; border-top-left-radius: 5px; border-top-right-radius: 5px; font-weight: bold; }
         QTabBar::tab:selected { background: #3a7ebf; color: #fff; }
         QTabBar::tab:hover:!selected { background: #3a3a3a; color: #fff; }
@@ -261,6 +260,13 @@ class RenamerApp(QMainWindow):
         
         QPushButton#actionBtn { background-color: #0078D7; font-size: 14px; padding: 10px 20px; border: none; }
         QPushButton#actionBtn:hover { background-color: #005A9E; }
+        
+        QPushButton#actionBtnGreen { background-color: #27AE60; font-size: 14px; padding: 10px 20px; border: none; color: white; border-radius: 6px; font-weight: bold; }
+        QPushButton#actionBtnGreen:hover { background-color: #2ECC71; }
+        
+        QPushButton#actionBtnOrange { background-color: #E67E22; font-size: 14px; padding: 10px 20px; border: none; color: white; border-radius: 6px; font-weight: bold; }
+        QPushButton#actionBtnOrange:hover { background-color: #F39C12; }
+        
         QPushButton#actionBtnCancel { background-color: #E74C3C; font-size: 14px; padding: 10px 20px; border: none; }
         QPushButton#actionBtnCancel:hover { background-color: #C0392B; }
         
@@ -279,6 +285,11 @@ class RenamerApp(QMainWindow):
         QComboBox, QLineEdit, QTextEdit { background-color: #3a3a3a; color: white; border: 1px solid #555; border-radius: 4px; padding: 4px; }
         """
         self.setStyleSheet(style)
+        
+        # 🌟 여기서 각 탭의 아이콘 업데이트 함수를 실제로 실행시켜 줍니다!
+        if hasattr(self.tab1, 'update_icons'): self.tab1.update_icons(True)
+        if hasattr(self.tab2, 'update_icons'): self.tab2.update_icons(True)
+        if hasattr(self.tab3, 'update_icons'): self.tab3.update_icons(True)
 
     def apply_language(self):
         t = self.i18n[self.lang]
