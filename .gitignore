@@ -6,6 +6,7 @@ config.json
 .vscode/
 .bak/
 .gitignore
+*/__pycache__/
 __pycache__/
 *.pyc
 *.pyo
