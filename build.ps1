@@ -1,3 +1,4 @@
+# watchfiles "python main.py" --ignore-paths "*.db" --ignore-paths "*.json"
 # 파라미터 정의 (반드시 스크립트 최상단에 위치해야 합니다)
 param (
     [switch]$DevMode
