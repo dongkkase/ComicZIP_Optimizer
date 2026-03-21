@@ -88,12 +88,19 @@ class OrganizerLoadTask:
                     skipped_files.append(filename)
                     continue
 
+                # 🌟 5. 하위 폴더 51개 분할 방지! 최상위(Top-Level) 기준으로 14개로 묶어냅니다.
                 leaf_folders = set()
+                root_images = []
                 for p in image_paths:
-                    leaf_folders.add(os.path.dirname(p))
-                    
-                if len(leaf_folders) > 1 and '' in leaf_folders:
-                    leaf_folders.remove('')
+                    dirname = os.path.dirname(p)
+                    if dirname:
+                        top_folder = dirname.split('/')[0] # '내 이야기 01권.zip' 등으로 묶임
+                        leaf_folders.add(top_folder)
+                    else:
+                        root_images.append(p)
+                        
+                if root_images:
+                    leaf_folders.add('')
                     
                 leaf_folders = sorted(list(leaf_folders), key=natural_keys)
 
@@ -101,14 +108,10 @@ class OrganizerLoadTask:
                 if leaf_folders:
                     for leaf in leaf_folders:
                         if leaf:
-                            parts = [p for p in leaf.split('/') if p]
-                            for p in reversed(parts):
-                                clean_p = re.sub(r'\.(zip|cbz|cbr|rar|7z)$', '', p, flags=re.IGNORECASE)
-                                if not is_garbage_folder_name(clean_p) and re.search(r'[가-힣a-zA-Z]', clean_p):
-                                    inner_meaningful_name = clean_p
-                                    break
-                        if inner_meaningful_name:
-                            break
+                            clean_p = re.sub(r'\.(zip|cbz|cbr|rar|7z)$', '', leaf, flags=re.IGNORECASE)
+                            if not is_garbage_folder_name(clean_p) and re.search(r'[가-힣a-zA-Z]', clean_p):
+                                inner_meaningful_name = clean_p
+                                break
 
                 display_title, core_title = resolve_titles(filepath, inner_meaningful_name)
                 parsed_vols = []
@@ -118,11 +121,12 @@ class OrganizerLoadTask:
                     parsed_vols.append({'original_path': '', 'new_name': vol_name, 'type': 'archive'})
                 else:
                     for v_idx, leaf in enumerate(leaf_folders):
-                        if not leaf: continue
-                        parts = leaf.split('/')
-                        leaf_name = parts[-1]
-                        vol_name = format_leaf_name(core_title, leaf_name, v_idx, len(leaf_folders), self.lang)
-                        parsed_vols.append({'original_path': leaf, 'new_name': vol_name, 'type': 'folder'})
+                        if not leaf: 
+                            vol_name = format_leaf_name(core_title, filename, v_idx, len(leaf_folders), self.lang)
+                            parsed_vols.append({'original_path': '', 'new_name': vol_name, 'type': 'folder'})
+                        else:
+                            vol_name = format_leaf_name(core_title, leaf, v_idx, len(leaf_folders), self.lang)
+                            parsed_vols.append({'original_path': leaf, 'new_name': vol_name, 'type': 'folder'})
 
                 new_data[filepath] = {
                     'checked': True,

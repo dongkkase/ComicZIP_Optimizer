@@ -99,12 +99,14 @@ def resolve_titles(filepath, inner_name=""):
     return file_disp, file_core
 
 def format_leaf_name(parent_core, leaf_name, index, total_items, lang='ko'):
-    pad = 2 if total_items < 100 else (3 if total_items < 1000 else 4)
+    pad = max(2, len(str(total_items)))
+    
     leaf_clean = re.sub(r'\.(zip|cbz|cbr|rar|7z)$', '', str(leaf_name), flags=re.IGNORECASE).strip()
+    clean_for_nums = re.sub(r'[\[\(].*?[\]\)]', '', leaf_clean)
     
     is_hash = len(leaf_clean) > 25 and bool(re.match(r'^[a-fA-F0-9\-_]+$', leaf_clean))
     if is_hash or not re.search(r'[가-힣a-zA-Z]', leaf_clean):
-        nums = re.findall(r'\d+(?:\.\d+)?', leaf_clean)
+        nums = re.findall(r'\d+(?:\.\d+)?', clean_for_nums)
         if nums and not is_hash:
             num_val = nums[-1]
             num_str = f"{num_val.split('.')[0].zfill(pad)}.{num_val.split('.')[1]}" if '.' in num_val else num_val.zfill(pad)
@@ -121,17 +123,30 @@ def format_leaf_name(parent_core, leaf_name, index, total_items, lang='ko'):
         else: return f"{parent_core} {num_str}권".strip()
 
     child_core = extract_core_title(leaf_clean)
-    if child_core:
-        safe_core = "".join([re.escape(c) + r'[\s\-_+,:.]*' for c in child_core.replace(" ", "")])
-        remainder = re.sub(safe_core, '', leaf_clean, flags=re.IGNORECASE).strip()
-    else: remainder = leaf_clean
-        
+    
+    # 🌟 [수정 핵심 부분] 상위 이름(parent_core)과 하위 이름(child_core)의 중복 제거 로직 강화
+    # 1. 괄호 내용 모두 제거하고 순수 텍스트만 비교
+    parent_comp = re.sub(r'[\[\(].*?[\]\)]', '', parent_core).replace(" ", "").lower()
+    child_comp = re.sub(r'[\[\(].*?[\]\)]', '', child_core).replace(" ", "").lower()
+    
+    # 2. 하위 폴더 이름이 상위 폴더 이름과 유사하거나 포함된다면, 하위 이름의 텍스트 부분을 싹 날려버립니다.
+    if parent_comp in child_comp or child_comp in parent_comp or get_similarity(parent_comp, child_comp) > 0.4:
+        remainder = re.sub(r'^[가-힣a-zA-Z\s\-_]+', '', leaf_clean) # 한글/영문 시작부분 날림
+        remainder = re.sub(r'[\[\(].*?[\]\)]', '', remainder) # 남아있는 괄호 제거
+        remainder = remainder.strip()
+    else:
+        if child_core:
+            safe_core = "".join([re.escape(c) + r'[\s\-_+,:.]*' for c in child_core.replace(" ", "")])
+            remainder = re.sub(safe_core, '', leaf_clean, flags=re.IGNORECASE).strip()
+        else: 
+            remainder = leaf_clean
+
     remainder = re.sub(r'\d+(?:\.\d+)?\s*[~-]\s*\d+(?:\.\d+)?\s*(?:권|화|장|편|부)?', '', remainder).strip()
     remainder = re.sub(r'[\[\(].*?[\]\)]', '', remainder).strip()
     remainder = re.sub(r'^[-_+,]+|[-_+,]+$', '', remainder).strip()
     
     if not remainder:
-        nums = re.findall(r'\d+(?:\.\d+)?', leaf_clean)
+        nums = re.findall(r'\d+(?:\.\d+)?', clean_for_nums)
         if nums:
             num_val = nums[-1]
             num_str = f"{num_val.split('.')[0].zfill(pad)}.{num_val.split('.')[1]}" if '.' in num_val else num_val.zfill(pad)
@@ -164,18 +179,9 @@ def format_leaf_name(parent_core, leaf_name, index, total_items, lang='ko'):
                 remainder = re.sub(r'(\d+(?:\.\d+)?)', r'\1권', remainder, count=1)
             else:
                 remainder = re.sub(r'(\d+)\s*\.\s*(\d+)', r'\1.\2', remainder)
-            
-    has_text = re.search(r'[가-힣a-zA-Z]', child_core)
-    
-    parent_text = re.sub(r'(?:[\s\-_]+)?0*\d+(?:\.\d+)?$', '', parent_core).strip()
-    child_text = re.sub(r'(?:[\s\-_]+)?0*\d+(?:\.\d+)?$', '', child_core).strip()
-    
-    if child_core and parent_core != child_core and parent_text == child_text and parent_text:
-        base_name = parent_text
-    elif not has_text or (child_core and get_similarity(child_core, parent_core) >= 0.5):
-        base_name = parent_core
-    else:
-        base_name = child_core if child_core else parent_core
+
+    # 🌟 최종 조립 시 중복 방지를 위해 parent_core 우선 사용
+    base_name = parent_core
         
     rem_num_match = re.search(r'\d+(?:\.\d+)?', remainder)
     if rem_num_match:
