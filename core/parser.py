@@ -42,13 +42,27 @@ def extract_core_title(text):
     return re.sub(r'\s+', ' ', cleaned).strip()
 
 def get_similarity(a, b):
-    a_comp = a.replace(" ", "")
-    b_comp = b.replace(" ", "")
+    # 🌟 괄호, 영문 등 모든 잡음 텍스트를 걷어내고 순수 제목(한글 위주)만으로 극한의 유사도 검사
+    a_comp = re.sub(r'[a-zA-Z]', '', re.sub(r'[\[\(].*?[\]\)]', '', a)).replace(" ", "")
+    b_comp = re.sub(r'[a-zA-Z]', '', re.sub(r'[\[\(].*?[\]\)]', '', b)).replace(" ", "")
+    
+    if not a_comp or not b_comp:
+        a_comp = a.replace(" ", "")
+        b_comp = b.replace(" ", "")
+        
     if not a_comp or not b_comp: return 0.0
     return difflib.SequenceMatcher(None, a_comp, b_comp).ratio()
 
 def is_garbage_folder_name(text):
+    text_lower = text.lower()
+    
+    # 🌟 [해결 1] gigafile 등 명백한 다운로드 찌꺼기 문자열 원천 차단
+    if 'gigafile' in text_lower or 'down' in text_lower: return True
+    
+    # 🌟 띄어쓰기 없이 영문+숫자가 너무 길게 나열된 경우 해시값으로 간주하여 강력 차단
+    if len(text) > 20 and bool(re.match(r'^[a-zA-Z0-9\-_]+$', text)): return True
     if len(text) > 15 and bool(re.match(r'^[a-fA-F0-9\-_]+$', text)): return True
+    
     if bool(re.match(r'^\d+$', re.sub(r'[\[\(].*?[\]\)]', '', text).strip())): return True
     return False
 
@@ -70,21 +84,31 @@ def resolve_titles(filepath, inner_name=""):
     generic_folders = ['temp', 'downloads', '다운로드', '새 폴더', 'new folder', 'tmp', '새폴더', 'desktop', '바탕 화면', '바탕화면']
     
     if is_garbage_folder_name(file_stem) or not re.search(r'[가-힣a-zA-Z]', file_stem):
-        
+        inner_disp, inner_core = "", ""
         if inner_name and not is_garbage_folder_name(inner_name) and re.search(r'[가-힣a-zA-Z]', inner_name):
             inner_disp = clean_display_title(inner_name)
             inner_core = extract_core_title(inner_name)
-            return inner_disp if inner_disp else inner_name, inner_core if inner_core else inner_name
             
-        if parent_name.lower() in generic_folders or parent_disp.lower() in generic_folders:
-            if grandparent_name and grandparent_name.lower() not in generic_folders and not is_garbage_folder_name(grandparent_name):
-                return grandparent_disp, grandparent_core
-            return "제목없음", "제목없음"
+        parent_is_generic = parent_name.lower() in generic_folders or parent_disp.lower() in generic_folders or is_garbage_folder_name(parent_name)
+        
+        if not parent_is_generic and inner_core:
+            # 🌟 [해결 2] 부모 폴더명(아름다운 초저녁달)이 정상적이고 자식 이름(아름다운 초저녁달 6)에 포함되어 있다면
+            # 군말 없이 깨끗한 부모 폴더명을 최우선 진짜 책 제목으로 확정!
+            if parent_core.replace(" ", "") in inner_core.replace(" ", "") or get_similarity(parent_core, inner_core) >= 0.4:
+                return parent_disp, parent_core
+            else:
+                return inner_disp, inner_core
+                
+        if inner_core:
+            return inner_disp, inner_core
             
-        if is_garbage_folder_name(parent_name) and grandparent_name:
-            return grandparent_disp if grandparent_disp else parent_disp, grandparent_core if grandparent_core else parent_core
+        if not parent_is_generic:
+            return parent_disp, parent_core
             
-        return parent_disp if parent_disp else file_disp, parent_core if parent_core else file_core
+        if grandparent_name and grandparent_name.lower() not in generic_folders and not is_garbage_folder_name(grandparent_name):
+            return grandparent_disp, grandparent_core
+            
+        return "제목없음", "제목없음"
         
     if parent_core and get_similarity(file_core, parent_core) >= 0.5:
         return parent_disp, parent_core
@@ -99,107 +123,101 @@ def resolve_titles(filepath, inner_name=""):
     return file_disp, file_core
 
 def format_leaf_name(parent_core, leaf_name, index, total_items, lang='ko'):
+    # 전체 파일 수에 비례하되 최소 2자리(01, 02)로 패딩 설정
     pad = max(2, len(str(total_items)))
     
     leaf_clean = re.sub(r'\.(zip|cbz|cbr|rar|7z)$', '', str(leaf_name), flags=re.IGNORECASE).strip()
     clean_for_nums = re.sub(r'[\[\(].*?[\]\)]', '', leaf_clean)
     
+    # 숫자 패딩을 안전하게 처리해주는 헬퍼 함수
+    def pad_match(val):
+        if '~' in val or '-' in val:
+            sep = '~' if '~' in val else '-'
+            parts = val.split(sep)
+            return f"{parts[0].strip().zfill(pad)}{sep}{parts[1].strip().zfill(pad)}"
+        if '.' in val:
+            return f"{val.split('.')[0].zfill(pad)}.{val.split('.')[1]}"
+        return val.zfill(pad)
+
     is_hash = len(leaf_clean) > 25 and bool(re.match(r'^[a-fA-F0-9\-_]+$', leaf_clean))
     if is_hash or not re.search(r'[가-힣a-zA-Z]', leaf_clean):
         nums = re.findall(r'\d+(?:\.\d+)?', clean_for_nums)
         if nums and not is_hash:
-            num_val = nums[-1]
-            num_str = f"{num_val.split('.')[0].zfill(pad)}.{num_val.split('.')[1]}" if '.' in num_val else num_val.zfill(pad)
+            num_str = pad_match(nums[-1])
         else:
             num_str = f"{index+1:0{pad}d}"
             
         base_num = re.sub(r'\D', '', parent_core)
         rem_num = re.sub(r'\D', '', num_str)
         if base_num and base_num == rem_num and not re.search(r'[가-힣a-zA-Z]', parent_core):
-            if lang == 'en': return f"v{num_str}"
-            else: return f"{num_str}권"
+            return f"v{num_str}" if lang == 'en' else f"{num_str}권"
             
-        if lang == 'en': return f"{parent_core} v{num_str}".strip()
-        else: return f"{parent_core} {num_str}권".strip()
+        return f"{parent_core} v{num_str}".strip() if lang == 'en' else f"{parent_core} {num_str}권".strip()
 
     child_core = extract_core_title(leaf_clean)
     
-    # 🌟 [수정 핵심 부분] 상위 이름(parent_core)과 하위 이름(child_core)의 중복 제거 로직 강화
-    # 1. 괄호 내용 모두 제거하고 순수 텍스트만 비교
-    parent_comp = re.sub(r'[\[\(].*?[\]\)]', '', parent_core).replace(" ", "").lower()
-    child_comp = re.sub(r'[\[\(].*?[\]\)]', '', child_core).replace(" ", "").lower()
+    parent_comp = re.sub(r'[a-zA-Z\[\(].*?[\]\)]', '', parent_core).replace(" ", "").lower()
+    child_comp = re.sub(r'[a-zA-Z\[\(].*?[\]\)]', '', child_core).replace(" ", "").lower()
     
-    # 2. 하위 폴더 이름이 상위 폴더 이름과 유사하거나 포함된다면, 하위 이름의 텍스트 부분을 싹 날려버립니다.
+    if not parent_comp: parent_comp = parent_core.replace(" ", "").lower()
+    if not child_comp: child_comp = child_core.replace(" ", "").lower()
+
     if parent_comp in child_comp or child_comp in parent_comp or get_similarity(parent_comp, child_comp) > 0.4:
-        remainder = re.sub(r'^[가-힣a-zA-Z\s\-_]+', '', leaf_clean) # 한글/영문 시작부분 날림
-        remainder = re.sub(r'[\[\(].*?[\]\)]', '', remainder) # 남아있는 괄호 제거
-        remainder = remainder.strip()
+        if child_core:
+            safe_core = "".join([re.escape(c) + r'[\s\-_+,:.]*' for c in child_core.replace(" ", "")])
+            remainder = re.sub(safe_core, '', leaf_clean, flags=re.IGNORECASE).strip()
+        else:
+            remainder = re.sub(r'^[가-힣a-zA-Z\s\-_\[\]\(\)]+', '', leaf_clean) 
     else:
         if child_core:
             safe_core = "".join([re.escape(c) + r'[\s\-_+,:.]*' for c in child_core.replace(" ", "")])
             remainder = re.sub(safe_core, '', leaf_clean, flags=re.IGNORECASE).strip()
         else: 
             remainder = leaf_clean
-
+            
     remainder = re.sub(r'\d+(?:\.\d+)?\s*[~-]\s*\d+(?:\.\d+)?\s*(?:권|화|장|편|부)?', '', remainder).strip()
+    
+    # 🌟 [해결 3] 사용자의 요청대로 (한정판) 같은 괄호 태그 및 불순물을 자비 없이 전부 날려버림
     remainder = re.sub(r'[\[\(].*?[\]\)]', '', remainder).strip()
     remainder = re.sub(r'^[-_+,]+|[-_+,]+$', '', remainder).strip()
     
-    if not remainder:
-        nums = re.findall(r'\d+(?:\.\d+)?', clean_for_nums)
-        if nums:
-            num_val = nums[-1]
-            num_str = f"{num_val.split('.')[0].zfill(pad)}.{num_val.split('.')[1]}" if '.' in num_val else num_val.zfill(pad)
-        else:
-            num_str = f"{index+1:0{pad}d}"
-        if lang == 'en': remainder = f"v{num_str}"
-        else: remainder = f"{num_str}권"
-    else:
-        if lang == 'en':
-            if re.search(r'프롤로그|prologue', remainder, re.IGNORECASE): return f"{parent_core} Prologue"
-            if re.search(r'에필로그|epilogue', remainder, re.IGNORECASE): return f"{parent_core} Epilogue"
-            remainder = re.sub(r'외전\s*(\d+)?', lambda m: f"Side Story{m.group(1).zfill(2) if m.group(1) else '01'}", remainder)
-            remainder = re.sub(r'특별편\s*(\d+)?', lambda m: f"Special{m.group(1).zfill(2) if m.group(1) else '01'}", remainder)
-            remainder = re.sub(r'(\d+(?:\.\d+)?(?:[~-]\d+(?:\.\d+)?)?)\s*권', lambda m: f"v{m.group(1).zfill(2)}", remainder)
-            remainder = re.sub(r'(\d+(?:\.\d+)?(?:[~-]\d+(?:\.\d+)?)?)\s*[화장]', lambda m: f"c{m.group(1).zfill(pad)}", remainder)
-            remainder = re.sub(r'(\d+(?:\.\d+)?(?:[~-]\d+(?:\.\d+)?)?)\s*[편부]', lambda m: f"Part {m.group(1).zfill(2)}", remainder)
-            remainder = re.sub(r'완전판?', 'Complete Edition', remainder)
-            remainder = re.sub(r'신장판?', 'Deluxe Edition', remainder)
-            remainder = re.sub(r'개정판?', 'Revised Edition', remainder)
-            if re.search(r'\d', remainder) and not re.search(r'(v|c|Part|Side|Special)', remainder, re.IGNORECASE):
-                if re.match(r'^\d+(?:\.\d+)?(?:[~-]\d+(?:\.\d+)?)?$', remainder):
-                    remainder = f"v{remainder.zfill(2)}"
-                else:
-                    remainder = re.sub(r'(\d+(?:\.\d+)?(?:[~-]\d+(?:\.\d+)?)?)', lambda m: f"v{m.group(1).zfill(2)}", remainder, count=1)
-        else:
-            if re.search(r'프롤로그|prologue', remainder, re.IGNORECASE): return f"{parent_core} 프롤로그"
-            if re.search(r'에필로그|epilogue', remainder, re.IGNORECASE): return f"{parent_core} 에필로그"
-            if re.search(r'\d', remainder) and not re.search(r'(권|화|장|편|부|외전|특별편)', remainder):
-                remainder = re.sub(r'(\d+)\s*\.\s*(\d+)', r'\1.\2', remainder)
-                remainder = re.sub(r'(\d+(?:\.\d+)?)', r'\1권', remainder, count=1)
-            else:
-                remainder = re.sub(r'(\d+)\s*\.\s*(\d+)', r'\1.\2', remainder)
+    nums = re.findall(r'\d+(?:\.\d+)?', clean_for_nums)
+    target_num = nums[-1] if nums else str(index + 1)
+    padded_num = pad_match(target_num)
 
-    # 🌟 최종 조립 시 중복 방지를 위해 parent_core 우선 사용
+    # 불순물을 날리고 남은게 타겟 숫자뿐이거나 비어있다면, 깔끔하게 0패딩 권수만 붙임!
+    if not remainder or remainder == target_num or remainder.isdigit():
+        remainder = f"v{padded_num}" if lang == 'en' else f"{padded_num}권"
+    else:
+        if re.search(r'(?<!\d)' + re.escape(target_num) + r'(?!\d)', remainder):
+            if lang == 'en':
+                remainder = re.sub(r'(?<!\d)' + re.escape(target_num) + r'(?!\d)(?:\s*권|\s*화)?', f"v{padded_num}", remainder, count=1)
+            else:
+                remainder = re.sub(r'(?<!\d)' + re.escape(target_num) + r'(?!\d)(?:\s*권|\s*화)?', f"{padded_num}권", remainder, count=1)
+        else:
+            if lang == 'en':
+                remainder = f"v{padded_num} {remainder}"
+            else:
+                remainder = f"{padded_num}권 {remainder}"
+
+        if lang == 'en':
+            remainder = re.sub(r'프롤로그|prologue', 'Prologue', remainder, flags=re.IGNORECASE)
+            remainder = re.sub(r'에필로그|epilogue', 'Epilogue', remainder, flags=re.IGNORECASE)
+            remainder = re.sub(r'외전', 'Side Story', remainder)
+            remainder = re.sub(r'특별편', 'Special', remainder)
+        else:
+            remainder = re.sub(r'prologue', '프롤로그', remainder, flags=re.IGNORECASE)
+            remainder = re.sub(r'epilogue', '에필로그', remainder, flags=re.IGNORECASE)
+
     base_name = parent_core
         
-    rem_num_match = re.search(r'\d+(?:\.\d+)?', remainder)
-    if rem_num_match:
-        rem_num_str = rem_num_match.group(0)
-        if '.' in rem_num_str:
-            val_str = str(float(rem_num_str))
-            val_str = val_str.rstrip('0').rstrip('.') if '.' in val_str else val_str
-        else:
-            val_str = str(int(rem_num_str))
-            
-        pattern = r'(.*?)(?:[\s\-_]+)?0*' + re.escape(val_str) + r'(?:\.0+)?$'
-        match = re.search(pattern, base_name)
-        
-        if match:
-            base_name_candidate = match.group(1).strip()
-            if base_name_candidate:
-                base_name = base_name_candidate
-            elif not re.search(r'[가-힣a-zA-Z]', base_name):
-                return remainder.strip()
+    pattern = r'(.*?)(?:[\s\-_]+)?0*' + re.escape(target_num) + r'(?:\.0+)?$'
+    match = re.search(pattern, base_name)
+    if match:
+        base_name_candidate = match.group(1).strip()
+        if base_name_candidate:
+            base_name = base_name_candidate
+        elif not re.search(r'[가-힣a-zA-Z]', base_name):
+            return remainder.strip()
                 
     return f"{base_name} {remainder}".strip()

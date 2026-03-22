@@ -46,7 +46,6 @@ class OrganizerProcessTask:
                 msg = f"[{idx+1}/{total}] 구조 재배치 중: {filename}" if self.lang == "ko" else f"[{idx+1}/{total}] Reorganizing: {filename}"
                 self.signals.progress.emit(int((idx / total) * 100), msg)
 
-                # 🌟 [유실 방지 1단계] 원본 압축파일 .tmp 피신
                 original_tmp = file_path + ".tmp"
                 current_target_created_zips = []
 
@@ -90,38 +89,56 @@ class OrganizerProcessTask:
 
                     extract_all(original_tmp, temp_base)
 
-                    # 🌟 6. 51개 조각 분할 방지 및 유실 검증용 이미지 수 카운트
+                    # 🌟 [개선] 껍데기 폴더 파고들기
+                    def get_actual_root(curr_dir):
+                        while True:
+                            items = os.listdir(curr_dir)
+                            subdirs = [i for i in items if os.path.isdir(os.path.join(curr_dir, i))]
+                            images = [i for i in items if i.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'))]
+                            if len(subdirs) == 1 and len(images) == 0:
+                                curr_dir = os.path.join(curr_dir, subdirs[0])
+                            else:
+                                break
+                        return curr_dir
+
+                    actual_root = get_actual_root(temp_base)
+
                     leaf_folders = set()
                     root_images = []
                     total_extracted_images = 0
 
-                    for root, dirs, files in os.walk(temp_base):
+                    for root_dir, _, files in os.walk(actual_root):
                         for f in files:
                             if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif')):
                                 total_extracted_images += 1
-                                rel_path = os.path.relpath(root, temp_base)
+                                rel_path = os.path.relpath(root_dir, actual_root)
                                 if rel_path == '.':
-                                    root_images.append(os.path.join(root, f))
+                                    root_images.append(os.path.join(root_dir, f))
                                 else:
                                     top_folder = Path(rel_path).parts[0]
-                                    leaf_folders.add(os.path.join(temp_base, top_folder))
+                                    leaf_folders.add(os.path.join(actual_root, top_folder))
                                     
                     if total_extracted_images == 0:
                         raise Exception("이미지 파일이 없거나 압축을 풀 수 없습니다.")
 
-                    # 🌟 7. 최상위에 흩어진 이미지 영구 삭제 방지 (대피소)
+                    deleted_root_images = []
                     if root_images:
-                        safe_root_dir = os.path.join(temp_base, "Root_Files")
-                        os.makedirs(safe_root_dir, exist_ok=True)
-                        for img_path in root_images:
-                            shutil.move(img_path, os.path.join(safe_root_dir, os.path.basename(img_path)))
-                        leaf_folders.add(safe_root_dir)
-                        
+                        if leaf_folders:
+                            for img_path in root_images:
+                                deleted_root_images.append(os.path.basename(img_path))
+                                os.remove(img_path)
+                                total_extracted_images -= 1 
+                        else:
+                            safe_root_dir = os.path.join(temp_base, "Root_Files")
+                            os.makedirs(safe_root_dir, exist_ok=True)
+                            for img_path in root_images:
+                                shutil.move(img_path, os.path.join(safe_root_dir, os.path.basename(img_path)))
+                            leaf_folders.add(safe_root_dir)
+                            
                     leaf_folders = sorted(list(leaf_folders), key=natural_keys)
                     target_ext = f".{self.target_format}" if self.target_format != "none" else ".zip"
                     archive_type = '-t7z' if target_ext == '.7z' else '-tzip'
 
-                    # 재압축 시 누락된 이미지가 없는지 검증하기 위한 카운트
                     total_packed_images = 0
 
                     for v_idx, leaf in enumerate(leaf_folders):
@@ -130,27 +147,24 @@ class OrganizerProcessTask:
                         sub_prog = int((idx / total) * 100) + int((v_idx / len(leaf_folders)) * (100 / total))
                         self.signals.progress.emit(sub_prog, f"{msg} ({v_idx+1}/{len(leaf_folders)})")
 
-                        # 해당 권(Volume) 내에 포함된 실제 이미지 총합 누적
                         img_count = sum(1 for r, _, fs in os.walk(leaf) for f in fs if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif')))
                         total_packed_images += img_count
 
                         if v_idx < len(data['volumes']):
                             vol_base = data['volumes'][v_idx]['new_name']
                         else:
-                            # 만약 누락된 권 데이터가 있다면 load_task와 동일한 동적 패딩 적용
                             pad = max(2, len(str(len(leaf_folders))))
                             if self.lang == 'en': vol_base = f"{clean_title} v{v_idx+1:0{pad}d}"
                             else: vol_base = f"{clean_title} {v_idx+1:0{pad}d}권"
                             
                         vol_name = f"{vol_base}{target_ext}"
-                        rel_path = os.path.relpath(leaf, temp_base)
+                        rel_path = os.path.relpath(leaf, actual_root) # temp_base가 아닌 actual_root 기준!
                         
                         if rel_path == '.' or rel_path == 'Root_Files':
                             out_dir = base_out_dir
                         else:
                             parts = Path(rel_path).parts
                             valid_parts = []
-                            # 🌟 상위 폴더 구조를 그대로 유지 (마지막 leaf는 압축되므로 제외)
                             for p in parts[:-1]: 
                                 cp = re.sub(r'\[.*?\]|\(.*?\)|<.*?>', '', p).strip()
                                 cp = re.sub(r'[-_+]+', ' ', cp).strip()
@@ -168,7 +182,6 @@ class OrganizerProcessTask:
 
                         os.makedirs(out_dir, exist_ok=True)
                         
-                        # 🌟 8. 이름이 겹칠 때 강제 덮어쓰기(50% 유실의 주원인) 차단하고 숫자 부여!
                         base_target_path = os.path.join(out_dir, vol_name)
                         target_path = base_target_path
                         base_name, ext = os.path.splitext(vol_name)
@@ -180,7 +193,6 @@ class OrganizerProcessTask:
                         temp_archive = os.path.join(sys_temp, f"ComicZIP_Done_{safe_id}_{uuid.uuid4().hex[:4]}_{os.path.basename(target_path)}")
                         if os.path.exists(temp_archive): os.remove(temp_archive)
                         
-                        # 🌟 1개 권으로 깔끔하게 통합하여 묶기
                         subprocess.run([self.seven_z_exe, 'a', archive_type, temp_archive, '*', '-mx=0'], cwd=leaf, stdout=subprocess.DEVNULL, creationflags=CREATE_NO_WINDOW, check=True)
                         
                         shutil.move(temp_archive, target_path)
@@ -189,16 +201,19 @@ class OrganizerProcessTask:
                     shutil.rmtree(temp_base, ignore_errors=True)
                     
                     if not self._is_cancelled:
-                        # 🌟 9. 최종 방어 검증: 푼 이미지(Original)와 묶은 이미지(Packed) 개수가 다르면 대참사 방지를 위해 에러 강제 발생!
                         if total_extracted_images != total_packed_images:
                             raise Exception(f"이미지 유실 징후 포착 및 복구! (원본: {total_extracted_images}장 / 압축됨: {total_packed_images}장)")
 
-                        # 모든 검증을 완벽히 통과해야만 대피해둔 .tmp 원본을 영구 삭제
                         if os.path.exists(original_tmp):
                             os.remove(original_tmp)
                             
                         created_zips.extend(current_target_created_zips)
-                        stats['success'].append(filename)
+                        
+                        if deleted_root_images:
+                            del_msg = f" 🗑️(불필요 커버 {len(deleted_root_images)}개 제거됨)" if self.lang == "ko" else f" 🗑️({len(deleted_root_images)} covers removed)"
+                            stats['success'].append(f"{filename}{del_msg}")
+                        else:
+                            stats['success'].append(filename)
                         
                         try:
                             parent_dir = os.path.dirname(file_path)
@@ -206,14 +221,12 @@ class OrganizerProcessTask:
                                 os.rmdir(parent_dir)
                         except: pass
                     else:
-                        # 🚨 유저가 취소하면 생성 중이던 파일 지우고 .tmp 원본 복구
                         for z in current_target_created_zips:
                             if os.path.exists(z): os.remove(z)
                         if os.path.exists(original_tmp):
                             os.rename(original_tmp, file_path)
 
                 except Exception as e:
-                    # 🚨 10. 에러/유실 시 100% 롤백 처리
                     for z in current_target_created_zips:
                         if os.path.exists(z): os.remove(z)
                     if os.path.exists(original_tmp):

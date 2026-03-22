@@ -3,6 +3,9 @@ import zipfile
 import subprocess
 from pathlib import Path
 import re
+import tempfile
+import uuid
+import shutil
 
 from utils import natural_keys
 from core.parser import is_garbage_folder_name, resolve_titles, format_leaf_name
@@ -19,7 +22,6 @@ class OrganizerLoadTask:
     def run(self):
         try:
             exts = {'.zip', '.cbz', '.cbr', '.7z', '.rar'}
-            img_exts = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'}
             all_files = []
             new_data = {}
             skipped_files = [] 
@@ -47,94 +49,111 @@ class OrganizerLoadTask:
                     self.signals.progress.emit(int((idx / total) * 100), msg)
 
                 size_mb = os.path.getsize(filepath) / (1024 * 1024)
-                image_paths = []
-                requires_processing = False 
                 
-                def scan_zip(zf_path, prefix=""):
-                    nonlocal requires_processing
-                    try:
-                        with zipfile.ZipFile(zf_path, 'r') as zf:
-                            for info in zf.infolist():
-                                fn_lower = info.filename.lower()
-                                
-                                if info.is_dir() or '/' in info.filename.replace('\\', '/'):
-                                    requires_processing = True
-                                    
-                                if fn_lower.endswith(('.zip', '.cbz', '.cbr', '.rar', '.7z')):
-                                    requires_processing = True
-                                    try:
-                                        with zf.open(info.filename) as nested_zf:
-                                            scan_zip(nested_zf, prefix + info.filename + "/")
-                                    except: pass
-                                elif fn_lower.endswith(('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif')):
-                                    image_paths.append(prefix + info.filename)
-                    except:
-                        if isinstance(zf_path, (str, Path)):
-                            res = subprocess.run([self.seven_z_exe, 'l', '-slt', '-ba', str(zf_path)], capture_output=True, text=True, errors='ignore', creationflags=CREATE_NO_WINDOW)
-                            for line in res.stdout.splitlines():
-                                if line.startswith("Path = "):
-                                    p = line[7:].replace('\\', '/')
-                                    if '/' in p:
-                                        requires_processing = True
-                                    if p.lower().endswith(('.zip', '.cbz', '.cbr', '.rar', '.7z')):
-                                        requires_processing = True
-                                    if p.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif')):
-                                        image_paths.append(prefix + p)
+                sys_temp = tempfile.gettempdir()
+                safe_id = uuid.uuid4().hex[:6]
+                temp_base = os.path.join(sys_temp, f"ComicZIP_Load_{safe_id}_{filename}")
+                if os.path.exists(temp_base): shutil.rmtree(temp_base, ignore_errors=True)
+                os.makedirs(temp_base, exist_ok=True)
+                
+                try:
+                    # 🌟 [개선 1] 압축 속의 압축까지 끝까지 파고들어 해제합니다.
+                    def extract_all(src_path, dest_dir):
+                        subprocess.run([self.seven_z_exe, 'x', src_path, f'-o{dest_dir}', '-y'], stdout=subprocess.DEVNULL, creationflags=CREATE_NO_WINDOW, check=False)
+                        while True:
+                            found_archives = []
+                            for root_dir, _, files in os.walk(dest_dir):
+                                for f in files:
+                                    if f.lower().endswith(('.zip', '.cbz', '.rar', '.7z')):
+                                        found_archives.append(os.path.join(root_dir, f))
+                            if not found_archives: break
+                            for arch in found_archives:
+                                arch_dir = os.path.splitext(arch)[0] 
+                                os.makedirs(arch_dir, exist_ok=True)
+                                subprocess.run([self.seven_z_exe, 'x', arch, f'-o{arch_dir}', '-y'], stdout=subprocess.DEVNULL, creationflags=CREATE_NO_WINDOW)
+                                os.remove(arch)
 
-                scan_zip(filepath)
-                if not image_paths: continue
+                    extract_all(filepath, temp_base)
 
-                if not requires_processing:
-                    skipped_files.append(filename)
-                    continue
-
-                # 🌟 5. 하위 폴더 51개 분할 방지! 최상위(Top-Level) 기준으로 14개로 묶어냅니다.
-                leaf_folders = set()
-                root_images = []
-                for p in image_paths:
-                    dirname = os.path.dirname(p)
-                    if dirname:
-                        top_folder = dirname.split('/')[0] # '내 이야기 01권.zip' 등으로 묶임
-                        leaf_folders.add(top_folder)
-                    else:
-                        root_images.append(p)
-                        
-                if root_images:
-                    leaf_folders.add('')
-                    
-                leaf_folders = sorted(list(leaf_folders), key=natural_keys)
-
-                inner_meaningful_name = ""
-                if leaf_folders:
-                    for leaf in leaf_folders:
-                        if leaf:
-                            clean_p = re.sub(r'\.(zip|cbz|cbr|rar|7z)$', '', leaf, flags=re.IGNORECASE)
-                            if not is_garbage_folder_name(clean_p) and re.search(r'[가-힣a-zA-Z]', clean_p):
-                                inner_meaningful_name = clean_p
+                    # 🌟 [개선 2] 껍데기 폴더(Wrapper Folder) 우회 로직! 진짜 폴더가 나올 때까지 들어갑니다.
+                    def get_actual_root(curr_dir):
+                        while True:
+                            items = os.listdir(curr_dir)
+                            subdirs = [i for i in items if os.path.isdir(os.path.join(curr_dir, i))]
+                            images = [i for i in items if i.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'))]
+                            # 폴더가 딱 1개뿐이고 이미지가 없다면, 이 폴더는 단순 껍데기이므로 안으로 파고듭니다.
+                            if len(subdirs) == 1 and len(images) == 0:
+                                curr_dir = os.path.join(curr_dir, subdirs[0])
+                            else:
                                 break
+                        return curr_dir
 
-                display_title, core_title = resolve_titles(filepath, inner_meaningful_name)
-                parsed_vols = []
-                
-                if not leaf_folders or (len(leaf_folders) == 1 and leaf_folders[0] == ''):
-                    vol_name = format_leaf_name(core_title, filename, 0, 1, self.lang)
-                    parsed_vols.append({'original_path': '', 'new_name': vol_name, 'type': 'archive'})
-                else:
-                    for v_idx, leaf in enumerate(leaf_folders):
-                        if not leaf: 
-                            vol_name = format_leaf_name(core_title, filename, v_idx, len(leaf_folders), self.lang)
-                            parsed_vols.append({'original_path': '', 'new_name': vol_name, 'type': 'folder'})
+                    actual_root = get_actual_root(temp_base)
+
+                    volume_groups = {}
+                    root_images = []
+                    total_images = 0
+                    
+                    for root_dir, _, files in os.walk(actual_root):
+                        for f in files:
+                            if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif')):
+                                total_images += 1
+                                img_path = os.path.join(root_dir, f)
+                                rel_path = os.path.relpath(img_path, actual_root)
+                                parts = Path(rel_path).parts
+                                if len(parts) == 1:
+                                    root_images.append(img_path)
+                                else:
+                                    top_folder = parts[0]
+                                    if top_folder not in volume_groups:
+                                        volume_groups[top_folder] = []
+                                    volume_groups[top_folder].append(img_path)
+                                    
+                    if total_images == 0:
+                        skipped_files.append(filename)
+                        continue
+
+                    # 🌟 쓰레기 표지(커버) 이미지 무시
+                    if root_images:
+                        if volume_groups:
+                            pass 
                         else:
-                            vol_name = format_leaf_name(core_title, leaf, v_idx, len(leaf_folders), self.lang)
+                            volume_groups['Root_Files'] = root_images
+                            
+                    group_names = sorted(list(volume_groups.keys()), key=natural_keys)
+
+                    inner_meaningful_name = ""
+                    if group_names:
+                        for leaf in group_names:
+                            if leaf and leaf != 'Root_Files':
+                                clean_p = re.sub(r'\.(zip|cbz|cbr|rar|7z)$', '', leaf, flags=re.IGNORECASE)
+                                if not is_garbage_folder_name(clean_p) and re.search(r'[가-힣a-zA-Z]', clean_p):
+                                    inner_meaningful_name = clean_p
+                                    break
+
+                    display_title, core_title = resolve_titles(filepath, inner_meaningful_name)
+                    parsed_vols = []
+                    
+                    if len(group_names) == 1 and group_names[0] == 'Root_Files':
+                        vol_name = format_leaf_name(core_title, filename, 0, 1, self.lang)
+                        parsed_vols.append({'original_path': '', 'new_name': vol_name, 'type': 'archive'})
+                    else:
+                        for v_idx, leaf in enumerate(group_names):
+                            vol_name = format_leaf_name(core_title, leaf, v_idx, len(group_names), self.lang)
                             parsed_vols.append({'original_path': leaf, 'new_name': vol_name, 'type': 'folder'})
 
-                new_data[filepath] = {
-                    'checked': True,
-                    'name': filename,
-                    'size_mb': size_mb,
-                    'clean_title': display_title,
-                    'volumes': parsed_vols
-                }
+                    new_data[filepath] = {
+                        'checked': True,
+                        'name': filename,
+                        'size_mb': size_mb,
+                        'clean_title': display_title,
+                        'volumes': parsed_vols
+                    }
+
+                except Exception as e:
+                    skipped_files.append(f"{filename} (Error: {str(e)})")
+                finally:
+                    shutil.rmtree(temp_base, ignore_errors=True)
 
             self.signals.progress.emit(100, "분석 완료" if self.lang == 'ko' else "Analysis Done")
             self.signals.org_load_done.emit(new_data, skipped_files) 
