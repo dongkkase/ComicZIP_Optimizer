@@ -16,7 +16,7 @@ from config import load_config, save_config, get_resource_path, CURRENT_VERSION
 from utils import play_complete_sound
 from ui.signals import WorkerSignals
 from ui.dialogs import LogDialog, SettingsDialog
-from ui.widgets import Toast  # 🌟 Toast 알림 임포트 추가
+from ui.widgets import Toast 
 from tasks.update_task import VersionCheckTask, ReleaseNotesTask
 from tasks.load_task import OrganizerLoadTask, FileLoadTask
 from tasks.organize_task import OrganizerProcessTask
@@ -221,8 +221,7 @@ class RenamerApp(QMainWindow):
         main_layout.addLayout(bottom_layout)
 
     def apply_dark_theme(self):
-        self.is_dark_mode = True  # 현재 다크 모드 상태임을 저장
-        
+        self.is_dark_mode = True 
         style = """
         QMainWindow, QDialog { background-color: #1e1e1e; }
         QFrame#panelFrame { background-color: #2b2b2b; border-radius: 10px; }
@@ -286,7 +285,6 @@ class RenamerApp(QMainWindow):
         """
         self.setStyleSheet(style)
         
-        # 🌟 여기서 각 탭의 아이콘 업데이트 함수를 실제로 실행시켜 줍니다!
         if hasattr(self.tab1, 'update_icons'): self.tab1.update_icons(True)
         if hasattr(self.tab2, 'update_icons'): self.tab2.update_icons(True)
         if hasattr(self.tab3, 'update_icons'): self.tab3.update_icons(True)
@@ -360,7 +358,6 @@ class RenamerApp(QMainWindow):
         if dlg.exec() == int(QDialog.DialogCode.Accepted):
             new_data = dlg.get_data()
             
-            # 🌟 환경설정에서 포맷 또는 WebP 옵션 변경 시 타 탭 일괄 초기화 검사
             format_changed = new_data.get("target_format") != self.config.get("target_format")
             webp_conv_changed = new_data.get("webp_conversion") != self.config.get("webp_conversion")
             webp_qual_changed = new_data.get("webp_quality") != self.config.get("webp_quality")
@@ -508,7 +505,6 @@ class RenamerApp(QMainWindow):
                 QMessageBox.warning(self, "Warning", "체크(☑)된 작업 대상이 없습니다." if self.lang == "ko" else "No checked targets.")
                 return
             
-            # 🌟 탭 1 실행 시 탭 2, 3 목록 초기화
             self.tab2.clear_list()
             self.tab3.clear_list()
             
@@ -532,7 +528,6 @@ class RenamerApp(QMainWindow):
                 QMessageBox.warning(self, "Warning", "체크(☑)된 작업 대상이 없습니다." if self.lang == "ko" else "No checked targets.")
                 return
                 
-            # 🌟 탭 2 실행 시 탭 1, 3 목록 초기화
             self.tab1.clear_list()
             self.tab3.clear_list()
             
@@ -546,7 +541,18 @@ class RenamerApp(QMainWindow):
             self.btn_run.setStyleSheet(self.styleSheet()) 
             self.progress_bar.show(); self.progress_bar.setValue(0)
             
-            task = RenameTask(targets, self.config, self.tab2.archive_data, self.i18n, self.tab2.get_pattern(), self.tab2.get_custom_text(), self.seven_zip_path, self.signals)
+            # 🌟 [버그 해결] 누락되었던 self.tab2.get_start_num() 파라미터를 다시 넘겨줍니다!
+            task = RenameTask(
+                targets, 
+                self.config, 
+                self.tab2.archive_data, 
+                self.i18n, 
+                self.tab2.get_pattern(), 
+                self.tab2.get_custom_text(), 
+                self.tab2.get_start_num(), # <-- 바로 이 부분!
+                self.seven_zip_path, 
+                self.signals
+            )
             self.active_task = task
             threading.Thread(target=task.run, daemon=True).start()
 

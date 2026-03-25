@@ -10,7 +10,7 @@ from PIL import Image
 CREATE_NO_WINDOW = 0x08000000
 
 class RenameTask:
-    def __init__(self, targets, config, archive_data, i18n_dict, pattern_val, custom_text, seven_z_exe, signals):
+    def __init__(self, targets, config, archive_data, i18n_dict, pattern_val, custom_text, start_num, seven_z_exe, signals):
         self.targets = targets
         self.backup_on = config.get("backup_on", False)
         self.flatten_folders = config.get("flatten_folders", False)
@@ -23,6 +23,7 @@ class RenameTask:
         self.i18n = i18n_dict
         self.pattern_val = pattern_val
         self.custom_text = custom_text
+        self.start_num = start_num 
         self.seven_z_exe = seven_z_exe
         self.signals = signals
         self._is_cancelled = False
@@ -33,46 +34,52 @@ class RenameTask:
         pad = 2 if total_count < 100 else (3 if total_count < 1000 else 4)
         t_patterns = self.i18n[self.lang]["patterns"]
         if self.webp_conversion: ext = ".webp" 
+        
+        n = self.start_num + index
 
         if self.pattern_val == t_patterns[1]: 
             if index == 0: return f"Cover{ext}"
-            else: return f"Page_{index:0{pad}d}{ext}"
+            else: return f"Page_{n:0{pad}d}{ext}"
         elif self.pattern_val == t_patterns[2]: 
             safe_stem = stem_name.replace(' ', '_')
-            return f"{safe_stem}_{index:0{pad}d}{ext}"
+            return f"{safe_stem}_{n:0{pad}d}{ext}"
         elif self.pattern_val == t_patterns[3]: 
             safe_stem = stem_name.replace(' ', '_')
             if index == 0: return f"{safe_stem}_Cover{ext}"
-            else: return f"{safe_stem}_Page_{index:0{pad}d}{ext}"
+            else: return f"{safe_stem}_Page_{n:0{pad}d}{ext}"
         elif self.pattern_val == t_patterns[4]: 
             custom = self.custom_text.strip() or "Custom"
-            return f"{custom}_{index:0{pad}d}{ext}"
+            return f"{custom}_{n:0{pad}d}{ext}"
         else: 
-            return f"{index:0{pad}d}{ext}"
+            return f"{n:0{pad}d}{ext}"
 
-    def _convert_single_image(self, temp_dir, old_n, new_n):
-        if self._is_cancelled: return False
+    # 🌟 [해결책] 1단계: 기존 파일을 무조건 임시(uuid) 이름으로 대피시킵니다.
+    def _phase1_convert(self, temp_dir, old_n, tmp_n):
+        if self._is_cancelled: return None
         old_path = os.path.join(temp_dir, old_n)
-        new_path = os.path.join(temp_dir, new_n)
-        if not os.path.exists(old_path): return False
-        os.makedirs(os.path.dirname(new_path), exist_ok=True)
+        tmp_path = os.path.join(temp_dir, tmp_n)
+        if not os.path.exists(old_path): return None
+        os.makedirs(os.path.dirname(tmp_path), exist_ok=True)
         
         is_already_webp = old_n.lower().endswith('.webp')
+        actual_tmp = tmp_path
+        
         if self.webp_conversion and not is_already_webp:
             try:
                 with Image.open(old_path) as img:
                     if img.mode not in ('RGB', 'RGBA'): img = img.convert('RGBA')
-                    temp_save_path = new_path + ".tmp"
-                    if self.webp_quality == 100: img.save(temp_save_path, 'WEBP', lossless=True, method=4)
-                    else: img.save(temp_save_path, 'WEBP', quality=self.webp_quality, method=4)
+                    if self.webp_quality == 100: img.save(tmp_path, 'WEBP', lossless=True, method=4)
+                    else: img.save(tmp_path, 'WEBP', quality=self.webp_quality, method=4)
                 os.remove(old_path)
-                os.rename(temp_save_path, new_path)
             except:
                 old_ext = os.path.splitext(old_n)[1]
-                os.rename(old_path, os.path.splitext(new_path)[0] + old_ext) 
+                actual_tmp = os.path.splitext(tmp_path)[0] + old_ext
+                os.rename(old_path, actual_tmp)
         else:
-            os.rename(old_path, new_path)
-        return True
+            old_ext = os.path.splitext(old_n)[1]
+            actual_tmp = os.path.splitext(tmp_path)[0] + old_ext
+            os.rename(old_path, actual_tmp)
+        return actual_tmp
 
     def run(self):
         stats = {'success': [], 'skip': [], 'error': []} 
@@ -124,7 +131,6 @@ class RenameTask:
                         ext = os.path.splitext(entry['filename'])[1] or ".jpg" 
                         if self.webp_conversion: ext = ".webp"
                         
-                        # 🌟 원본 파일명을 그대로 유지할 때의 처리
                         if self.pattern_val == "__KEEP_NAME__":
                             new_basename = os.path.splitext(os.path.basename(old_name))[0] + ext
                         else:
@@ -156,7 +162,6 @@ class RenameTask:
                         for i in range(0, len(flat_args), 40):
                             if self._is_cancelled: break
                             try:
-                                # 🌟 파이썬 zipfile 모듈 수정으로 인해 7z에서 발생하는 Warning(코드 1)을 무시하도록 수정
                                 res = subprocess.run([self.seven_z_exe, 'rn', temp_rn_archive] + flat_args[i:i + 40], startupinfo=startupinfo, creationflags=CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                                 if res.returncode not in (0, 1):
                                     rename_success = False
@@ -194,19 +199,51 @@ class RenameTask:
                         if os.path.exists(temp_dir): shutil.rmtree(temp_dir, ignore_errors=True)
                         os.makedirs(temp_dir, exist_ok=True)
                         
-                        # 🌟 7z Warning(코드 1) 무시 처리 적용
                         res_x = subprocess.run([self.seven_z_exe, 'x', str(file_path), f'-o{temp_dir}', '-y'], startupinfo=startupinfo, creationflags=CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                         if res_x.returncode not in (0, 1):
                             raise Exception(f"7-Zip Extraction Error (Code: {res_x.returncode})")
                         
                         if rename_args:
+                            # 🌟 [해결책] 충돌 없는 2단계(2-Phase) 이름 변경 매핑 생성
+                            temp_rename_mapping = []
+                            for old_n, new_n in rename_args:
+                                tmp_n = old_n + ".rn." + uuid.uuid4().hex[:8] + ".tmp"
+                                temp_rename_mapping.append((old_n, tmp_n, new_n))
+
+                            actual_tmp_results = {}
+                            
+                            # 🌟 1단계 실행: 모든 파일을 UUID가 붙은 고유 이름으로 변경 (충돌 원천 차단)
                             with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_threads) as executor:
-                                futures = [executor.submit(self._convert_single_image, temp_dir, old_n, new_n) for old_n, new_n in rename_args]
-                                for i, future in enumerate(concurrent.futures.as_completed(futures)):
+                                future_to_args = {executor.submit(self._phase1_convert, temp_dir, old_n, tmp_n): (tmp_n, new_n, old_n) for old_n, tmp_n, new_n in temp_rename_mapping}
+                                for i, future in enumerate(concurrent.futures.as_completed(future_to_args)):
                                     if self._is_cancelled: break 
+                                    tmp_n, new_n, old_n = future_to_args[future]
+                                    try:
+                                        actual_tmp = future.result()
+                                        if actual_tmp:
+                                            actual_tmp_results[tmp_n] = actual_tmp
+                                    except: pass
+                                    
                                     if i % max(1, len(rename_args) // 20) == 0:
                                         p_msg = f"Converting ({self.max_threads} Threads): {filename}" if self.lang == "en" else f"다중 코어 변환 중 ({self.max_threads} 스레드): {filename}"
                                         self.signals.progress.emit(int((idx / total) * 100) + int((i / len(rename_args)) * (100 / total)), p_msg)
+
+                            # 🌟 2단계 실행: 임시 대피시켜둔 파일들을 우리가 원하는 최종 이름으로 덮어씌움
+                            if not self._is_cancelled:
+                                for old_n, tmp_n, new_n in temp_rename_mapping:
+                                    actual_tmp = actual_tmp_results.get(tmp_n)
+                                    if not actual_tmp: continue
+                                    
+                                    new_path = os.path.join(temp_dir, new_n)
+                                    os.makedirs(os.path.dirname(new_path), exist_ok=True)
+                                    
+                                    if self.webp_conversion and not actual_tmp.lower().endswith('.webp'):
+                                        old_ext = os.path.splitext(old_n)[1]
+                                        new_path = os.path.splitext(new_path)[0] + old_ext
+                                        
+                                    if os.path.exists(new_path):
+                                        os.remove(new_path)
+                                    os.rename(actual_tmp, new_path)
 
                         if self._is_cancelled:
                             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -225,7 +262,6 @@ class RenameTask:
                         
                         if os.path.exists(temp_archive): os.remove(temp_archive)
                         
-                        # 🌟 7z Warning(코드 1) 무시 처리 적용
                         res_a = subprocess.run([self.seven_z_exe, 'a', archive_type, temp_archive, '*', '-mx=0'], cwd=temp_dir, startupinfo=startupinfo, creationflags=CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                         if res_a.returncode not in (0, 1):
                             raise Exception(f"7-Zip Archiving Error (Code: {res_a.returncode})")
