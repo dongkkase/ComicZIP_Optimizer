@@ -235,6 +235,13 @@ class RenamerApp(QMainWindow):
         QLabel#infoLabel { color: #aaaaaa; font-size: 11px; }
         QLabel#imageLabel { background-color: #1a1a1a; border-radius: 8px; }
         
+        /* 🌟 [수정됨] 체크박스 및 필드셋 타이틀 색상을 하얀색으로 강제 적용 */
+        QCheckBox, QRadioButton { color: #ffffff; font-family: '맑은 고딕', 'Segoe UI Emoji'; }
+        QCheckBox:disabled, QRadioButton:disabled { color: #777777; }
+        
+        QGroupBox { color: #ffffff; font-family: '맑은 고딕', 'Segoe UI Emoji'; font-weight: bold; border: 1px solid #555555; border-radius: 6px; margin-top: 12px; padding-top: 10px; }
+        QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 10px; padding: 0 5px; color: #ffffff; }
+
         QTabWidget::pane { border: 1px solid #444; border-radius: 5px; top: -1px; background: #1e1e1e; }
         QTabBar::tab { background: #2b2b2b; color: #888; border: 1px solid #444; padding: 10px 20px; margin-right: 2px; border-top-left-radius: 5px; border-top-right-radius: 5px; font-weight: bold; }
         QTabBar::tab:selected { background: #3a7ebf; color: #fff; }
@@ -541,7 +548,7 @@ class RenamerApp(QMainWindow):
             self.btn_run.setStyleSheet(self.styleSheet()) 
             self.progress_bar.show(); self.progress_bar.setValue(0)
             
-            # 🌟 [버그 해결] 누락되었던 self.tab2.get_start_num() 파라미터를 다시 넘겨줍니다!
+            # 🌟 [버그 수정 적용됨] 시작 번호(start_num) 파라미터 전달 포함!
             task = RenameTask(
                 targets, 
                 self.config, 
@@ -549,7 +556,7 @@ class RenamerApp(QMainWindow):
                 self.i18n, 
                 self.tab2.get_pattern(), 
                 self.tab2.get_custom_text(), 
-                self.tab2.get_start_num(), # <-- 바로 이 부분!
+                self.tab2.get_start_num(),
                 self.seven_zip_path, 
                 self.signals
             )

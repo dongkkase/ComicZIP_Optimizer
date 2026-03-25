@@ -53,25 +53,44 @@ class RenameTask:
         else: 
             return f"{n:0{pad}d}{ext}"
 
-    # 🌟 [해결책] 1단계: 기존 파일을 무조건 임시(uuid) 이름으로 대피시킵니다.
     def _phase1_convert(self, temp_dir, old_n, tmp_n):
-        if self._is_cancelled: return None
+        if self._is_cancelled: return None, False
         old_path = os.path.join(temp_dir, old_n)
         tmp_path = os.path.join(temp_dir, tmp_n)
-        if not os.path.exists(old_path): return None
+        if not os.path.exists(old_path): return None, False
         os.makedirs(os.path.dirname(tmp_path), exist_ok=True)
         
         is_already_webp = old_n.lower().endswith('.webp')
         actual_tmp = tmp_path
         
+        # 🌟 변환 성공 여부를 추적하여 2단계에서 실수로 원래 확장자로 되돌아가는 것을 방지
+        converted = False 
+        
         if self.webp_conversion and not is_already_webp:
             try:
                 with Image.open(old_path) as img:
-                    if img.mode not in ('RGB', 'RGBA'): img = img.convert('RGBA')
-                    if self.webp_quality == 100: img.save(tmp_path, 'WEBP', lossless=True, method=4)
-                    else: img.save(tmp_path, 'WEBP', quality=self.webp_quality, method=4)
+                    # 🌟 [용량 최적화 핵심] 불필요한 투명도 채널(Alpha)을 제거하고 순수 RGB 강제 변환
+                    if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
+                        bg = Image.new('RGB', img.size, (255, 255, 255))
+                        if img.mode == 'RGBA':
+                            bg.paste(img, mask=img.split()[3])
+                        else:
+                            bg.paste(img.convert('RGBA'), mask=img.convert('RGBA').split()[3])
+                        img = bg
+                    elif img.mode != 'RGB':
+                        img = img.convert('RGB')
+                        
+                    # 🌟 UI에서 문자열로 넘어올 수 있는 품질 값을 정수형으로 명확히 캐스팅
+                    quality_val = int(self.webp_quality)
+                    
+                    if quality_val == 100:
+                        img.save(tmp_path, 'WEBP', lossless=True, method=4)
+                    else:
+                        img.save(tmp_path, 'WEBP', quality=quality_val, method=4)
+                        
                 os.remove(old_path)
-            except:
+                converted = True # 성공적으로 압축 및 저장됨!
+            except Exception:
                 old_ext = os.path.splitext(old_n)[1]
                 actual_tmp = os.path.splitext(tmp_path)[0] + old_ext
                 os.rename(old_path, actual_tmp)
@@ -79,7 +98,8 @@ class RenameTask:
             old_ext = os.path.splitext(old_n)[1]
             actual_tmp = os.path.splitext(tmp_path)[0] + old_ext
             os.rename(old_path, actual_tmp)
-        return actual_tmp
+            
+        return actual_tmp, converted
 
     def run(self):
         stats = {'success': [], 'skip': [], 'error': []} 
@@ -204,7 +224,6 @@ class RenameTask:
                             raise Exception(f"7-Zip Extraction Error (Code: {res_x.returncode})")
                         
                         if rename_args:
-                            # 🌟 [해결책] 충돌 없는 2단계(2-Phase) 이름 변경 매핑 생성
                             temp_rename_mapping = []
                             for old_n, new_n in rename_args:
                                 tmp_n = old_n + ".rn." + uuid.uuid4().hex[:8] + ".tmp"
@@ -212,32 +231,32 @@ class RenameTask:
 
                             actual_tmp_results = {}
                             
-                            # 🌟 1단계 실행: 모든 파일을 UUID가 붙은 고유 이름으로 변경 (충돌 원천 차단)
                             with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_threads) as executor:
                                 future_to_args = {executor.submit(self._phase1_convert, temp_dir, old_n, tmp_n): (tmp_n, new_n, old_n) for old_n, tmp_n, new_n in temp_rename_mapping}
                                 for i, future in enumerate(concurrent.futures.as_completed(future_to_args)):
                                     if self._is_cancelled: break 
                                     tmp_n, new_n, old_n = future_to_args[future]
                                     try:
-                                        actual_tmp = future.result()
-                                        if actual_tmp:
-                                            actual_tmp_results[tmp_n] = actual_tmp
+                                        res = future.result()
+                                        if res and res[0]:
+                                            actual_tmp_results[tmp_n] = res 
                                     except: pass
                                     
                                     if i % max(1, len(rename_args) // 20) == 0:
                                         p_msg = f"Converting ({self.max_threads} Threads): {filename}" if self.lang == "en" else f"다중 코어 변환 중 ({self.max_threads} 스레드): {filename}"
                                         self.signals.progress.emit(int((idx / total) * 100) + int((i / len(rename_args)) * (100 / total)), p_msg)
 
-                            # 🌟 2단계 실행: 임시 대피시켜둔 파일들을 우리가 원하는 최종 이름으로 덮어씌움
                             if not self._is_cancelled:
                                 for old_n, tmp_n, new_n in temp_rename_mapping:
-                                    actual_tmp = actual_tmp_results.get(tmp_n)
-                                    if not actual_tmp: continue
+                                    res = actual_tmp_results.get(tmp_n)
+                                    if not res: continue
+                                    actual_tmp, converted = res
                                     
                                     new_path = os.path.join(temp_dir, new_n)
                                     os.makedirs(os.path.dirname(new_path), exist_ok=True)
                                     
-                                    if self.webp_conversion and not actual_tmp.lower().endswith('.webp'):
+                                    # 🌟 변환 성공(converted=True) 시 확장자 .webp를 완벽 유지!
+                                    if self.webp_conversion and not converted and not old_n.lower().endswith('.webp'):
                                         old_ext = os.path.splitext(old_n)[1]
                                         new_path = os.path.splitext(new_path)[0] + old_ext
                                         
