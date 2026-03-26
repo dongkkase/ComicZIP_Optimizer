@@ -60,7 +60,10 @@ class OrganizerProcessTask:
                     os.rename(file_path, original_tmp)
 
                     data = self.org_data[file_path]
+                    
+                    # 볼륨 제목 정제
                     clean_title = data['clean_title']
+                    clean_title = re.sub(r'^[._\-\s]+', '', clean_title)
                     
                     base_out_dir = data.get('out_path', os.path.dirname(file_path))
                     
@@ -89,7 +92,6 @@ class OrganizerProcessTask:
 
                     extract_all(original_tmp, temp_base)
 
-                    # 🌟 [개선] 껍데기 폴더 파고들기
                     def get_actual_root(curr_dir):
                         while True:
                             items = os.listdir(curr_dir)
@@ -129,11 +131,8 @@ class OrganizerProcessTask:
                                 os.remove(img_path)
                                 total_extracted_images -= 1 
                         else:
-                            safe_root_dir = os.path.join(temp_base, "Root_Files")
-                            os.makedirs(safe_root_dir, exist_ok=True)
-                            for img_path in root_images:
-                                shutil.move(img_path, os.path.join(safe_root_dir, os.path.basename(img_path)))
-                            leaf_folders.add(safe_root_dir)
+                            # 🌟 [버그 수정 완료] 파일을 Root_Files로 이사시키지 않고, 진짜 폴더(actual_root) 그대로 작업 목록에 추가합니다.
+                            leaf_folders.add(actual_root)
                             
                     leaf_folders = sorted(list(leaf_folders), key=natural_keys)
                     target_ext = f".{self.target_format}" if self.target_format != "none" else ".zip"
@@ -157,8 +156,11 @@ class OrganizerProcessTask:
                             if self.lang == 'en': vol_base = f"{clean_title} v{v_idx+1:0{pad}d}"
                             else: vol_base = f"{clean_title} {v_idx+1:0{pad}d}권"
                             
+                        # 🌟 볼륨 이름 앞의 점(.)과 공백 등 불순물 제거
+                        vol_base = re.sub(r'^[._\-\s]+', '', vol_base)
                         vol_name = f"{vol_base}{target_ext}"
-                        rel_path = os.path.relpath(leaf, actual_root) # temp_base가 아닌 actual_root 기준!
+                        
+                        rel_path = os.path.relpath(leaf, actual_root)
                         
                         if rel_path == '.' or rel_path == 'Root_Files':
                             out_dir = base_out_dir

@@ -21,15 +21,16 @@ class _ToastWidget(QLabel):
         self.setText(message)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
+        # 🌟 [수정] 오렌지색 배경 적용 및 폰트 사이즈(15px) 2포인트 증가
         self.setStyleSheet("""
             QLabel {
-                background-color: rgba(40, 40, 40, 240);
+                background-color: rgba(187, 121, 15, 240);
                 color: #ffffff;
                 padding: 12px 24px;
                 border-radius: 8px;
                 font-weight: bold;
-                font-size: 13px;
-                border: 1px solid #3498DB;
+                font-size: 15px; 
+                border: 1px solid #E67E22;
             }
         """)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
@@ -48,7 +49,6 @@ class _ToastWidget(QLabel):
         self.show()
         self.raise_() 
         
-        # 애니메이션 객체들을 self에 귀속시켜 안전하게 관리
         self.anim_in = QPropertyAnimation(self.opacity_effect, b"opacity", self)
         self.anim_in.setDuration(300) 
         self.anim_in.setStartValue(0.0) 
@@ -65,7 +65,6 @@ class _ToastWidget(QLabel):
         
         self.anim_in.start()
         
-        # QTimer.singleShot 대신 위젯(self)에 종속된 타이머 사용
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
         self.timer.timeout.connect(self.anim_out.start)
@@ -78,13 +77,12 @@ class Toast:
         if parent is None:
             return
             
-        # 🌟 C++ 객체가 이미 소멸되었을 때 발생하는 RuntimeError 방지
         try:
             if hasattr(parent, '_current_toast') and parent._current_toast is not None:
                 parent._current_toast.hide()
                 parent._current_toast.deleteLater()
         except RuntimeError:
-            pass # 이미 메모리에서 삭제된 상태라면 무시
+            pass 
             
         toast = _ToastWidget(parent, message)
         parent._current_toast = toast 

@@ -198,6 +198,9 @@ def get_i18n():
             "t3_no_data": "(데이터 없음)",
             "msg_done": "완료", "msg_notice": "안내", "msg_failed": "실패", "msg_success": "성공",
             "enter_after_input":"입력 후 Enter...",
+            
+            "msg_exit_title": "종료 확인",
+            "msg_exit_body": "현재 작업이 진행 중입니다. 정말로 프로그램을 종료하시겠습니까?\n(진행 중인 작업은 강제 중단되며 파일이 손상될 수 있습니다.)",
         },
         "en": {
             "title": f"ComicZIP Optimizer v{CURRENT_VERSION}",
@@ -355,6 +358,9 @@ def get_i18n():
             "t3_msg_unsupported_format": "Unsupported format", "t3_msg_7z_error": "7z error",
             "t3_no_data": "(No Data)", "msg_done": "Done", "msg_notice": "Notice", "msg_failed": "Failed", "msg_success": "Success",
             "enter_after_input":"Type and press Enter...",
+            
+            "msg_exit_title": "Confirm Exit",
+            "msg_exit_body": "A task is currently running. Are you sure you want to exit?\n(The running task will be forcibly stopped and data may be corrupted.)",
         },
         "ja": {
             "title": f"ComicZIP Optimizer v{CURRENT_VERSION}",
@@ -517,5 +523,8 @@ def get_i18n():
             "t3_no_data": "(データなし)",
             "msg_done": "完了", "msg_notice": "案内", "msg_failed": "失敗", "msg_success": "成功",
             "enter_after_input":"入力してEnter...",
+            
+            "msg_exit_title": "終了確認",
+            "msg_exit_body": "現在作業が進行中です。本当にプログラムを終了しますか？\n(進行中の作業は強制中断され、ファイルが破損する可能性があります。)",
         }
     }

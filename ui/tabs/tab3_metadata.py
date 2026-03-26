@@ -286,7 +286,6 @@ class Tab3Metadata(QWidget):
         h_layout.setContentsMargins(0,0,0,0); h_layout.setSpacing(2)
         le_num = QLineEdit(); le_num.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        # 다크/라이트 테마에 따른 아이콘 색상 설정
         is_dark = getattr(self.main_app, 'is_dark_mode', True)
         icon_c = 'white' if is_dark else '#1F2937'
         
@@ -516,25 +515,26 @@ class Tab3Metadata(QWidget):
         self.btn_auto_match.clicked.connect(self.action_auto_match_series)
         self.btn_auto_match.setStyleSheet('font-size:11px; padding: 5px 8px;')
         
-        self.btn_meta_save = QPushButton(t.get("t3_save", ""))
-        self.btn_meta_save_all = QPushButton(t.get("t3_save_all", ""))
+        # 🌟 [개선] 텍스트에서 단축키를 빼고 툴팁에만 추가
+        self.btn_meta_save = QPushButton(t.get('t3_save', ''))
+        self.btn_meta_save_all = QPushButton(t.get('t3_save_all', ''))
 
         self.btn_auto_title.setToolTip(t.get("t3_tt_auto_title", ""))
         self.btn_auto_vol.setToolTip(t.get("t3_tt_auto_vol", ""))
         self.btn_auto_chap.setToolTip(t.get("t3_tt_auto_chap", ""))
         self.btn_auto_pages.setToolTip(t.get("t3_tt_auto_pages", ""))
-        self.btn_meta_save.setToolTip(t.get("t3_tt_save", ""))
-        self.btn_meta_save_all.setToolTip(t.get("t3_tt_save_all", ""))
+        self.btn_meta_save.setToolTip(f"{t.get('t3_tt_save', '')} (Ctrl+S)")
+        self.btn_meta_save_all.setToolTip(f"{t.get('t3_tt_save_all', '')} (Ctrl+Shift+S)")
         
         for btn in [self.btn_auto_title, self.btn_auto_vol, self.btn_auto_chap, self.btn_auto_pages]:
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setStyleSheet("font-size: 11px; padding: 5px 8px;")
             
         self.btn_meta_save_all.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_meta_save_all.setObjectName("actionBtn") # 🌟 모두 저장: 파란색 테마
+        self.btn_meta_save_all.setObjectName("actionBtn") 
         self.btn_meta_save_all.setStyleSheet("background-color: #0078d7;")
         self.btn_meta_save.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_meta_save.setObjectName("actionBtnGreen") # 🌟 저장: 초록색 테마
+        self.btn_meta_save.setObjectName("actionBtnGreen")
         self.btn_meta_save.setStyleSheet("background-color: #27ae60;")
         
         self.btn_auto_title.clicked.connect(self.action_auto_title)
@@ -551,7 +551,6 @@ class Tab3Metadata(QWidget):
         right_layout.addLayout(bottom_btn_layout)
 
     def _setup_shortcuts(self):
-        # 🌟 단축키 S 예외 처리: 현재 텍스트 입력창이 포커스 된 경우를 제외하고 어디서든 작동
         self.shortcut_s = QShortcut(QKeySequence(Qt.Key.Key_S), self)
         self.shortcut_s.activated.connect(self._trigger_s)
         self.shortcut_s.setContext(Qt.ShortcutContext.WindowShortcut)
@@ -560,9 +559,16 @@ class Tab3Metadata(QWidget):
         self.shortcut_c.activated.connect(self._trigger_c)
         self.shortcut_c.setContext(Qt.ShortcutContext.WindowShortcut)
 
+        self.shortcut_ctrl_s = QShortcut(QKeySequence("Ctrl+S"), self)
+        self.shortcut_ctrl_s.activated.connect(self._trigger_ctrl_s)
+        self.shortcut_ctrl_s.setContext(Qt.ShortcutContext.WindowShortcut)
+
+        self.shortcut_ctrl_shift_s = QShortcut(QKeySequence("Ctrl+Shift+S"), self)
+        self.shortcut_ctrl_shift_s.activated.connect(self._trigger_ctrl_shift_s)
+        self.shortcut_ctrl_shift_s.setContext(Qt.ShortcutContext.WindowShortcut)
+
     def _trigger_s(self):
         focus_widget = QApplication.focusWidget()
-        # 입력창에서 타이핑 중이면 단축키(S)를 가로채지 않고 무시합니다.
         if isinstance(focus_widget, (QLineEdit, QTextEdit, QComboBox)): return
         
         if self.btn_meta_search.isEnabled():
@@ -574,6 +580,16 @@ class Tab3Metadata(QWidget):
         
         if getattr(self, 'btn_apply_series', None) and self.btn_apply_series.isEnabled():
             self.action_apply_series()
+
+    def _trigger_ctrl_s(self):
+        if not self.isVisible(): return
+        if getattr(self, 'btn_meta_save', None) and self.btn_meta_save.isEnabled() and self.current_meta_file:
+            self.action_save_single()
+
+    def _trigger_ctrl_shift_s(self):
+        if not self.isVisible(): return
+        if getattr(self, 'btn_meta_save_all', None) and self.btn_meta_save_all.isEnabled():
+            self.action_save_all()
 
     def retranslate_ui(self, t, lang):
         self.lbl_empty.setText(t.get("t3_empty", ""))
@@ -610,8 +626,12 @@ class Tab3Metadata(QWidget):
         self.btn_auto_vol.setText(t.get("t3_auto_vol", ""))
         self.btn_auto_chap.setText(t.get("t3_auto_chap", ""))
         self.btn_auto_pages.setText(t.get("t3_auto_pages", ""))
-        self.btn_meta_save.setText(t.get("t3_save", ""))
-        self.btn_meta_save_all.setText(t.get("t3_save_all", ""))
+        
+        # 🌟 버튼 텍스트는 원래 이름만, 단축키는 툴팁으로 이동
+        self.btn_meta_save.setText(t.get('t3_save', ''))
+        self.btn_meta_save_all.setText(t.get('t3_save_all', ''))
+        self.btn_meta_save.setToolTip(f"{t.get('t3_tt_save', '')} (Ctrl+S)")
+        self.btn_meta_save_all.setToolTip(f"{t.get('t3_tt_save_all', '')} (Ctrl+Shift+S)")
         
         self.btn_prev_vol.setText(t.get("t3_btn_prev", "이전 권"))
         self.btn_next_vol.setText(t.get("t3_btn_next", "다음 권"))
@@ -624,8 +644,6 @@ class Tab3Metadata(QWidget):
         self.btn_auto_vol.setToolTip(t.get("t3_tt_auto_vol", ""))
         self.btn_auto_chap.setToolTip(t.get("t3_tt_auto_chap", ""))
         self.btn_auto_pages.setToolTip(t.get("t3_tt_auto_pages", ""))
-        self.btn_meta_save.setToolTip(t.get("t3_tt_save", ""))
-        self.btn_meta_save_all.setToolTip(t.get("t3_tt_save_all", ""))
 
         for b in getattr(self, 'dynamic_series_btns', []):
             b.setText(t.get("t3_btn_apply_series_tag", ""))
@@ -644,7 +662,6 @@ class Tab3Metadata(QWidget):
         if active: self.right_overlay.hide()
         else: self.right_overlay.show(); self.right_overlay.raise_()
 
-    # 🌟 기능: 시리즈 초기화 (원본 카피본으로 되돌리기)
     def action_reset_series(self):
         t = self.main_app.i18n[self.main_app.lang]
         if not self.current_meta_file: return

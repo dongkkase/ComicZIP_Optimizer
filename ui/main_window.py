@@ -235,7 +235,6 @@ class RenamerApp(QMainWindow):
         QLabel#infoLabel { color: #aaaaaa; font-size: 11px; }
         QLabel#imageLabel { background-color: #1a1a1a; border-radius: 8px; }
         
-        /* 🌟 [수정됨] 체크박스 및 필드셋 타이틀 색상을 하얀색으로 강제 적용 */
         QCheckBox, QRadioButton { color: #ffffff; font-family: '맑은 고딕', 'Segoe UI Emoji'; }
         QCheckBox:disabled, QRadioButton:disabled { color: #777777; }
         
@@ -548,7 +547,6 @@ class RenamerApp(QMainWindow):
             self.btn_run.setStyleSheet(self.styleSheet()) 
             self.progress_bar.show(); self.progress_bar.setValue(0)
             
-            # 🌟 [버그 수정 적용됨] 시작 번호(start_num) 파라미터 전달 포함!
             task = RenameTask(
                 targets, 
                 self.config, 
@@ -672,6 +670,23 @@ class RenamerApp(QMainWindow):
         self.progress_bar.setValue(0)
 
     def closeEvent(self, event):
+        is_tab3_running = hasattr(self, 'tab3') and hasattr(self.tab3, 'save_worker') and self.tab3.save_worker and self.tab3.save_worker.isRunning()
+        
+        if self.is_processing or is_tab3_running:
+            # 🌟 [개선] 다국어 i18n 환경 파일에서 종료 메시지 가져오기
+            title = self.i18n[self.lang].get("msg_exit_title", "종료 확인")
+            msg = self.i18n[self.lang].get("msg_exit_body", "현재 작업이 진행 중입니다. 정말로 프로그램을 종료하시겠습니까?\n(진행 중인 작업은 강제 중단되며 파일이 손상될 수 있습니다.)")
+            
+            reply = QMessageBox.question(
+                self, title, msg,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            
+            if reply == QMessageBox.StandardButton.No:
+                event.ignore()
+                return
+
         self.config["width"] = self.normalGeometry().width()
         self.config["height"] = self.normalGeometry().height()
         self.config["is_maximized"] = self.isMaximized()

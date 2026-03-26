@@ -109,9 +109,7 @@ def resolve_titles(filepath, inner_name=""):
     return file_disp, file_core
 
 def format_leaf_name(parent_core, leaf_name, index, total_items, lang='ko'):
-    # 🌟 1. 파일 갯수에 맞춘 동적 0 패딩 (최소 2자리 보장)
     pad = max(2, len(str(total_items)))
-    
     leaf_clean = re.sub(r'\.(zip|cbz|cbr|rar|7z)$', '', str(leaf_name), flags=re.IGNORECASE).strip()
     
     def pad_match(val):
@@ -123,44 +121,60 @@ def format_leaf_name(parent_core, leaf_name, index, total_items, lang='ko'):
             return f"{val.split('.')[0].zfill(pad)}.{val.split('.')[1]}"
         return val.zfill(pad)
 
-    # 쓰레기 파일명(해시 등)인 경우 무조건 인덱스 패딩
     is_hash = len(leaf_clean) > 25 and bool(re.match(r'^[a-fA-F0-9\-_]+$', leaf_clean))
     if is_hash or not re.search(r'[가-힣a-zA-Z]', leaf_clean):
         clean_for_nums = re.sub(r'[\[\(].*?[\]\)]', '', leaf_clean)
         nums = re.findall(r'\d+(?:\.\d+)?', clean_for_nums)
         if nums and not is_hash:
-            num_str = pad_match(nums[-1])
-        else:
-            num_str = f"{index+1:0{pad}d}"
-        return f"{parent_core} v{num_str}".strip() if lang == 'en' else f"{parent_core} {num_str}권".strip()
-
-    # 🌟 2. 명확한 권/화 번호 타겟팅 (찌꺼기를 무시하고 오직 핵심 숫자만 추출!)
-    vol_match = re.search(r'(?:제|v|vol\.?\s*)?(\d+(?:\.\d+)?(?:[~-]\d+(?:\.\d+)?)?)\s*(?:권|화|장|편|부)', leaf_clean, re.IGNORECASE)
-    
-    if vol_match:
-        target_num = vol_match.group(1)
-    else:
-        # '권' 표시가 없다면 괄호 제거 후 나오는 맨 마지막 숫자를 권수로 사용
-        clean_for_nums = re.sub(r'[\[\(].*?[\]\)]', '', leaf_clean)
-        nums = re.findall(r'\d+(?:\.\d+)?', clean_for_nums)
-        if nums:
             target_num = nums[-1]
         else:
             target_num = str(index + 1)
-            
-    padded_num = pad_match(target_num)
+        padded_num = pad_match(target_num)
+        
+        base = re.sub(r'^[._\-\s]+', '', parent_core)
+        return f"{base} v{padded_num}".strip() if lang == 'en' else f"{base} {padded_num}권".strip()
 
-    # 🌟 3. 특수 텍스트(프롤로그, 에필로그 등) 보존 (사용자가 원할 경우를 대비해 최소한의 주요 태그만 남김)
+    clean_no_brackets = re.sub(r'[\[\(].*?[\]\)]', '', leaf_clean)
+    vol_match = re.search(r'(?:제|v|vol\.?\s*)?(\d+(?:\.\d+)?(?:[~-]\d+(?:\.\d+)?)?)\s*(?:권|화|장|편|부)', leaf_clean, re.IGNORECASE)
+    
+    target_num = None
+    if vol_match:
+        target_num = vol_match.group(1)
+    else:
+        nums = re.findall(r'\d+(?:\.\d+)?', clean_no_brackets)
+        if nums:
+            target_num = nums[-1]
+        else:
+            all_nums = re.findall(r'\d+(?:\.\d+)?', leaf_clean)
+            if all_nums:
+                target_num = all_nums[-1]
+
+    # 🌟 특수 키워드 확장 (Special, 외전, 단편 등 숫자 없는 파일 방어)
     special_suffix = ""
     if re.search(r'프롤로그|prologue', leaf_clean, re.IGNORECASE):
         special_suffix = " Prologue" if lang == 'en' else " 프롤로그"
     elif re.search(r'에필로그|epilogue', leaf_clean, re.IGNORECASE):
         special_suffix = " Epilogue" if lang == 'en' else " 에필로그"
+    elif re.search(r'특별편|special|특장판', leaf_clean, re.IGNORECASE):
+        special_suffix = " Special" if lang == 'en' else " 특별편"
+    elif re.search(r'외전|side\s*story|번외', leaf_clean, re.IGNORECASE):
+        special_suffix = " Side Story" if lang == 'en' else " 외전"
+    elif re.search(r'단편|short', leaf_clean, re.IGNORECASE):
+        special_suffix = " Short Story" if lang == 'en' else " 단편"
+    elif re.search(r'한정판|limited', leaf_clean, re.IGNORECASE):
+        special_suffix = " Limited Edition" if lang == 'en' else " 한정판"
 
-    # 🌟 4. 궁극의 파일명 조립: 오직 "책 제목 + 패딩된 권수"
-    base_name = parent_core
+    base_name = re.sub(r'^[._\-\s]+', '', parent_core)
+
+    # 🌟 [버그 수정] 숫자가 없는 특수 파일(Special 등)일 경우 인덱스(01권) 강제 할당 금지!
+    if not target_num:
+        if special_suffix:
+            return f"{base_name}{special_suffix}".strip()
+        else:
+            target_num = str(index + 1)
+            
+    padded_num = pad_match(target_num)
     
-    # 엠블럼 TAKE2 처럼 제목에 숫자가 포함된 경우, 이중 표기 방지 처리
     rem_num_str = target_num
     if '~' in rem_num_str: rem_num_str = rem_num_str.split('~')[0]
     if '-' in rem_num_str: rem_num_str = rem_num_str.split('-')[0]
@@ -173,8 +187,6 @@ def format_leaf_name(parent_core, leaf_name, index, total_items, lang='ko'):
     else:
         val_str = rem_num_str
         
-    # 부모 제목이 "나루토 01" 이고 권수가 "01"일 경우를 대비해, 스페이스바나 대시 뒤에 붙은 중복 숫자만 지웁니다.
-    # (TAKE2 의 '2'는 스페이스가 없으므로 지워지지 않고 보존됩니다)
     pattern = r'(.*?)(?:[\s\-_]+)0*' + re.escape(val_str) + r'(?:\.0+)?$'
     match = re.search(pattern, base_name)
     if match:
@@ -183,9 +195,12 @@ def format_leaf_name(parent_core, leaf_name, index, total_items, lang='ko'):
             base_name = base_name_candidate
 
     if special_suffix:
-        return f"{base_name}{special_suffix}".strip()
-    
-    if lang == 'en':
-        return f"{base_name} v{padded_num}".strip()
+        if lang == 'en':
+            return f"{base_name} v{padded_num}{special_suffix}".strip()
+        else:
+            return f"{base_name} {padded_num}권{special_suffix}".strip()
     else:
-        return f"{base_name} {padded_num}권".strip()
+        if lang == 'en':
+            return f"{base_name} v{padded_num}".strip()
+        else:
+            return f"{base_name} {padded_num}권".strip()

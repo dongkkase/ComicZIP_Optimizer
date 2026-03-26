@@ -57,7 +57,6 @@ class OrganizerLoadTask:
                 os.makedirs(temp_base, exist_ok=True)
                 
                 try:
-                    # 🌟 [개선 1] 압축 속의 압축까지 끝까지 파고들어 해제합니다.
                     def extract_all(src_path, dest_dir):
                         subprocess.run([self.seven_z_exe, 'x', src_path, f'-o{dest_dir}', '-y'], stdout=subprocess.DEVNULL, creationflags=CREATE_NO_WINDOW, check=False)
                         while True:
@@ -75,20 +74,24 @@ class OrganizerLoadTask:
 
                     extract_all(filepath, temp_base)
 
-                    # 🌟 [개선 2] 껍데기 폴더(Wrapper Folder) 우회 로직! 진짜 폴더가 나올 때까지 들어갑니다.
+                    # 🌟 [핵심 개선] 껍데기 폴더를 삼킬 때, 의미 있는 이름(예: 단다단 19권)을 절대 잃어버리지 않고 기억(swallowed_name)해 둡니다.
                     def get_actual_root(curr_dir):
+                        swallowed_name = ""
                         while True:
                             items = os.listdir(curr_dir)
                             subdirs = [i for i in items if os.path.isdir(os.path.join(curr_dir, i))]
                             images = [i for i in items if i.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'))]
-                            # 폴더가 딱 1개뿐이고 이미지가 없다면, 이 폴더는 단순 껍데기이므로 안으로 파고듭니다.
+                            
                             if len(subdirs) == 1 and len(images) == 0:
-                                curr_dir = os.path.join(curr_dir, subdirs[0])
+                                subdir_name = subdirs[0]
+                                if not is_garbage_folder_name(subdir_name):
+                                    swallowed_name = subdir_name
+                                curr_dir = os.path.join(curr_dir, subdir_name)
                             else:
                                 break
-                        return curr_dir
+                        return curr_dir, swallowed_name
 
-                    actual_root = get_actual_root(temp_base)
+                    actual_root, swallowed_name = get_actual_root(temp_base)
 
                     volume_groups = {}
                     root_images = []
@@ -113,7 +116,6 @@ class OrganizerLoadTask:
                         skipped_files.append(filename)
                         continue
 
-                    # 🌟 쓰레기 표지(커버) 이미지 무시
                     if root_images:
                         if volume_groups:
                             pass 
@@ -131,11 +133,15 @@ class OrganizerLoadTask:
                                     inner_meaningful_name = clean_p
                                     break
 
+                    # 🌟 삼켰던 의미 있는 폴더명이 있다면 여기서 복구하여 파싱에 넘겨줍니다!
+                    if not inner_meaningful_name and swallowed_name:
+                        inner_meaningful_name = re.sub(r'\.(zip|cbz|cbr|rar|7z)$', '', swallowed_name, flags=re.IGNORECASE)
+
                     display_title, core_title = resolve_titles(filepath, inner_meaningful_name)
                     parsed_vols = []
                     
                     if len(group_names) == 1 and group_names[0] == 'Root_Files':
-                        vol_name = format_leaf_name(core_title, filename, 0, 1, self.lang)
+                        vol_name = format_leaf_name(core_title, inner_meaningful_name or filename, 0, 1, self.lang)
                         parsed_vols.append({'original_path': '', 'new_name': vol_name, 'type': 'archive'})
                     else:
                         for v_idx, leaf in enumerate(group_names):
