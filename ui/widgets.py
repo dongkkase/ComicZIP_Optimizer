@@ -1,6 +1,9 @@
 import os
-from PyQt6.QtWidgets import QTreeWidget, QTableWidget, QLabel, QGraphicsOpacityEffect
-from PyQt6.QtCore import pyqtSignal, Qt, QTimer, QPropertyAnimation, QEasingCurve
+from PyQt6.QtWidgets import (
+    QTreeWidget, QTableWidget, QLabel, QGraphicsOpacityEffect, 
+    QComboBox, QCompleter, QMenu, QMessageBox
+)
+from PyQt6.QtCore import pyqtSignal, Qt, QTimer, QPropertyAnimation, QEasingCurve, QSortFilterProxyModel
 
 class OrgTreeWidget(QTreeWidget):
     delete_pressed = pyqtSignal()
@@ -87,3 +90,58 @@ class Toast:
         toast = _ToastWidget(parent, message)
         parent._current_toast = toast 
         toast.show_animation(duration)
+
+
+class SearchableComboBox(QComboBox):
+    """PyQt6 네이티브 기능을 활용한 깔끔한 검색형 콤보박스"""
+    delete_requested = pyqtSignal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setEditable(True)
+        self.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        
+        # 입력된 텍스트를 기반으로 항목을 필터링하는 모델
+        self.filter_model = QSortFilterProxyModel(self)
+        self.filter_model.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.filter_model.setSourceModel(self.model())
+        
+        # 콤보박스 아래에 드롭다운을 띄우는 자동완성(Completer)
+        self.completer_obj = QCompleter(self.filter_model, self)
+        self.completer_obj.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.completer_obj.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.setCompleter(self.completer_obj)
+        
+        # 타이핑할 때마다 필터링 업데이트
+        self.lineEdit().textEdited.connect(self.filter_model.setFilterFixedString)
+        self.completer_obj.activated.connect(self.on_completer_activated)
+        
+        # 우클릭 삭제 메뉴
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._show_context_menu)
+
+    def on_completer_activated(self, text):
+        if text:
+            self.setCurrentText(text)
+
+    def set_items(self, items):
+        self.clear()
+        self.addItem("")  # 기본 빈 값
+        self.addItems(sorted(list(set(items))))
+
+    def _show_context_menu(self, pos):
+        menu = QMenu(self)
+        is_ko = True # 필요시 메인 앱 언어 체크 로직 추가 가능
+        delete_action = menu.addAction("선택된 항목 저장목록에서 삭제" if is_ko else "Delete from saved list")
+        
+        action = menu.exec(self.mapToGlobal(pos))
+        if action == delete_action:
+            text = self.currentText().strip()
+            if text:
+                self.delete_requested.emit(text)
+    
+    def text(self):
+        return self.currentText()
+
+    def setText(self, text):
+        self.setCurrentText(text)

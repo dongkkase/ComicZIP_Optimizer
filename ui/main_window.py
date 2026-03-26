@@ -104,14 +104,16 @@ class RenamerApp(QMainWindow):
             self.btn_version.setText(update_msg)
             self.btn_version.setIcon(qta.icon('fa5s.gift', color='white'))
             self.btn_version.setObjectName("versionBtnUpdate")
-            self.btn_version.setStyleSheet(self.styleSheet()) 
+            self.btn_version.style().unpolish(self.btn_version)
+            self.btn_version.style().polish(self.btn_version)
             self.latest_version_url = f"https://github.com/dongkkase/ComicZIP_Optimizer/releases/download/v{self.latest_version_found}/ComicZIP_Optimizer.zip"
         else:
             latest_msg = f" v{CURRENT_VERSION} (Latest)" if self.lang == "en" else f" v{CURRENT_VERSION} (최신 버전)"
             self.btn_version.setText(latest_msg)
             self.btn_version.setIcon(qta.icon('fa5s.check-circle', color='white'))
             self.btn_version.setObjectName("versionBtn")
-            self.btn_version.setStyleSheet(self.styleSheet())
+            self.btn_version.style().unpolish(self.btn_version)
+            self.btn_version.style().polish(self.btn_version)
             self.latest_version_url = "https://github.com/dongkkase/ComicZIP_Optimizer/releases"
 
     def open_update_link(self):
@@ -516,12 +518,16 @@ class RenamerApp(QMainWindow):
             
             self.is_processing = True
             self.toggle_ui_elements(is_processing=True)
-            self.btn_run.clicked.disconnect()
+            
+            try: self.btn_run.clicked.disconnect()
+            except TypeError: pass
+            
             self.btn_run.clicked.connect(self.cancel_process)
             self.btn_run.setObjectName("actionBtnCancel")
             self.btn_run.setText(f" {self.i18n[self.lang]['cancel_btn']}")
             self.btn_run.setIcon(qta.icon('fa5s.stop-circle', color='white')) 
-            self.btn_run.setStyleSheet(self.styleSheet()) 
+            self.btn_run.style().unpolish(self.btn_run)
+            self.btn_run.style().polish(self.btn_run)
             self.progress_bar.show(); self.progress_bar.setValue(0)
             
             task = OrganizerProcessTask(targets, self.config, self.tab1.org_data, self.seven_zip_path, self.signals)
@@ -539,12 +545,16 @@ class RenamerApp(QMainWindow):
             
             self.is_processing = True
             self.toggle_ui_elements(is_processing=True)
-            self.btn_run.clicked.disconnect()
+            
+            try: self.btn_run.clicked.disconnect()
+            except TypeError: pass
+            
             self.btn_run.clicked.connect(self.cancel_process)
             self.btn_run.setObjectName("actionBtnCancel")
             self.btn_run.setText(f" {self.i18n[self.lang]['cancel_btn']}")
             self.btn_run.setIcon(qta.icon('fa5s.stop-circle', color='white')) 
-            self.btn_run.setStyleSheet(self.styleSheet()) 
+            self.btn_run.style().unpolish(self.btn_run)
+            self.btn_run.style().polish(self.btn_run)
             self.progress_bar.show(); self.progress_bar.setValue(0)
             
             task = RenameTask(
@@ -571,13 +581,16 @@ class RenamerApp(QMainWindow):
         self.is_processing = False
         self.toggle_ui_elements(is_processing=False)
 
-        self.btn_run.clicked.disconnect()
+        try: self.btn_run.clicked.disconnect()
+        except TypeError: pass
+        
         self.btn_run.clicked.connect(self.start_process)
         self.btn_run.setObjectName("actionBtn") 
         self.btn_run.setText(f" {self.i18n[self.lang]['run_btn']}")
         self.btn_run.setIcon(qta.icon('fa5s.rocket', color='white'))
         self.btn_run.setEnabled(True)
-        self.btn_run.setStyleSheet(self.styleSheet())
+        self.btn_run.style().unpolish(self.btn_run)
+        self.btn_run.style().polish(self.btn_run)
         
         self.tab1.clear_list()
         self.progress_bar.hide()
@@ -610,13 +623,16 @@ class RenamerApp(QMainWindow):
         self.is_processing = False
         self.toggle_ui_elements(is_processing=False)
 
-        self.btn_run.clicked.disconnect()
+        try: self.btn_run.clicked.disconnect()
+        except TypeError: pass
+        
         self.btn_run.clicked.connect(self.start_process)
         self.btn_run.setObjectName("actionBtn") 
         self.btn_run.setText(f" {self.i18n[self.lang]['run_btn']}")
         self.btn_run.setIcon(qta.icon('fa5s.rocket', color='white')) 
         self.btn_run.setEnabled(True)
-        self.btn_run.setStyleSheet(self.styleSheet())
+        self.btn_run.style().unpolish(self.btn_run)
+        self.btn_run.style().polish(self.btn_run)
         
         valid_fps = []
         for old_fp, new_fp in new_archive_data.items():

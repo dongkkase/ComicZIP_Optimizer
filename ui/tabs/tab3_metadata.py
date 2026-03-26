@@ -320,10 +320,11 @@ class Tab3Metadata(QWidget):
         le_num.editingFinished.connect(strip_zeros)
         return widget, le_num
 
-    def _add_row(self, layout, row, key, t_key, t_dict, is_num=False, is_text=False, is_date=False, date_type=None, combo_items=None, editable_combo=False):
+    def _add_row(self, layout, row, key, t_key, t_dict, is_num=False, is_text=False, is_date=False, date_type=None, combo_items=None, editable_combo=False, is_searchable=False):
         lbl_widget = QLabel(t_dict.get(t_key, t_key))
         lbl_widget.setAlignment(Qt.AlignmentFlag.AlignRight | (Qt.AlignmentFlag.AlignTop if is_text else Qt.AlignmentFlag.AlignVCenter))
         layout.addWidget(lbl_widget, row, 0)
+
         if is_text:
             le_my = QTextEdit(); le_my.setMinimumHeight(80); le_res = QTextEdit(); le_res.setMinimumHeight(80)
             def sync_resize():
@@ -338,6 +339,10 @@ class Tab3Metadata(QWidget):
             for k, v in combo_items.items(): 
                 le_my.addItem(v, k)
                 le_res.addItem(v, k)
+        elif is_searchable:
+            from ui.widgets import SearchableComboBox
+            le_my_widget = le_my = SearchableComboBox()
+            le_res = SearchableComboBox()
         else:
             le_my_widget = le_my = QLineEdit(); le_res = QLineEdit()
             
@@ -438,9 +443,27 @@ class Tab3Metadata(QWidget):
         gl_basic.addWidget(self.lbl_col_orig, 0, 1, alignment=Qt.AlignmentFlag.AlignCenter)
         gl_basic.addWidget(self.lbl_col_res, 0, 3, alignment=Qt.AlignmentFlag.AlignCenter)
         
+        # --- [기능강화] SeriesGroup 데이터 로드 및 콤보박스 설정 ---
+        self.series_groups = self.main_app.config.get("series_groups", [])
         
-        self._add_row(gl_basic, 1, 'Title', 't3_f_title', t); self._add_row(gl_basic, 2, 'Series', 't3_f_series', t); self._add_row(gl_basic, 3, 'SeriesGroup', 't3_f_sgroup', t)
-        self._add_row(gl_basic, 4, 'Count', 't3_f_count', t, is_num=True); self._add_row(gl_basic, 5, 'Volume', 't3_f_vol', t, is_num=True); self._add_row(gl_basic, 6, 'Number', 't3_f_num', t, is_num=True)
+        self._add_row(gl_basic, 1, 'Title', 't3_f_title', t)
+        self._add_row(gl_basic, 2, 'Series', 't3_f_series', t)
+
+        # --- [수정] SeriesGroup 필드 적용 ---
+        self._add_row(gl_basic, 3, 'SeriesGroup', 't3_f_sgroup', t, is_searchable=True)
+        
+        sg_my = self.meta_ui_fields['SeriesGroup']['my']
+        sg_res = self.meta_ui_fields['SeriesGroup']['res']
+        sg_my.set_items(self.series_groups)
+        sg_res.set_items(self.series_groups)
+        
+        sg_my.delete_requested.connect(self._on_series_group_delete)
+        sg_res.delete_requested.connect(self._on_series_group_delete)
+        # ------------------------------------
+
+        self._add_row(gl_basic, 4, 'Count', 't3_f_count', t, is_num=True)
+        self._add_row(gl_basic, 5, 'Volume', 't3_f_vol', t, is_num=True)
+        self._add_row(gl_basic, 6, 'Number', 't3_f_num', t, is_num=True)
         self._add_row(gl_basic, 7, 'PageCount', 't3_f_page', t, is_num=True); self._add_row(gl_basic, 8, 'Summary', 't3_f_sum', t, is_text=True); scroll_layout.addWidget(self.group_basic)
 
         self.group_crew, gl_crew = self._create_group_box(t.get("t3_nav_crew", "").replace("\n"," "))
@@ -675,6 +698,9 @@ class Tab3Metadata(QWidget):
         )
         if reply != QMessageBox.StandardButton.Yes: return
 
+        self.tree_meta_files.setEnabled(False)
+        self.set_right_panel_active(False)
+
         self.main_app.progress_bar.show()
         self.main_app.progress_bar.setRange(0, 0)
         self.main_app.lbl_status.setText("초기화 중..." if self.main_app.lang == "ko" else "Resetting...")
@@ -696,8 +722,12 @@ class Tab3Metadata(QWidget):
     def _on_reset_series_finished(self):
         self.main_app.progress_bar.hide()
         self.main_app.lbl_status.setText(self.main_app.i18n[self.main_app.lang].get("status_wait", ""))
+
+        self.tree_meta_files.setEnabled(True)
         if self.current_meta_file:
             self._load_dict_to_ui(self.current_meta_file)
+            self.set_right_panel_active(True)
+
         Toast.show(self.main_app, "시리즈 데이터가 초기화되었습니다." if self.main_app.lang == "ko" else "Series reset complete.")
 
     def action_auto_match_series(self):
@@ -950,6 +980,9 @@ class Tab3Metadata(QWidget):
             if first_root.childCount() > 0: self.tree_meta_files.setCurrentItem(first_root.child(0))
 
     def on_tree_select(self):
+        if getattr(self, 'save_worker', None) and self.save_worker is not None:
+            return
+            
         self._save_ui_to_dict()
         selected = self.tree_meta_files.selectedItems()
         if not selected:
@@ -1331,7 +1364,11 @@ class Tab3Metadata(QWidget):
         
         self._save_ui_to_dict(); fp = self.current_meta_file
         
+        self._update_series_group_db(check_all=False)
+
         self.set_right_panel_active(False)
+        self.tree_meta_files.setEnabled(False)
+
         self.main_app.progress_bar.show()
         self.main_app.progress_bar.setRange(0, 0)
         
@@ -1351,6 +1388,9 @@ class Tab3Metadata(QWidget):
         t = self.main_app.i18n[self.main_app.lang]
         self.main_app.progress_bar.hide()
         self.main_app.lbl_status.setText(t.get("status_wait", ""))
+
+        self.save_worker = None
+        self.tree_meta_files.setEnabled(True)
         
         if success: 
             Toast.show(self.main_app, t.get("t3_msg_save_single_done", ""))
@@ -1366,6 +1406,8 @@ class Tab3Metadata(QWidget):
         if hasattr(self.main_app, 'tab2'): self.main_app.tab2.clear_list()
         
         self._save_ui_to_dict()
+
+        self._update_series_group_db(check_all=True)
         
         targets = {fp: data for fp, data in self.book_meta.items() if os.path.exists(fp)}
         if not targets:
@@ -1373,6 +1415,8 @@ class Tab3Metadata(QWidget):
             return
 
         self.set_right_panel_active(False)
+        self.tree_meta_files.setEnabled(False)
+
         self.main_app.progress_bar.show()
         self.main_app.progress_bar.setRange(0, len(targets))
         self.main_app.progress_bar.setValue(0)
@@ -1396,6 +1440,9 @@ class Tab3Metadata(QWidget):
         t = self.main_app.i18n[self.main_app.lang]
         self.main_app.progress_bar.hide()
         self.main_app.lbl_status.setText(t.get("status_wait", ""))
+
+        self.save_worker = None
+        self.tree_meta_files.setEnabled(True)
         
         msg = t.get("t3_msg_save_all_done", "").format(success_count=success_count, fail_count=fail_count)
         Toast.show(self.main_app, msg)
@@ -1447,3 +1494,64 @@ class Tab3Metadata(QWidget):
                 res_widget.setPlainText(str(val))
             elif hasattr(res_widget, "setText"):
                 res_widget.setText(str(val))
+
+    def _on_series_group_delete(self, item_text):
+        """우클릭(컨텍스트 메뉴) 삭제 요청 시 확인 후 DB 삭제"""
+        is_ko = getattr(self.main_app, 'lang', 'ko') == "ko"
+        reply = QMessageBox.question(
+            self, 
+            "삭제 확인" if is_ko else "Confirm Deletion", 
+            f"'{item_text}' 그룹을 저장된 목록에서 정말 삭제하시겠습니까?" if is_ko else f"Are you sure you want to delete '{item_text}' from the saved list?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            if item_text in self.series_groups:
+                self.series_groups.remove(item_text)
+                self.main_app.config["series_groups"] = self.series_groups
+                try:
+                    from config import save_config
+                    save_config(self.main_app.config)
+                except: pass
+                self._refresh_series_groups()
+
+    def _refresh_series_groups(self):
+        """데이터 변경 시 양쪽 드롭다운 리스트 최신화"""
+        if 'SeriesGroup' in self.meta_ui_fields:
+            self.meta_ui_fields['SeriesGroup']['my'].set_items(self.series_groups)
+            self.meta_ui_fields['SeriesGroup']['res'].set_items(self.series_groups)
+
+    def _update_series_group_db(self, check_all=False):
+        """저장 시 중복 검사하여 새로운 항목을 config에 저장"""
+        new_added = False
+        if not hasattr(self, 'series_groups'):
+            self.series_groups = self.main_app.config.get("series_groups", [])
+            
+        # 1. 일괄 편집창 값 체크
+        if 'SeriesGroup' in self.meta_ui_fields:
+            sg_res = self.meta_ui_fields['SeriesGroup']['res'].currentText().strip()
+            if sg_res and sg_res not in self.series_groups:
+                self.series_groups.append(sg_res)
+                new_added = True
+                
+        # 2. 메타데이터 객체(원본) 체크
+        if check_all:
+            for fp, data in self.book_meta.items():
+                sg = data.get('SeriesGroup', '').strip()
+                if sg and sg not in self.series_groups:
+                    self.series_groups.append(sg)
+                    new_added = True
+        else:
+            if self.current_meta_file and self.current_meta_file in self.book_meta:
+                sg = self.book_meta[self.current_meta_file].get('SeriesGroup', '').strip()
+                if sg and sg not in self.series_groups:
+                    self.series_groups.append(sg)
+                    new_added = True
+
+        if new_added:
+            self.series_groups.sort()
+            self.main_app.config["series_groups"] = self.series_groups
+            try:
+                from config import save_config
+                save_config(self.main_app.config)
+            except: pass
+            self._refresh_series_groups()
