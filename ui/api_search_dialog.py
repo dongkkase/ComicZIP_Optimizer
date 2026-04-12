@@ -320,6 +320,7 @@ class ApiSearchDialog(QDialog):
         
         self.btn_next_page = QPushButton(self.t.get("api_page_next", "다음"))
         self.btn_next_page.setIcon(qta.icon('fa5s.chevron-right', color='white'))
+        self.btn_next_page.setLayoutDirection(Qt.LayoutDirection.RightToLeft) # 아이콘 위치 우측으로 변경
         self.btn_next_page.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_next_page.setStyleSheet("""
             QPushButton { background-color: #555; color: white; border-radius: 4px; padding: 4px; font-weight: bold; }
@@ -668,6 +669,25 @@ class ApiSearchDialog(QDialog):
         
         row = self.list_widget.row(selected_items[0])
         self.selected_raw_data = self.search_results[row].copy()
+        
+        # --- 리디북스의 경우 책을 선택하는 순간 상세페이지에서 출간일 스크래핑 ---
+        if self.current_api == "리디북스" and self.selected_raw_data.get("b_id"):
+            if not self.selected_raw_data.get("Month"): 
+                from core.api_fetcher import MetaApiFetcher
+                b_id = self.selected_raw_data["b_id"]
+                pub_date = MetaApiFetcher.get_ridi_publish_date(b_id)
+                if pub_date:
+                    self.selected_raw_data["PubDate"] = pub_date
+                    parts = pub_date.split('-')
+                    if len(parts) >= 1: self.selected_raw_data["Year"] = parts[0]
+                    if len(parts) >= 2: self.selected_raw_data["Month"] = str(int(parts[1]))
+                    if len(parts) >= 3: self.selected_raw_data["Day"] = str(int(parts[2]))
+                    
+                    self.search_results[row]["PubDate"] = pub_date
+                    self.search_results[row]["Year"] = self.selected_raw_data.get("Year", "")
+                    self.search_results[row]["Month"] = self.selected_raw_data.get("Month", "")
+                    self.search_results[row]["Day"] = self.selected_raw_data.get("Day", "")
+        # ------------------------------------------------------------------
         
         self.is_translated = False
         

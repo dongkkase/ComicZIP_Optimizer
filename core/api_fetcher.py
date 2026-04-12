@@ -31,6 +31,12 @@ def init_db():
                 translated TEXT
             )
         ''')
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS ridi_date_cache (
+                b_id TEXT PRIMARY KEY,
+                pub_date TEXT
+            )
+        ''')
         conn.commit()
 
 init_db()
@@ -40,8 +46,7 @@ class MetaApiFetcher:
     @staticmethod
     def _translate_ko_to_en(text, api_keys=None):
         if not api_keys: api_keys = {}
-        if not re.search(r'[가-힣]', text):
-            return text 
+        if not re.search(r'[가-힣]', text): return text 
             
         ai_enabled = api_keys.get("ai_trans_enabled", False)
         ai_provider = api_keys.get("ai_provider", "Gemini")
@@ -49,48 +54,68 @@ class MetaApiFetcher:
 
         if ai_enabled and ai_key:
             prompt = f"다음 한국어 만화/코믹스 제목을 미국 Comic Vine이나 해외 DB에서 검색하기 가장 좋은 공식 영문 발매명(Official English Title) 딱 1개만 출력해. 부가 설명, 마침표, 특수기호 없이 오직 JSON의 value 값으로만 1개 출력할 것. 형식: {{\"title\": \"영문제목\"}} 입력: {text}"
-            
             try:
                 if ai_provider == "OpenAI":
                     url = "https://api.openai.com/v1/chat/completions"
                     headers = {"Authorization": f"Bearer {ai_key}", "Content-Type": "application/json"}
-                    payload = {
-                        "model": "gpt-4o-mini",
-                        "response_format": {"type": "json_object"}, # 🌟 완벽한 JSON 강제
-                        "messages": [{"role": "user", "content": prompt}],
-                        "temperature": 0.3
-                    }
+                    payload = {"model": "gpt-4o-mini", "response_format": {"type": "json_object"}, "messages": [{"role": "user", "content": prompt}], "temperature": 0.3}
                     resp = requests.post(url, headers=headers, json=payload, timeout=7)
-                    if resp.status_code == 200:
-                        res_json = json.loads(resp.json()["choices"][0]["message"]["content"])
-                        res_text = res_json.get("title", text)
-                        return res_text
-
+                    if resp.status_code == 200: return json.loads(resp.json()["choices"][0]["message"]["content"]).get("title", text)
                 elif ai_provider == "Gemini":
                     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={ai_key}"
                     headers = {"Content-Type": "application/json"}
-                    payload = {
-                        "contents": [{"parts": [{"text": prompt}]}],
-                        "generationConfig": {
-                            "temperature": 0.3,
-                            "responseMimeType": "application/json" # 🌟 완벽한 JSON 강제
-                        }
-                    }
+                    payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.3, "responseMimeType": "application/json"}}
                     resp = requests.post(url, headers=headers, json=payload, timeout=7)
-                    if resp.status_code == 200:
-                        res_json = json.loads(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
-                        res_text = res_json.get("title", text)
-                        return res_text
-            except Exception as e: pass
+                    if resp.status_code == 200: return json.loads(resp.json()["candidates"][0]["content"]["parts"][0]["text"]).get("title", text)
+            except: pass
 
         try:
             url = "https://translate.googleapis.com/translate_a/single"
             params = {"client": "gtx", "sl": "ko", "tl": "en", "dt": "t", "q": text}
             resp = requests.get(url, params=params, timeout=5)
-            if resp.status_code == 200:
-                return resp.json()[0][0][0]
+            if resp.status_code == 200: return resp.json()[0][0][0]
         except: pass
         return text
+
+    # API별로 제각각인 날짜 포맷을 정밀하게 추출하여 연/월/일 분리
+    @staticmethod
+    def _parse_date(date_str):
+        if not date_str: return "", "", ""
+        clean_str = re.sub(r'<[^>]+>', '', str(date_str)).strip()
+        match = re.search(r'(\d{4})[^\d]+(\d{1,2})[^\d]+(\d{1,2})', clean_str)
+        if match: return match.group(1), str(int(match.group(2))), str(int(match.group(3)))
+        match = re.search(r'(\d{4})[^\d]+(\d{1,2})', clean_str)
+        if match: return match.group(1), str(int(match.group(2))), ""
+        match = re.search(r'(\d{4})', clean_str)
+        if match: return match.group(1), "", ""
+        return "", "", ""
+
+    # 리디북스 상세페이지 출간일 스크래핑 및 DB 저장
+    @staticmethod
+    def get_ridi_publish_date(b_id):
+        if not b_id: return ""
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            c = conn.cursor()
+            c.execute("SELECT pub_date FROM ridi_date_cache WHERE b_id=?", (b_id,))
+            row = c.fetchone()
+            if row: return row[0]
+            
+        url = f"https://ridibooks.com/books/{b_id}"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        try:
+            resp = requests.get(url, headers=headers, timeout=5)
+            if resp.status_code == 200:
+                match = re.search(r'(\d{4})\s*[./-]\s*(\d{1,2})\s*[./-]\s*(\d{1,2})(?:<[^>]+>|\s|&nbsp;|)*출간', resp.text)
+                if match:
+                    y, m, d = match.groups()
+                    pub_date = f"{y}-{int(m):02d}-{int(d):02d}"
+                    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                        c = conn.cursor()
+                        c.execute("INSERT OR REPLACE INTO ridi_date_cache (b_id, pub_date) VALUES (?, ?)", (b_id, pub_date))
+                        conn.commit()
+                    return pub_date
+        except: pass
+        return ""
 
     @staticmethod
     def search(api_name, query, api_keys=None, page=1):
@@ -101,7 +126,8 @@ class MetaApiFetcher:
         if api_name in ["Vine", "Anilist"]:
             actual_query = MetaApiFetcher._translate_ko_to_en(query, api_keys)
             
-        cache_query = f"{query}::p{page}"
+        # [핵심] 기존 꼬여버린 캐시를 완벽히 무시하도록 v6 캐시태그 적용
+        cache_query = f"{query}::p{page}::v6"
             
         with sqlite3.connect(DB_PATH, timeout=10) as conn:
             c = conn.cursor()
@@ -109,9 +135,7 @@ class MetaApiFetcher:
             row = c.fetchone()
             if row:
                 try:
-                    updated_at_str = row[1]
-                    updated_at = datetime.strptime(updated_at_str, "%Y-%m-%d %H:%M:%S")
-                    
+                    updated_at = datetime.strptime(row[1], "%Y-%m-%d %H:%M:%S")
                     if (datetime.now() - updated_at).total_seconds() < 604800:
                         return json.loads(row[0]), actual_query
                 except: pass
@@ -119,31 +143,18 @@ class MetaApiFetcher:
         results = []
         is_rate_limited = False
         
-        if api_name == "리디북스":
-            results = MetaApiFetcher._search_ridibooks(query, page)
-        elif api_name == "알라딘":
-            ttbkey = api_keys.get("aladin", "")
-            results = MetaApiFetcher._search_aladin(query, ttbkey, page)
-        elif api_name == "Google Books":
-            google_key = api_keys.get("google", "")
-            results = MetaApiFetcher._search_google_books(query, google_key, page)
-        elif api_name == "Anilist":
-            results, is_rate_limited = MetaApiFetcher._search_anilist(actual_query, page)
-        elif api_name == "Vine":
-            vine_key = api_keys.get("vine", "")
-            results, is_rate_limited = MetaApiFetcher._search_vine(actual_query, vine_key, page)
+        if api_name == "리디북스": results = MetaApiFetcher._search_ridibooks(query, page)
+        elif api_name == "알라딘": results = MetaApiFetcher._search_aladin(query, api_keys.get("aladin", ""), page)
+        elif api_name == "Google Books": results = MetaApiFetcher._search_google_books(query, api_keys.get("google", ""), page)
+        elif api_name == "Anilist": results, is_rate_limited = MetaApiFetcher._search_anilist(actual_query, page)
+        elif api_name == "Vine": results, is_rate_limited = MetaApiFetcher._search_vine(actual_query, api_keys.get("vine", ""), page)
             
-        # 🌟 429 Rate Limit 에러 발생 시 UI 단에 알리기 위한 플래그
-        if is_rate_limited:
-            return "RATE_LIMIT", actual_query
+        if is_rate_limited: return "RATE_LIMIT", actual_query
             
         if results:
             with sqlite3.connect(DB_PATH, timeout=10) as conn:
                 c = conn.cursor()
-                c.execute("""
-                    INSERT OR REPLACE INTO search_cache (api, query, results, updated_at) 
-                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-                """, (api_name, cache_query, json.dumps(results, ensure_ascii=False)))
+                c.execute("INSERT OR REPLACE INTO search_cache (api, query, results, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)", (api_name, cache_query, json.dumps(results, ensure_ascii=False)))
                 conn.commit()
                 
         return results, actual_query
@@ -151,77 +162,42 @@ class MetaApiFetcher:
     @staticmethod
     def _search_anilist(query, page=1):
         url = "https://graphql.anilist.co"
-        graphql_query = """
-        query ($page: Int, $perPage: Int, $search: String) {
-          Page (page: $page, perPage: $perPage) {
-            media (search: $search, type: MANGA) {
-              title { romaji english native }
-              description(asHtml: false)
-              coverImage { extraLarge }
-              staff { edges { role node { name { full } } } }
-              genres
-              tags { name }
-              volumes
-              chapters
-              averageScore
-              startDate { year month day }
-            }
-          }
-        }
-        """
+        graphql_query = "query ($page: Int, $perPage: Int, $search: String) { Page (page: $page, perPage: $perPage) { media (search: $search, type: MANGA) { title { romaji english native } description(asHtml: false) coverImage { extraLarge } staff { edges { role node { name { full } } } } genres tags { name } volumes chapters averageScore startDate { year month day } } } }"
         variables = {"search": query, "page": page, "perPage": 20}
         results = []
         try:
             resp = requests.post(url, json={"query": graphql_query, "variables": variables}, timeout=15)
-            if resp.status_code == 429: return [], True # Rate Limit 방어
+            if resp.status_code == 429: return [], True 
             if resp.status_code == 200:
-                data = resp.json()
-                items = data.get("data", {}).get("Page", {}).get("media", [])
-                
-                for item in items:
+                for item in resp.json().get("data", {}).get("Page", {}).get("media", []):
                     title_dict = item.get("title", {})
                     title = title_dict.get("english") or title_dict.get("romaji") or title_dict.get("native") or ""
-                    loc_series = title_dict.get("native", title)
+                    desc = re.sub(r'<[^>]+>', '', item.get("description", "")).strip() if item.get("description") else ""
                     
-                    desc = item.get("description", "")
-                    if desc: desc = re.sub(r'<[^>]+>', '', desc).strip()
-                    
-                    cover = item.get("coverImage", {}).get("extraLarge", "")
-                    
-                    genres = ", ".join(item.get("genres", []))
-                    tags = ", ".join([t.get("name", "") for t in item.get("tags", [])])
-                    
-                    staff_edges = item.get("staff", {}).get("edges", [])
                     writer = []; penciller = []
-                    for edge in staff_edges:
-                        role = edge.get("role", "").lower()
-                        name = edge.get("node", {}).get("name", {}).get("full", "")
+                    for edge in item.get("staff", {}).get("edges", []):
+                        role = edge.get("role", "").lower(); name = edge.get("node", {}).get("name", {}).get("full", "")
                         if "story" in role or "writer" in role: writer.append(name)
                         if "art" in role or "illustrator" in role: penciller.append(name)
                         
-                    writer_str = ", ".join(writer)
-                    penciller_str = ", ".join(penciller)
-                    
-                    vols = str(item.get("volumes") or "")
-                    chaps = str(item.get("chapters") or "")
-                    count = vols if vols else chaps
-                    
                     score = item.get("averageScore")
                     rating_score = str(score / 10.0) if score else "-"
-                    rating_detail = f"⭐ {rating_score} / 10.0" if score else "-"
+                    rating_detail = f"{rating_score} / 10.0" if score else "-"
+                    community_rating = str(score / 10.0) if score else ""
                     
-                    start_date = item.get("startDate", {})
-                    y = start_date.get("year"); m = start_date.get("month"); d = start_date.get("day")
-                    year = str(y) if y else ""
+                    sd = item.get("startDate", {})
+                    y = sd.get("year"); m = sd.get("month"); d = sd.get("day")
+                    year = str(y) if y else ""; month = str(m) if m else ""; day = str(d) if d else ""
                     pub_date = f"{y}-{m:02d}-{d:02d}" if y and m and d else year
 
                     results.append({
-                        "Title": title, "Writer": writer_str, "Penciller": penciller_str, "Publisher": "", 
+                        "Title": title, "Writer": ", ".join(writer), "Penciller": ", ".join(penciller), "Publisher": "", 
                         "Summary": desc, "Series": title, "Web": "", 
-                        "CoverUrl": cover, "Tags": tags, "Genre": genres, 
-                        "LocalizedSeries": loc_series,
-                        "Count": count, "Rating": rating_detail, "RatingScore": rating_score, "AgeRating": "", 
-                        "PubDate": pub_date, "Year": year, 
+                        "CoverUrl": item.get("coverImage", {}).get("extraLarge", ""), 
+                        "Tags": ", ".join([t.get("name", "") for t in item.get("tags", [])]), "Genre": ", ".join(item.get("genres", [])), 
+                        "LocalizedSeries": title_dict.get("native", title), "Count": str(item.get("volumes") or item.get("chapters") or ""), 
+                        "Rating": rating_detail, "RatingScore": rating_score, "CommunityRating": community_rating, "AgeRating": "", 
+                        "PubDate": pub_date, "Year": year, "Month": month, "Day": day, 
                         "Volume": "", "Number": "", "Characters": ""
                     })
         except: pass
@@ -231,38 +207,26 @@ class MetaApiFetcher:
     def _search_google_books(query, api_key, page=1):
         if not api_key: return []
         url = "https://www.googleapis.com/books/v1/volumes"
-        params = {
-            "q": query, "key": api_key, "startIndex": str((page - 1) * 20), "maxResults": "20"
-        }
+        params = {"q": query, "key": api_key, "startIndex": str((page - 1) * 20), "maxResults": "20"}
         results = []
         try:
             resp = requests.get(url, params=params, timeout=10)
             if resp.status_code == 200:
-                items = resp.json().get("items", [])
-                for item in items:
+                for item in resp.json().get("items", []):
                     v_info = item.get("volumeInfo", {})
-                    title = v_info.get("title", "")
-                    authors = ", ".join(v_info.get("authors", []))
-                    publisher = v_info.get("publisher", "")
                     pub_date = v_info.get("publishedDate", "")
-                    year = pub_date[:4] if pub_date else ""
-                    
-                    desc = v_info.get("description", "")
-                    if desc: desc = re.sub(r'<[^>]+>', '', desc).strip()
-                        
-                    cover = v_info.get("imageLinks", {}).get("thumbnail", "").replace("http:", "https:")
+                    year, month, day = MetaApiFetcher._parse_date(pub_date)
+                    desc = re.sub(r'<[^>]+>', '', v_info.get("description", "")).strip() if v_info.get("description") else ""
                     categories = ", ".join(v_info.get("categories", []))
-                    page_count = str(v_info.get("pageCount", ""))
-                    web_url = v_info.get("infoLink", "")
                     
                     results.append({
-                        "Title": title, "Writer": authors, "Publisher": publisher, 
-                        "Summary": desc, "Series": title, "Web": web_url, 
-                        "CoverUrl": cover, "Tags": categories, "Genre": categories, 
-                        "LocalizedSeries": title,
-                        "Count": "", "Rating": "-", "RatingScore": "-", "AgeRating": "", 
-                        "PubDate": pub_date, "Year": year, 
-                        "Volume": "", "Number": "", "Characters": "", "PageCount": page_count
+                        "Title": v_info.get("title", ""), "Writer": ", ".join(v_info.get("authors", [])), "Publisher": v_info.get("publisher", ""), 
+                        "Summary": desc, "Series": v_info.get("title", ""), "Web": v_info.get("infoLink", ""), 
+                        "CoverUrl": v_info.get("imageLinks", {}).get("thumbnail", "").replace("http:", "https:"), 
+                        "Tags": categories, "Genre": categories, "LocalizedSeries": v_info.get("title", ""),
+                        "Count": "", "Rating": "-", "RatingScore": "-", "CommunityRating": "", "AgeRating": "", 
+                        "PubDate": pub_date, "Year": year, "Month": month, "Day": day, 
+                        "Volume": "", "Number": "", "Characters": "", "PageCount": str(v_info.get("pageCount", ""))
                     })
         except: pass
         return results
@@ -271,37 +235,24 @@ class MetaApiFetcher:
     def _search_vine(query, api_key, page=1):
         if not api_key: return [], False
         url = "https://comicvine.gamespot.com/api/search/"
-        headers = {"User-Agent": "ComicZIP_Optimizer_App/1.0"}
-        params = {
-            "api_key": api_key, "format": "json", "resources": "volume",
-            "query": query, "limit": "20", "page": str(page) 
-        }
+        params = {"api_key": api_key, "format": "json", "resources": "volume", "query": query, "limit": "20", "page": str(page)}
         results = []
         try:
-            response = requests.get(url, params=params, headers=headers, timeout=15)
-            if response.status_code == 429: return [], True # Rate Limit 방어
+            response = requests.get(url, params=params, headers={"User-Agent": "ComicZIP_Optimizer_App/1.0"}, timeout=15)
+            if response.status_code == 429: return [], True 
             if response.status_code == 200:
-                items = response.json().get("results", [])
-                for item in items:
-                    title = item.get("name", "")
+                for item in response.json().get("results", []):
                     pub_obj = item.get("publisher")
-                    publisher = pub_obj.get("name", "") if isinstance(pub_obj, dict) else ""
-                    year = str(item.get("start_year", ""))
-                    synopsis = item.get("description", "")
-                    if synopsis: synopsis = re.sub(r'<[^>]+>', '', synopsis).strip()
-                    web_url = item.get("site_detail_url", "")
-                    
+                    synopsis = re.sub(r'<[^>]+>', '', item.get("description", "")).strip() if item.get("description") else ""
                     cover_obj = item.get("image", {})
-                    cover = cover_obj.get("medium_url", "") if isinstance(cover_obj, dict) else ""
-                    count = str(item.get("count_of_issues", ""))
-
+                    
                     results.append({
-                        "Title": title, "Writer": "", "Publisher": publisher, 
-                        "Summary": synopsis, "Series": title, "Web": web_url, 
-                        "CoverUrl": cover, "Tags": "", "Genre": "", 
-                        "LocalizedSeries": title,
-                        "Count": count, "Rating": "-", "RatingScore": "-", "AgeRating": "", 
-                        "PubDate": year, "Year": year, 
+                        "Title": item.get("name", ""), "Writer": "", "Publisher": pub_obj.get("name", "") if isinstance(pub_obj, dict) else "", 
+                        "Summary": synopsis, "Series": item.get("name", ""), "Web": item.get("site_detail_url", ""), 
+                        "CoverUrl": cover_obj.get("medium_url", "") if isinstance(cover_obj, dict) else "", "Tags": "", "Genre": "", 
+                        "LocalizedSeries": item.get("name", ""), "Count": str(item.get("count_of_issues", "")), 
+                        "Rating": "-", "RatingScore": "-", "CommunityRating": "", "AgeRating": "", 
+                        "PubDate": str(item.get("start_year", "")), "Year": str(item.get("start_year", "")), "Month": "", "Day": "", 
                         "Volume": "", "Number": "", "Characters": ""
                     })
         except: pass
@@ -312,39 +263,52 @@ class MetaApiFetcher:
         if not ttbkey: return []
         url = "http://www.aladin.co.kr/ttb/api/ItemSearch.aspx"
         params = {
-            "ttbkey": ttbkey, "Query": query, "QueryType": "Keyword",
-            "MaxResults": "20", "start": str(page), "SearchTarget": "Book",
-            "output": "js", "Version": "20131101", "Cover": "Big", 
-            "OptResult": "categoryId,Story" 
+            "ttbkey": ttbkey, "Query": query, "QueryType": "Keyword", "MaxResults": "20", "start": str(page), 
+            "SearchTarget": "Book", "output": "js", "Version": "20131101", "Cover": "Big", "OptResult": "categoryId,Story" 
         }
         results = []
         try:
             response = requests.get(url, params=params, timeout=10)
             if response.status_code == 200:
-                items = response.json().get("item", [])
-                for item in items:
-                    title = item.get("title", "")
-                    author = item.get("author", "")
-                    publisher = item.get("publisher", "")
+                for item in response.json().get("item", []):
+                    author_raw = item.get("author", "")
+                    w_list = []; p_list = []
+                    # 알라딘 작가 파싱 (괄호 내용으로 역할 분리, 콤마 단위로 파싱)
+                    for part in author_raw.split(','):
+                        part = part.strip()
+                        if not part: continue
+                        
+                        name_match = re.match(r'^([^\(]+)', part)
+                        name = name_match.group(1).strip() if name_match else part.strip()
+                        
+                        if '(옮긴이)' in part or '(번역)' in part: continue
+                        elif '(그림)' in part or '(일러스트)' in part or '(작화)' in part: p_list.append(name)
+                        elif '(지은이)' in part or '(글)' in part or '(원작)' in part or '(저자)' in part: w_list.append(name)
+                        else:
+                            if '(' not in part: w_list.append(name) 
+                                
+                    writer = ", ".join(w_list)
+                    penciller = ", ".join(p_list)
+                    
                     pub_date = item.get("pubDate", "")
-                    year = pub_date[:4] if pub_date else ""
-                    synopsis = item.get("description", "")
-                    if synopsis: synopsis = re.sub(r'<[^>]+>', '', synopsis).strip()
-                    web_url = item.get("link", "")
-                    cover = item.get("cover", "")
+                    year, month, day = MetaApiFetcher._parse_date(pub_date)
+                    
+                    synopsis = re.sub(r'<[^>]+>', '', item.get("description", "")).strip() if item.get("description") else ""
                     category = item.get("categoryName", "")
                     genre = category.split(">")[-1] if category else ""
+                    
+                    # 알라딘 평점: 원본(customerReviewRank)이 이미 10점 만점 데이터임
                     r_score = item.get("customerReviewRank", 0)
-                    rating_score = str(r_score / 2.0) if r_score else "-"
-                    rating_detail = f"⭐ {rating_score} / 5.0" if r_score else "-"
+                    rating_score = str(r_score) if r_score else "-"
+                    rating_detail = f"{rating_score} / 10.0" if r_score else "-"
+                    community_rating = str(r_score) if r_score else ""
 
                     results.append({
-                        "Title": title, "Writer": author, "Publisher": publisher, 
-                        "Summary": synopsis, "Series": title, "Web": web_url, 
-                        "CoverUrl": cover, "Tags": genre, "Genre": genre, 
-                        "LocalizedSeries": title,
-                        "Count": "", "Rating": rating_detail, "RatingScore": rating_score, "AgeRating": "", 
-                        "PubDate": pub_date, "Year": year, 
+                        "Title": item.get("title", ""), "Writer": writer, "Penciller": penciller, "Publisher": item.get("publisher", ""), 
+                        "Summary": synopsis, "Series": item.get("title", ""), "Web": item.get("link", ""), 
+                        "CoverUrl": item.get("cover", ""), "Tags": genre, "Genre": genre, "LocalizedSeries": item.get("title", ""),
+                        "Count": "", "Rating": rating_detail, "RatingScore": rating_score, "CommunityRating": community_rating, "AgeRating": "", 
+                        "PubDate": pub_date, "Year": year, "Month": month, "Day": day, 
                         "Volume": "", "Number": "", "Characters": ""
                     })
         except: pass
@@ -356,8 +320,9 @@ class MetaApiFetcher:
         params = [
             ("keyword", query), ("adult_exclude", "n"), ("where", "book"), 
             ("where", "author"), ("what", "instant"), 
-            ("size", "20"), ("page", str(page)), ("site", "ridi-store")
+            ("size", "200"), ("site", "ridi-store")
         ]
+        
         encoded_query = urllib.parse.quote_plus(query)
         referer = f"https://ridibooks.com/search?q={encoded_query}&adult_exclude=n&tab=COMIC&page={page}"
         headers = {
@@ -366,42 +331,53 @@ class MetaApiFetcher:
             "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8",
             "Referer": referer
         }
+        
         results = []
         try:
             response = requests.get(url, params=params, headers=headers, timeout=10)
             if response.status_code == 200:
-                books = response.json().get("book", {}).get("books", [])
-                for b in books:
-                    b_id = b.get("b_id", ""); title = b.get("title", "")
+                all_books = response.json().get("book", {}).get("books", [])
+                
+                start_idx = (page - 1) * 20
+                end_idx = page * 20
+                paged_books = all_books[start_idx:end_idx]
+                
+                for b in paged_books:
+                    b_id = b.get("b_id", "")
+                    title = b.get("title", "")
+                    
                     author = b.get("author", "")
-                    if isinstance(author, list): author = ", ".join([str(a.get("name", a)) if isinstance(a, dict) else str(a) for a in author])
-                    publisher = b.get("publisher", "")
-                    synopsis = b.get("desc", b.get("synopsis", ""))
-                    if synopsis: synopsis = re.sub(r'<[^>]+>', '', str(synopsis)).strip()
-                    web_url = f"https://ridibooks.com/books/{b_id}" if b_id else ""
+                    if isinstance(author, list): 
+                        author = ", ".join([str(a.get("name", a)) if isinstance(a, dict) else str(a) for a in author])
+                    
+                    synopsis = re.sub(r'<[^>]+>', '', str(b.get("desc", b.get("synopsis", "")))).strip() if b.get("desc") or b.get("synopsis") else ""
+                    
                     cover_obj = b.get("cover", {})
                     cover = cover_obj.get("xxlarge", "") if isinstance(cover_obj, dict) else str(cover_obj)
+                    cover = cover_obj.get("xxlarge", "") if isinstance(cover_obj, dict) else str(cover_obj)
+
                     tags_info = b.get("tags_info", [])
-                    tags = ", ".join([t.get("tag_name", "") for t in tags_info if isinstance(t, dict) and t.get("tag_name")])
-                    cat1 = b.get("category_name", ""); cat2 = b.get("category_name2", "")
-                    genre = ", ".join([c for c in [cat1, cat2] if c])
-                    authors_info = b.get("authors_info", [])
-                    alias_name = authors_info[0].get("alias_name", "") if authors_info and isinstance(authors_info, list) else ""
-                    loc_series = f"{title}, {alias_name}" if alias_name else title
-                    count = str(b.get("book_count", ""))
-                    r_score = b.get("buyer_rating_score"); r_count = b.get("buyer_rating_count")
-                    rating_score = str(r_score) if r_score is not None else "-"
-                    rating_detail = f"⭐ {r_score} / 5.0 ({r_count})" if r_score is not None and r_count is not None else "-"
-                    age_rating = "19세 이상" if b.get("is_adult_only") else str(b.get("age_limit", "전체 이용가"))
+                    genre = ", ".join([c for c in [b.get("category_name", ""), b.get("category_name2", "")] if c])
+                    
+                    r_score = b.get("buyer_rating_score")
+                    r_count = b.get("buyer_rating_count")
+                    rating_score = str(round(r_score * 2, 1)) if r_score is not None else "-"
+                    rating_detail = f"{rating_score} / 10.0 ({r_count})" if r_score is not None and r_count is not None else "-"
+                    community_rating = str(round(r_score * 2, 1)) if r_score is not None else ""
+                    
                     pub_date = b.get("web_title_pub_date", "") or b.get("publication_date", "")
+                    year, month, day = MetaApiFetcher._parse_date(pub_date)
 
                     results.append({
-                        "Title": title, "Writer": author, "Publisher": publisher, 
-                        "Summary": synopsis, "Series": title, "Web": web_url, 
-                        "CoverUrl": cover, "Tags": tags, "Genre": genre, 
-                        "LocalizedSeries": loc_series,
-                        "Count": count, "Rating": rating_detail, "RatingScore": rating_score, "AgeRating": age_rating, 
-                        "PubDate": pub_date, "Year": pub_date[:4] if pub_date else "", 
+                        "b_id": b_id,
+                        "Title": title, "Writer": author, "Publisher": b.get("publisher", ""), 
+                        "Summary": synopsis, "Series": title, "Web": f"https://ridibooks.com/books/{b_id}" if b_id else "", 
+                        "CoverUrl": cover, 
+                        "Tags": ", ".join([t.get("tag_name", "") for t in tags_info if isinstance(t, dict) and t.get("tag_name")]), 
+                        "Genre": genre, "LocalizedSeries": title, "Count": str(b.get("book_count", "")), 
+                        "Rating": rating_detail, "RatingScore": rating_score, "CommunityRating": community_rating, 
+                        "AgeRating": "19세 이상" if b.get("is_adult_only") else str(b.get("age_limit", "전체 이용가")), 
+                        "PubDate": pub_date, "Year": year, "Month": month, "Day": day, 
                         "Volume": "", "Number": "", "Characters": ""
                     })
         except: pass
