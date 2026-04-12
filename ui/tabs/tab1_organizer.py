@@ -2,7 +2,8 @@ import os
 from pathlib import Path
 import qtawesome as qta
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
-                             QLabel, QLineEdit, QAbstractItemView, QHeaderView, QTreeWidgetItem, QStackedWidget)
+                             QLabel, QLineEdit, QAbstractItemView, QHeaderView, QTreeWidgetItem, QStackedWidget,
+                             QMenu, QDialog, QDialogButtonBox)
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QColor
 
@@ -74,6 +75,12 @@ class Tab1Organizer(QWidget):
         
         self.tree_org.itemChanged.connect(self.on_item_changed)
         self.tree_org.delete_pressed.connect(self.remove_highlighted)
+        
+        # [기능추가] 더블 클릭 및 우클릭(컨텍스트 메뉴) 이벤트 연결
+        self.tree_org.itemDoubleClicked.connect(self.on_item_double_clicked)
+        self.tree_org.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree_org.customContextMenuRequested.connect(self.show_context_menu)
+        
         self.stacked_org.addWidget(self.tree_org)
         
         self.lbl_count = QLabel()
@@ -283,3 +290,85 @@ class Tab1Organizer(QWidget):
 
     def get_targets(self):
         return [fp for fp, d in self.org_data.items() if d.get('checked', False)]
+    
+    def on_item_double_clicked(self, item, col):
+        """더블 클릭 시 커스텀 팝업 호출"""
+        self.edit_child_filename(item)
+
+    def show_context_menu(self, pos):
+        """우클릭 시 파일명 변경 컨텍스트 메뉴 표시"""
+        item = self.tree_org.itemAt(pos)
+        # 선택된 아이템이 2뎁스(자식 아이템)가 아니면 무시
+        if not item or not item.parent():
+            return
+
+        menu = QMenu(self)
+        is_ko = self.main_app.lang == "ko"
+        action_rename = menu.addAction("파일 이름 변경" if is_ko else "Rename File")
+
+        # 마우스 위치에 메뉴 표시
+        action = menu.exec(self.tree_org.viewport().mapToGlobal(pos))
+        if action == action_rename:
+            self.edit_child_filename(item)
+
+    def edit_child_filename(self, item):
+        """지정된 크기(580x290)와 커진 폰트가 적용된 다이얼로그 생성 및 데이터 업데이트"""
+        parent = item.parent()
+        if not parent: return
+
+        fp = parent.data(0, Qt.ItemDataRole.UserRole)
+        if fp not in self.org_data: return
+
+        child_idx = parent.indexOfChild(item)
+        volumes = self.org_data[fp].get('volumes', [])
+        if child_idx < 0 or child_idx >= len(volumes): return
+
+        vol_data = volumes[child_idx]
+        current_name = vol_data.get('new_name', '')
+
+        is_ko = self.main_app.lang == "ko"
+        title = "파일명 수정" if is_ko else "Edit Filename"
+        label_text = "새 파일명을 입력하세요:" if is_ko else "Enter new filename:"
+
+        # 커스텀 팝업 다이얼로그 구성
+        dialog = QDialog(self)
+        dialog.setWindowTitle(title)
+        dialog.setFixedSize(580, 290)  # 요청하신 580x290 픽셀 고정
+        layout = QVBoxLayout(dialog)
+
+        # 안내 라벨
+        lbl = QLabel(label_text)
+        layout.addWidget(lbl)
+
+        # 입력 필드 및 폰트 +2pt 적용
+        input_field = QLineEdit(current_name)
+        font = input_field.font()
+        font.setPointSize(font.pointSize() + 2)
+        input_field.setFont(font)
+        input_field.setMinimumHeight(40) # 창이 커진 만큼 입력창 높이도 약간 키움
+        layout.addWidget(input_field)
+
+        layout.addStretch()
+
+        # 확인/취소 버튼
+        btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        btn_box.accepted.connect(dialog.accept)
+        btn_box.rejected.connect(dialog.reject)
+        layout.addWidget(btn_box)
+
+        # 확인을 눌렀고 내용이 비어있지 않은 경우 데이터 업데이트
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            new_name = input_field.text().strip()
+            if new_name:
+                vol_data['new_name'] = new_name
+
+                # UI 텍스트 재생성 (기존 로직과 동일하게 아이콘과 확장자 복구)
+                target_ext = f".{self.main_app.config.get('target_format', 'zip')}" if self.main_app.config.get("target_format", "none") != "none" else ""
+                icon_txt = "📦" if vol_data.get('type') == 'archive' else "📁"
+                
+                final_ext = target_ext if target_ext else (Path(vol_data.get('inner_path', '')).suffix if vol_data.get('type') == 'archive' else ".zip")
+                if not final_ext: final_ext = ".zip"
+
+                full_text = f"  ↳ {icon_txt} {new_name}{final_ext}"
+                item.setText(0, full_text)
+                item.setToolTip(0, full_text)

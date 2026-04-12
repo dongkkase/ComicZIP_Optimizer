@@ -324,30 +324,61 @@ class Tab3Metadata(QWidget):
         lbl_widget = QLabel(t_dict.get(t_key, t_key))
         lbl_widget.setAlignment(Qt.AlignmentFlag.AlignRight | (Qt.AlignmentFlag.AlignTop if is_text else Qt.AlignmentFlag.AlignVCenter))
         layout.addWidget(lbl_widget, row, 0)
-
+        
+        le_my_widget = None
+        le_res_widget = None
+        
         if is_text:
             le_my = QTextEdit(); le_my.setMinimumHeight(80); le_res = QTextEdit(); le_res.setMinimumHeight(80)
             def sync_resize():
                 max_h = max(80, min(500, int(max(le_my.document().size().height(), le_res.document().size().height())) + 12))
                 le_my.setMinimumHeight(max_h); le_my.setMaximumHeight(max_h); le_res.setMinimumHeight(max_h); le_res.setMaximumHeight(max_h)
             le_my.textChanged.connect(sync_resize); le_res.textChanged.connect(sync_resize)
+            le_my_widget = le_my
+            le_res_widget = le_res
         elif is_num:
-            le_my_widget, le_my = self._create_number_input(is_date=is_date, date_type=date_type); le_res = QLineEdit()
+            # [기능추가] 일괄 편집(res) 측에도 증차감 버튼이 포함된 위젯을 생성
+            le_my_widget, le_my = self._create_number_input(is_date=is_date, date_type=date_type)
+            le_res_widget, le_res = self._create_number_input(is_date=is_date, date_type=date_type)
         elif combo_items is not None:
-            le_my_widget = le_my = QComboBox(); le_my.setEditable(editable_combo); le_my.addItem("", "")
-            le_res = QComboBox(); le_res.setEditable(editable_combo); le_res.addItem("", "")
+            # [기능추가] combo_items가 존재하면서 is_searchable이 True일 때 SearchableComboBox 적용
+            if is_searchable:
+                try:
+                    from ui.widgets import SearchableComboBox
+                    le_my = SearchableComboBox()
+                    le_res = SearchableComboBox()
+                except ImportError:
+                    le_my = QComboBox(); le_my.setEditable(True)
+                    le_res = QComboBox(); le_res.setEditable(True)
+            else:
+                le_my = QComboBox(); le_my.setEditable(editable_combo)
+                le_res = QComboBox(); le_res.setEditable(editable_combo)
+                
+            le_my.addItem("", "")
+            le_res.addItem("", "")
+            # 기존 데이터 표기 방식(v=텍스트, k=데이터)을 유지하여 addItem 처리
             for k, v in combo_items.items(): 
                 le_my.addItem(v, k)
                 le_res.addItem(v, k)
+                
+            le_my_widget = le_my
+            le_res_widget = le_res
         elif is_searchable:
-            from ui.widgets import SearchableComboBox
-            le_my_widget = le_my = SearchableComboBox()
-            le_res = SearchableComboBox()
+            # 기존 시리즈 그룹용 SearchableComboBox
+            try:
+                from ui.widgets import SearchableComboBox
+                le_my = SearchableComboBox()
+                le_res = SearchableComboBox()
+            except ImportError:
+                le_my = QComboBox(); le_my.setEditable(True)
+                le_res = QComboBox(); le_res.setEditable(True)
+            le_my_widget = le_my
+            le_res_widget = le_res
         else:
-            le_my_widget = le_my = QLineEdit(); le_res = QLineEdit()
+            le_my = QLineEdit(); le_res = QLineEdit()
+            le_my_widget = le_my
+            le_res_widget = le_res
             
-        if not is_num: le_my_widget = le_my
-        
         is_dark = getattr(self.main_app, 'is_dark_mode', True)
         icon_c = 'white' if is_dark else '#1F2937'
         
@@ -358,22 +389,31 @@ class Tab3Metadata(QWidget):
         btn_map.setCursor(Qt.CursorShape.PointingHandCursor)
         
         def do_map():
-            if combo_items is not None:
-                val = le_res.currentText()
-                if editable_combo: le_my.setCurrentText(val)
+            if combo_items is not None or is_searchable:
+                val_data = le_res.currentData()
+                val_text = le_res.currentText()
+                
+                idx = -1
+                if val_data: idx = le_my.findData(val_data)
+                if idx < 0: idx = le_my.findText(val_text)
+                    
+                if idx >= 0:
+                    le_my.setCurrentIndex(idx)
                 else:
-                    idx = le_my.findText(val)
-                    if idx < 0: idx = le_my.findData(val)
-                    if idx >= 0: le_my.setCurrentIndex(idx)
+                    if le_my.isEditable(): le_my.setCurrentText(val_text)
                     else: le_my.setCurrentIndex(0)
             else:
                 val = le_res.toPlainText() if is_text else le_res.text()
                 if is_num and val.isdigit(): val = str(int(val))
                 if is_text: le_my.setPlainText(val)
                 else: le_my.setText(val)
+                
         btn_map.clicked.connect(do_map)
-        layout.addWidget(le_my_widget, row, 1); layout.addWidget(btn_map, row, 2, alignment=Qt.AlignmentFlag.AlignCenter); layout.addWidget(le_res, row, 3)
-        self.meta_ui_fields[key] = {'my': le_my, 'res': le_res, 'is_text': is_text, 'is_combo': combo_items is not None, 'lbl': lbl_widget, 't_key': t_key}
+        layout.addWidget(le_my_widget, row, 1)
+        layout.addWidget(btn_map, row, 2, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(le_res_widget, row, 3) 
+        
+        self.meta_ui_fields[key] = {'my': le_my, 'res': le_res, 'is_text': is_text, 'is_combo': combo_items is not None or is_searchable, 'lbl': lbl_widget, 't_key': t_key}
 
     def _add_checkbox_group(self, layout, start_row, key, t_key, items_dict, t_dict):
         lbl_widget = QLabel(f"<b>{t_dict.get(t_key, t_key)}</b>"); lbl_widget.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
@@ -473,7 +513,7 @@ class Tab3Metadata(QWidget):
         self.group_publish, gl_publish = self._create_group_box(t.get("t3_nav_publish", "").replace("\n"," "))
         self._add_row(gl_publish, 0, 'Publisher', 't3_f_pub', t); self._add_row(gl_publish, 1, 'Imprint', 't3_f_imp', t)
         self._add_row(gl_publish, 2, 'Web', 't3_f_web', t, is_text=True)
-        self._add_row(gl_publish, 3, 'Format', 't3_f_format', t, combo_items=t.get("meta_formats", {}), editable_combo=True)
+        self._add_row(gl_publish, 3, 'Format', 't3_f_format', t, combo_items=t.get("meta_formats", {}), editable_combo=True, is_searchable=True)
         self._add_row(gl_publish, 4, 'Year', 't3_f_year', t, is_num=True, is_date=True, date_type='Y'); self._add_row(gl_publish, 5, 'Month', 't3_f_month', t, is_num=True, is_date=True, date_type='M')
         self._add_row(gl_publish, 6, 'Day', 't3_f_day', t, is_num=True, is_date=True, date_type='D'); scroll_layout.addWidget(self.group_publish)
 
@@ -503,7 +543,7 @@ class Tab3Metadata(QWidget):
         scroll_layout.addWidget(self.group_genre_tags)
 
         self.group_etc, gl_etc = self._create_group_box(t.get("t3_nav_etc", "").replace("\n"," "))
-        self._add_row(gl_etc, 0, 'AgeRating', 't3_f_age', t, combo_items=t.get("meta_age", {}), editable_combo=False); self._add_row(gl_etc, 1, 'CommunityRating', 't3_f_rate', t) 
+        self._add_row(gl_etc, 0, 'AgeRating', 't3_f_age', t, combo_items=t.get("meta_age", {}), editable_combo=False, is_searchable=True); self._add_row(gl_etc, 1, 'CommunityRating', 't3_f_rate', t)
         self._add_row(gl_etc, 2, 'LanguageISO', 't3_f_iso', t); self._add_row(gl_etc, 3, 'Manga', 't3_f_dir', t, combo_items=t.get("meta_manga", {}), editable_combo=False)
         scroll_layout.addWidget(self.group_etc)
         
@@ -834,8 +874,8 @@ class Tab3Metadata(QWidget):
             
             val = None
             if field.get('is_combo'):
-                if field['my'].isEditable(): val = field['my'].currentText()
-                else: val = field['my'].currentData()
+                data_val = field['my'].currentData()
+                val = data_val if data_val else field['my'].currentText()
             elif field.get('is_text'):
                 val = field['my'].toPlainText()
             elif field.get('is_tag'):
@@ -1063,8 +1103,8 @@ class Tab3Metadata(QWidget):
         if self.current_meta_file and self.current_meta_file in self.book_meta:
             for key, field in self.meta_ui_fields.items():
                 if field.get('is_combo'):
-                    if field['my'].isEditable(): val = field['my'].currentText()
-                    else: val = field['my'].currentData()
+                    data_val = field['my'].currentData()
+                    val = data_val if data_val else field['my'].currentText()
                 elif field.get('is_text'):
                     val = field['my'].toPlainText()
                 elif field.get('is_tag'):
@@ -1101,14 +1141,17 @@ class Tab3Metadata(QWidget):
             res_widget = field['res']
             
             if field.get('is_combo'):
-                if res_widget.isEditable():
-                    val = res_widget.currentText().strip()
-                    if val: field['my'].setCurrentText(val)
-                else:
-                    val = res_widget.currentData()
-                    if val:
-                        idx = field['my'].findData(val)
-                        if idx >= 0: field['my'].setCurrentIndex(idx)
+                data_val = res_widget.currentData()
+                val = data_val if data_val else res_widget.currentText()
+                
+                if val:
+                    idx = field['my'].findData(val)
+                    if idx < 0: idx = field['my'].findText(val)
+                    
+                    if idx >= 0:
+                        field['my'].setCurrentIndex(idx)
+                    else:
+                        if field['my'].isEditable(): field['my'].setCurrentText(val)
             elif field.get('is_text'):
                 val = res_widget.toPlainText().strip()
                 if val: field['my'].setPlainText(val)
@@ -1130,10 +1173,8 @@ class Tab3Metadata(QWidget):
                 res_widget = field['res']
                 
                 if field.get('is_combo'):
-                    if res_widget.isEditable():
-                        val = res_widget.currentText().strip()
-                    else:
-                        val = res_widget.currentData()
+                    data_val = res_widget.currentData()
+                    val = data_val if data_val else res_widget.currentText()
                 elif isinstance(res_widget, QTextEdit):
                     val = res_widget.toPlainText().strip()
                 else:
@@ -1389,7 +1430,10 @@ class Tab3Metadata(QWidget):
         self.main_app.progress_bar.hide()
         self.main_app.lbl_status.setText(t.get("status_wait", ""))
 
+        if getattr(self, 'save_worker', None) is not None:
+            self.save_worker.deleteLater()
         self.save_worker = None
+
         self.tree_meta_files.setEnabled(True)
         
         if success: 
@@ -1441,7 +1485,10 @@ class Tab3Metadata(QWidget):
         self.main_app.progress_bar.hide()
         self.main_app.lbl_status.setText(t.get("status_wait", ""))
 
+        if getattr(self, 'save_worker', None) is not None:
+            self.save_worker.deleteLater()
         self.save_worker = None
+        
         self.tree_meta_files.setEnabled(True)
         
         msg = t.get("t3_msg_save_all_done", "").format(success_count=success_count, fail_count=fail_count)
@@ -1474,6 +1521,10 @@ class Tab3Metadata(QWidget):
             summary = re.sub(r'\n{2,}', '\n', summary)
             data['Summary'] = summary.strip()
 
+        # [기능수정] API 검색 결과에 읽기 방향이 없거나 '-'일 경우 'YesAndRightToLeft'를 기본으로 세팅
+        if 'Manga' not in data or not data['Manga'] or data['Manga'] == "-":
+            data['Manga'] = 'YesAndRightToLeft'
+
         for d_key, field in self.meta_ui_fields.items():
             res_widget = field['res']
             val = data.get(d_key, "")
@@ -1481,15 +1532,24 @@ class Tab3Metadata(QWidget):
             if not val or val == "-":
                 val = ""
                 
-            if hasattr(res_widget, "setCurrentText") and res_widget.isEditable():
-                res_widget.setCurrentText(str(val))
-            elif hasattr(res_widget, "findText"):
+            # SearchableComboBox를 포함한 콤보박스 처리 로직 보강
+            if isinstance(res_widget, QComboBox):
                 if val:
-                    idx = res_widget.findText(str(val))
-                    if idx >= 0: res_widget.setCurrentIndex(idx)
-                    else: res_widget.setCurrentIndex(0)
+                    # 1순위: 내부 데이터(Data)로 매칭 검사 (Manga, Format 등)
+                    idx = res_widget.findData(str(val))
+                    if idx < 0:
+                        # 2순위: 텍스트(Text)로 매칭 검사
+                        idx = res_widget.findText(str(val))
+                        
+                    if idx >= 0:
+                        res_widget.setCurrentIndex(idx)
+                    else:
+                        if hasattr(res_widget, "isEditable") and res_widget.isEditable():
+                            res_widget.setCurrentText(str(val))
+                        else:
+                            res_widget.setCurrentIndex(0)
                 else:
-                    res_widget.setCurrentIndex(0) 
+                    res_widget.setCurrentIndex(0)
             elif hasattr(res_widget, "setPlainText"):
                 res_widget.setPlainText(str(val))
             elif hasattr(res_widget, "setText"):

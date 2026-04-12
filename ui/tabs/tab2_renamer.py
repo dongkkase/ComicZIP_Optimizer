@@ -508,7 +508,7 @@ class Tab2Renamer(QWidget):
             return
 
         label_widget = self.lbl_cover_img if target_id == "cover" else self.lbl_inner_img
-        cw = max(200, label_widget.width() - 10)
+        cw = 180
         ch = max(250, label_widget.height() - 10)
         
         if not img_data:
