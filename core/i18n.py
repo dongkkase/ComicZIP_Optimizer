@@ -40,8 +40,9 @@ def get_i18n():
     return {
         "ko": {
             "title": f"ComicZIP Optimizer v{CURRENT_VERSION}",
+            "tab_folders":"폴더",
             "tab1": "압축 파일 구조 정리(평탄화)", "tab2": "내부 파일명 변경", 
-            "tab3": "메타데이터 관리", "tab4": "릴리스 노트",
+            "tab3": "메타데이터 관리", "tab_releases": "업데이트 및 릴리즈 노트",
             "cover_preview": "표지 미리보기", "inner_preview": "내부 파일 미리보기",
             "add_folder": "폴더 추가", "add_file": "파일 추가",
             "remove_sel": "선택 삭제", "clear_all": "전체 비우기",
@@ -204,8 +205,9 @@ def get_i18n():
         },
         "en": {
             "title": f"ComicZIP Optimizer v{CURRENT_VERSION}",
+            "tab_folders":"Folders",
             "tab1": "Archive Organizer", "tab2": "Inner Renamer", 
-            "tab3": "Metadata Management", "tab4": "Release Notes",
+            "tab3": "Metadata Management", "tab_releases": "Updates & Release Notes",
             "cover_preview": "Cover Preview", "inner_preview": "Inner Preview",
             "add_folder": "Add Folder", "add_file": "Add File",
             "remove_sel": "Remove Sel", "clear_all": "Clear All",
@@ -364,8 +366,9 @@ def get_i18n():
         },
         "ja": {
             "title": f"ComicZIP Optimizer v{CURRENT_VERSION}",
+            "tab_folders":"フォルダ",
             "tab1": "アーカイブ構成整理 (フラット化)", "tab2": "内部ファイル名変更", 
-            "tab3": "メタデータ管理", "tab4": "リリースノート",
+            "tab3": "メタデータ管理", "tab_releases": "アップデート & リリースノート",
             "cover_preview": "表紙プレビュー", "inner_preview": "内部ファイルプレビュー",
             "add_folder": "フォルダ追加", "add_file": "ファイル追加",
             "remove_sel": "選択削除", "clear_all": "全てクリア",

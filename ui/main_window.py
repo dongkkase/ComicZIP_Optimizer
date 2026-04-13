@@ -28,6 +28,8 @@ from ui.tabs.tab3_metadata import Tab3Metadata
 
 from core.i18n import get_i18n
 
+from ui.tabs.tab_folder import TabFolder
+
 class RenamerApp(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -178,19 +180,22 @@ class RenamerApp(QMainWindow):
         main_layout.addLayout(toolbar_layout)
 
         self.tabs = QTabWidget()
+        
+        self.tab_folders = QWidget()
         self.tab1 = Tab1Organizer(self)
         self.tab2 = Tab2Renamer(self)
         self.tab3 = Tab3Metadata(self)
-        self.tab4 = QWidget() 
+        self.tab_releases = QWidget() 
         
+        self.tabs.addTab(self.tab_folders, "")
         self.tabs.addTab(self.tab1, "")
         self.tabs.addTab(self.tab2, "")
         self.tabs.addTab(self.tab3, "")
-        self.tabs.addTab(self.tab4, "")
+        self.tabs.addTab(self.tab_releases, "")
         self.tabs.currentChanged.connect(self.on_tab_changed)
         main_layout.addWidget(self.tabs, 1)
 
-        t4_layout = QVBoxLayout(self.tab4)
+        t4_layout = QVBoxLayout(self.tab_releases)
         self.browser_release = QTextBrowser()
         self.browser_release.setOpenExternalLinks(True)
         t4_layout.addWidget(self.browser_release)
@@ -300,10 +305,11 @@ class RenamerApp(QMainWindow):
     def apply_language(self):
         t = self.i18n[self.lang]
         self.setWindowTitle(t["title"])
-        self.tabs.setTabText(0, t["tab1"])
-        self.tabs.setTabText(1, t["tab2"])
-        self.tabs.setTabText(2, t["tab3"])
-        self.tabs.setTabText(3, t["tab4"])
+        self.tabs.setTabText(0, t["tab_folders"])
+        self.tabs.setTabText(1, t["tab1"])
+        self.tabs.setTabText(2, t["tab2"])
+        self.tabs.setTabText(3, t["tab3"])
+        self.tabs.setTabText(4, t["tab_releases"])
         
         self.btn_add_folder.setText(f" {t['add_folder']}")
         self.btn_add_file.setText(f" {t['add_file']}")
@@ -325,18 +331,18 @@ class RenamerApp(QMainWindow):
         self.update_version_button_ui()
 
     def on_tab_changed(self, index):
-        enabled = (index in [0, 1, 2]) and not self.is_processing
+        enabled = (index in [1, 2, 3]) and not self.is_processing
         self.btn_add_folder.setEnabled(enabled)
         self.btn_add_file.setEnabled(enabled)
         self.btn_remove_sel.setEnabled(enabled)
         self.btn_clear_all.setEnabled(enabled)
         self.btn_toggle_all.setEnabled(enabled)
-        self.btn_run.setVisible(index in [0, 1])
+        self.btn_run.setVisible(index in [1, 2])
 
     def toggle_ui_elements(self, is_processing):
         enabled = not is_processing
         current_tab = self.tabs.currentIndex()
-        top_btn_enabled = enabled if current_tab in [0, 1, 2] else False
+        top_btn_enabled = enabled if current_tab in [1, 2, 3] else False
         
         self.btn_add_folder.setEnabled(top_btn_enabled)
         self.btn_add_file.setEnabled(top_btn_enabled)
@@ -389,9 +395,15 @@ class RenamerApp(QMainWindow):
                 self.tab2.update_inner_preview_list() 
 
     def dragEnterEvent(self, event):
-        if self.tabs.currentIndex() == 3: event.ignore(); return
-        if event.mimeData().hasUrls(): event.acceptProposedAction()
-        else: event.ignore()
+        # 변수명 변경 및 인덱스 4(릴리즈 노트)에서 드롭 무시
+        if self.tabs.currentIndex() == 4:
+            event.ignore()
+            return
+            
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
 
     def dropEvent(self, event):
         event.acceptProposedAction()
@@ -429,7 +441,7 @@ class RenamerApp(QMainWindow):
     def process_paths(self, paths, is_auto_transfer=False):
         if self.is_processing: return
         
-        if self.tabs.currentIndex() == 2:
+        if self.tabs.currentIndex() == 3:
             files_dropped = [p for p in paths if os.path.isfile(p)]
             folders_dropped = [p for p in paths if os.path.isdir(p)]
             final_paths = []
@@ -462,7 +474,7 @@ class RenamerApp(QMainWindow):
         self.progress_bar.setValue(0)
         self.lbl_status.setText("목록을 불러오는 중입니다..." if self.lang == "ko" else "Loading files...")
         
-        if self.tabs.currentIndex() == 0:
+        if self.tabs.currentIndex() == 1:
             task = OrganizerLoadTask(paths, self.seven_zip_path, self.lang, self.signals)
         else:
             task = FileLoadTask(paths, self.seven_zip_path, self.lang, self.signals)
@@ -507,7 +519,7 @@ class RenamerApp(QMainWindow):
     def start_process(self):
         if self.is_processing: return
         
-        if self.tabs.currentIndex() == 0:
+        if self.tabs.currentIndex() == 1:
             targets = self.tab1.get_targets()
             if not targets:
                 QMessageBox.warning(self, "Warning", "체크(☑)된 작업 대상이 없습니다." if self.lang == "ko" else "No checked targets.")
@@ -534,7 +546,7 @@ class RenamerApp(QMainWindow):
             self.active_task = task
             threading.Thread(target=task.run, daemon=True).start()
             
-        elif self.tabs.currentIndex() == 1:
+        elif self.tabs.currentIndex() == 2:
             targets = self.tab2.get_targets()
             if not targets:
                 QMessageBox.warning(self, "Warning", "체크(☑)된 작업 대상이 없습니다." if self.lang == "ko" else "No checked targets.")
@@ -616,7 +628,7 @@ class RenamerApp(QMainWindow):
             
             from PyQt6.QtWidgets import QDialog
             if log_dlg.exec() == int(QDialog.DialogCode.Accepted):
-                self.tabs.setCurrentIndex(1)
+                self.tabs.setCurrentIndex(2)
                 self.process_paths(valid_fps, is_auto_transfer=True)
 
     def finish_process_rename(self, stats, new_archive_data, was_cancelled):
@@ -672,7 +684,7 @@ class RenamerApp(QMainWindow):
             
             from PyQt6.QtWidgets import QDialog
             if log_dlg.exec() == int(QDialog.DialogCode.Accepted):
-                self.tabs.setCurrentIndex(2) 
+                self.tabs.setCurrentIndex(3) 
                 self.process_paths(valid_fps, is_auto_transfer=True)
 
     def safe_finish_ui_reset(self):

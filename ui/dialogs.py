@@ -211,6 +211,34 @@ class SettingsDialog(QDialog):
         lbl_qual_title.setEnabled(self.chk_webp.isChecked())
 
         opt_layout.addLayout(qual_layout)
+
+        # --- 뷰어 프로그램 설정 추가 시작 ---
+        viewer_line = QFrame()
+        viewer_line.setFrameShape(QFrame.Shape.HLine)
+        viewer_line.setObjectName("divider")
+        opt_layout.addWidget(viewer_line)
+        
+        viewer_layout = QFormLayout()
+        viewer_layout.setSpacing(10)
+        
+        viewer_path_layout = QHBoxLayout()
+        viewer_path_layout.setSpacing(5)
+        
+        self.le_viewer_path = QLineEdit(config.get("viewer_path", ""))
+        self.le_viewer_path.setPlaceholderText(self.i18n.get("viewer_placeholder", "뷰어 프로그램(.exe) 경로를 선택하세요"))
+        self.le_viewer_path.setReadOnly(True)
+        
+        self.btn_find_viewer = QPushButton(self.i18n.get("btn_find", "찾기"))
+        self.btn_find_viewer.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_find_viewer.clicked.connect(self.browse_viewer_path)
+        
+        viewer_path_layout.addWidget(self.le_viewer_path)
+        viewer_path_layout.addWidget(self.btn_find_viewer)
+        
+        viewer_layout.addRow(self.i18n.get("viewer_lbl", "뷰어 프로그램:"), viewer_path_layout)
+        opt_layout.addLayout(viewer_layout)
+        # --- 뷰어 프로그램 설정 추가 끝 ---
+
         basic_layout.addLayout(opt_layout)
         basic_layout.addStretch()
 
@@ -407,6 +435,12 @@ class SettingsDialog(QDialog):
         msg.setText(text)
         msg.exec()
 
+    def browse_viewer_path(self):
+        from PyQt6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(self, "Select Viewer Program", "", "Executable Files (*.exe);;All Files (*)")
+        if path:
+            self.le_viewer_path.setText(path)
+
     def get_data(self):
         format_keys = ["none", "zip", "cbz", "cbr", "7z"]
         
@@ -424,6 +458,7 @@ class SettingsDialog(QDialog):
             "webp_quality": self.slider_quality.value(),
             "max_threads": self.slider_threads.value(),
             "play_sound": self.chk_sound.isChecked(),
+            "viewer_path": self.le_viewer_path.text().strip(),
             
             "api_keys": {
                 "aladin": self.le_aladin_key.text().strip(),

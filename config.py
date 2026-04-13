@@ -53,7 +53,8 @@ def load_config():
         "lang": sys_lang, "target_format": "none", "backup_on": False,
         "flatten_folders": False, "webp_conversion": False,
         "webp_quality": 100, "max_threads": default_threads,
-        "play_sound": True
+        "play_sound": True,
+        "viewer_path": ""
     }
     try:
         if os.path.exists(CONFIG_FILE):
