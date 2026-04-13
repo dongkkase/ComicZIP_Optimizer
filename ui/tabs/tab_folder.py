@@ -1,17 +1,19 @@
 import os
+import subprocess
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTreeView, QListView, 
-    QTableView, QLabel, QPushButton, QSlider, QFrame, QToolBar, QMenu, QFileSystemModel
+    QTableView, QLabel, QPushButton, QSlider, QFrame, QMenu, QMessageBox
 )
+from PyQt6.QtGui import QFileSystemModel, QAction, QCursor
 from PyQt6.QtCore import Qt, QDir
-import qtawesome as qta
 
 class TabFolder(QWidget):
     def __init__(self, main_window):
         super().__init__()
         self.main_window = main_window
+        self.config = main_window.config
         self.setup_ui()
-
+        self.setup_context_menus()
     def setup_ui(self):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(5, 5, 5, 5)
@@ -141,3 +143,93 @@ class TabFolder(QWidget):
             self.main_splitter.setSizes([250, sizes[1] if sizes[1] > 0 else 800])
         else:
             self.main_splitter.setSizes([0, sizes[0] + sizes[1]])
+
+    def setup_context_menus(self):
+        # 트리 뷰 (탐색기) 우클릭 메뉴
+        self.tree_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree_view.customContextMenuRequested.connect(self.show_tree_context_menu)
+        
+        # 파일 리스트 우클릭 메뉴
+        self.file_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.file_view.customContextMenuRequested.connect(self.show_list_context_menu)
+
+    def show_tree_context_menu(self, position):
+        index = self.tree_view.indexAt(position)
+        if not index.isValid(): return
+        
+        path = self.dir_model.filePath(index)
+        menu = QMenu()
+        
+        act_explorer = QAction("Open in Explorer", self)
+        act_explorer.triggered.connect(lambda: self.open_in_explorer(path))
+        menu.addAction(act_explorer)
+        
+        act_rename = QAction("Rename (F2)", self)
+        # TODO: 폴더명 변경 로직 연동
+        menu.addAction(act_rename)
+        
+        act_refresh = QAction("Refresh", self)
+        # TODO: 탐색기 새로고침 로직
+        menu.addAction(act_refresh)
+        
+        menu.exec(self.tree_view.viewport().mapToGlobal(position))
+
+    def show_list_context_menu(self, position):
+        menu = QMenu()
+        
+        act_view = QAction("View", self)
+        act_view.triggered.connect(self.open_viewer)
+        menu.addAction(act_view)
+        
+        act_meta = QAction("Metadata edit (F2)", self)
+        act_meta.triggered.connect(self.send_to_tab3)
+        menu.addAction(act_meta)
+        
+        act_rename = QAction("Inner Renamer (F3)", self)
+        act_rename.triggered.connect(self.send_to_tab2)
+        menu.addAction(act_rename)
+        
+        menu.addSeparator()
+        
+        act_open_exp = QAction("Open in Explorer", self)
+        act_open_exp.triggered.connect(self.open_selected_in_explorer)
+        menu.addAction(act_open_exp)
+        
+        menu.exec(self.file_view.viewport().mapToGlobal(position))
+
+    def open_viewer(self):
+        viewer_path = self.config.get("viewer_path", "")
+        if not viewer_path or not os.path.exists(viewer_path):
+            QMessageBox.warning(self, "Warning", "환경 설정에서 뷰어 프로그램을 먼저 지정해주세요.")
+            return
+            
+        # TODO: 리스트에서 선택된 파일 경로 가져오기
+        selected_file = "" 
+        if selected_file:
+            subprocess.Popen([viewer_path, selected_file])
+
+    def open_in_explorer(self, path):
+        if os.name == 'nt':
+            os.startfile(path)
+        elif sys.platform == 'darwin':
+            subprocess.Popen(['open', path])
+        else:
+            subprocess.Popen(['xdg-open', path])
+
+    def open_selected_in_explorer(self):
+        # TODO: 선택된 파일의 부모 폴더를 탐색기로 열기
+        pass
+
+    def send_to_tab2(self):
+        # TODO: 선택된 파일 추출
+        files = [] 
+        if files and hasattr(self.main_window, 'tab2'):
+            self.main_window.tabs.setCurrentWidget(self.main_window.tab2)
+            self.main_window.process_paths(files)
+
+    def send_to_tab3(self):
+        # TODO: 선택된 파일 추출
+        files = [] 
+        if files and hasattr(self.main_window, 'tab3'):
+            self.main_window.tabs.setCurrentWidget(self.main_window.tab3)
+            self.main_window.process_paths(files)
