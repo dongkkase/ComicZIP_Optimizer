@@ -599,7 +599,37 @@ class Tab2Renamer(QWidget):
             return int(self.le_start_num.text() or 0)
         except ValueError:
             return 0
+
+    def process_paths(self, paths):
+        """
+        폴더 탭(TabFolder) 등 외부에서 전달받은 파일/폴더 경로 리스트를 처리하여 목록에 추가합니다.
+        """
+        target_exts = {'.zip', '.cbz', '.cbr', '.rar', '.7z'}
+        valid_paths = []
         
+        for p in paths:
+            path_obj = Path(p)
+            if path_obj.is_file() and path_obj.suffix.lower() in target_exts:
+                valid_paths.append(str(path_obj))
+            elif path_obj.is_dir():
+                for root, _, files in os.walk(p):
+                    for f in files:
+                        if Path(f).suffix.lower() in target_exts:
+                            valid_paths.append(os.path.join(root, f))
+        
+        if not valid_paths:
+            return
+            
+        for fp in valid_paths:
+            if fp not in self.archive_data:
+                self.load_archive_info(fp, batch_mode=True)
+                
+        self.refresh_list()
+        
+        # 목록이 갱신된 후, 선택된 항목이 없다면 첫 번째 항목을 자동 선택
+        if self.table_archives.rowCount() > 0 and self.current_archive_path is None:
+            self.table_archives.selectRow(0)
+
     def load_archive_info(self, filepath, batch_mode=False):
         try:
             size_mb = os.path.getsize(filepath) / (1024 * 1024)

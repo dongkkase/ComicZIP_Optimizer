@@ -25,6 +25,7 @@ from tasks.rename_task import RenameTask
 from ui.tabs.tab1_organizer import Tab1Organizer
 from ui.tabs.tab2_renamer import Tab2Renamer
 from ui.tabs.tab3_metadata import Tab3Metadata
+from ui.tabs.tab_folder import TabFolder
 
 from core.i18n import get_i18n
 
@@ -181,13 +182,13 @@ class RenamerApp(QMainWindow):
 
         self.tabs = QTabWidget()
         
-        self.tab_folders = QWidget()
+        self.tab_folder = TabFolder(self)
         self.tab1 = Tab1Organizer(self)
         self.tab2 = Tab2Renamer(self)
         self.tab3 = Tab3Metadata(self)
         self.tab_releases = QWidget() 
         
-        self.tabs.addTab(self.tab_folders, "")
+        self.tabs.addTab(self.tab_folder, "폴더")
         self.tabs.addTab(self.tab1, "")
         self.tabs.addTab(self.tab2, "")
         self.tabs.addTab(self.tab3, "")
@@ -305,7 +306,7 @@ class RenamerApp(QMainWindow):
     def apply_language(self):
         t = self.i18n[self.lang]
         self.setWindowTitle(t["title"])
-        self.tabs.setTabText(0, t["tab_folders"])
+        self.tabs.setTabText(0, t.get("tab_folder", "폴더"))
         self.tabs.setTabText(1, t["tab1"])
         self.tabs.setTabText(2, t["tab2"])
         self.tabs.setTabText(3, t["tab3"])

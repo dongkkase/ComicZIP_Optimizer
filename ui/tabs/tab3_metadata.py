@@ -896,6 +896,12 @@ class Tab3Metadata(QWidget):
             else:
                 res_widget.setText(val)
 
+    def process_paths(self, paths):
+        """
+        폴더 탭(TabFolder)에서 F2(메타데이터 편집)를 눌렀을 때 호출되는 브릿지 함수입니다.
+        """
+        self.load_paths(paths)
+
     def load_paths(self, paths):
         t = self.main_app.i18n[self.main_app.lang]
         self.main_app.progress_bar.show(); self.main_app.progress_bar.setRange(0, 0)

@@ -1,6 +1,10 @@
 import sys
 import ctypes
 import traceback
+import os
+
+os.environ["QT_LOGGING_RULES"] = "qt.gui.icc.warning=false"
+
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QSharedMemory
 from ui.main_window import RenamerApp
