@@ -306,7 +306,7 @@ class RenamerApp(QMainWindow):
     def apply_language(self):
         t = self.i18n[self.lang]
         self.setWindowTitle(t["title"])
-        self.tabs.setTabText(0, t.get("tab_folder", "폴더"))
+        self.tabs.setTabText(0, t["tab_folders"])
         self.tabs.setTabText(1, t["tab1"])
         self.tabs.setTabText(2, t["tab2"])
         self.tabs.setTabText(3, t["tab3"])

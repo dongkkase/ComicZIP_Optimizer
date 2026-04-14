@@ -23,6 +23,23 @@ from config import get_resource_path, save_config
 from core.library_db import db
 
 # ==========================================
+# [핵심 수정] i18n.py 구조에 맞춘 완벽한 다국어 처리 로직
+# ==========================================
+from core.i18n import get_i18n
+
+_TRANSLATIONS = get_i18n()
+_CURRENT_LANG = "ko"
+
+def set_language(lang_code):
+    global _CURRENT_LANG
+    if lang_code in _TRANSLATIONS:
+        _CURRENT_LANG = lang_code
+
+def _(key):
+    # 현재 언어의 딕셔너리에서 키를 찾고, 없으면 한국어에서 찾고, 그래도 없으면 키값 자체를 반환
+    return _TRANSLATIONS.get(_CURRENT_LANG, _TRANSLATIONS["ko"]).get(key, key)
+
+# ==========================================
 # 스마트 인메모리 스레드
 # ==========================================
 class MemoryExtractThread(QThread):
@@ -48,9 +65,7 @@ class MemoryExtractThread(QThread):
             img_bytes = b""
             has_img_out = False
 
-            # 1. 썸네일 캐시가 이미 있는지 확인
             if needs_img and thumb_path and os.path.exists(thumb_path):
-                # [핵심 방어] 0바이트 파일은 "이미지 없음"으로 판정하고 무한루프 방지
                 if os.path.getsize(thumb_path) > 0:
                     qimg = QImage()
                     qimg.load(thumb_path)
@@ -107,7 +122,6 @@ class MemoryExtractThread(QThread):
                 except Exception:
                     pass
 
-            # 2. 이미지 처리 및 해상도 추출
             if img_bytes and not has_img_out:
                 qimg = QImage()
                 qimg.loadFromData(img_bytes)
@@ -118,11 +132,9 @@ class MemoryExtractThread(QThread):
                         qimg.save(thumb_path, "WEBP", 85)
                     has_img_out = True
                 else:
-                    # [핵심 방어] 이미지가 손상되었을 경우 0바이트 캐시 생성
                     if thumb_path: open(thumb_path, 'wb').close()
                     has_img_out = True
             elif needs_img and not has_img_out and not img_bytes:
-                # [핵심 방어] 압축 파일 내부에 이미지가 아예 없는 경우 0바이트 캐시 생성 (무한 루프 원천 차단)
                 if thumb_path: open(thumb_path, 'wb').close()
                 has_img_out = True
 
@@ -319,7 +331,7 @@ class ThumbnailDelegate(QStyledItemDelegate):
             painter.setPen(QColor("#3498DB"))
             font = QFont("맑은 고딕", 11, QFont.Weight.Bold)
             painter.setFont(font)
-            text = f"📂 {row_data['name']} ({row_data['count']} 항목)"
+            text = _("group_header").format(row_data['name'], row_data['count'])
             flags = Qt.AlignmentFlag.AlignLeft.value | Qt.AlignmentFlag.AlignVCenter.value
             painter.drawText(option.rect.adjusted(10, 0, -10, -5), flags, text)
             
@@ -327,7 +339,45 @@ class ThumbnailDelegate(QStyledItemDelegate):
             painter.drawLine(option.rect.left() + 5, option.rect.bottom() - 2, option.rect.right() - 5, option.rect.bottom() - 2)
             painter.restore()
             return
-        
+            
+        if self.view_mode == "detail":
+            col_id = index.model().active_columns[index.column()]
+            if col_id == "cover":
+                file_hash = row_data.get("hash", "")
+                pixmap = QPixmap()
+                if file_hash:
+                    cached_pixmap = QPixmapCache.find(file_hash)
+                    if cached_pixmap is not None and not cached_pixmap.isNull():
+                        pixmap = cached_pixmap
+                    else:
+                        thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.webp")
+                        if row_data.get("thumb_processed") and os.path.exists(thumb_path) and os.path.getsize(thumb_path) > 0:
+                            pixmap.load(thumb_path)
+                            if not pixmap.isNull():
+                                QPixmapCache.insert(file_hash, pixmap)
+                
+                if option.state & QStyle.StateFlag.State_Selected:
+                    painter.fillRect(option.rect, QColor("#3a7ebf"))
+                    
+                if not pixmap.isNull():
+                    rect = option.rect
+                    target_rect = rect.adjusted(2, 2, -2, -2)
+                    scaled_pixmap = pixmap.scaled(
+                        target_size:=target_rect.size(),
+                        Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                        Qt.TransformationMode.SmoothTransformation
+                    )
+                    crop_x = (scaled_pixmap.width() - target_rect.width()) // 2
+                    crop_y = (scaled_pixmap.height() - target_rect.height()) // 2
+                    cropped_pixmap = scaled_pixmap.copy(crop_x, crop_y, target_rect.width(), target_rect.height())
+                    painter.drawPixmap(target_rect.topLeft(), cropped_pixmap)
+                painter.restore()
+                return 
+            else:
+                super().paint(painter, option, index)
+                painter.restore()
+                return
+
         file_name = row_data.get("name", "")
         file_hash = row_data.get("hash", "")
         
@@ -339,7 +389,6 @@ class ThumbnailDelegate(QStyledItemDelegate):
             else:
                 thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.webp")
                 if row_data.get("thumb_processed") and os.path.exists(thumb_path):
-                    # [방어막] 0바이트 파일은 렌더링 시도하지 않음
                     if os.path.getsize(thumb_path) > 0:
                         pixmap.load(thumb_path)
                         if not pixmap.isNull():
@@ -409,7 +458,7 @@ class ThumbnailDelegate(QStyledItemDelegate):
 class ColumnSelectDialog(QDialog):
     def __init__(self, parent, current_columns, all_columns):
         super().__init__(parent)
-        self.setWindowTitle("Edit List Layout")
+        self.setWindowTitle(_("dlg_edit_lay_title"))
         self.setFixedSize(320, 500)
         self.setStyleSheet("background-color: #2b2b2b; color: white;")
         self.selected_columns = list(current_columns)
@@ -419,7 +468,7 @@ class ColumnSelectDialog(QDialog):
 
     def setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("표시할 컬럼을 선택하세요:"))
+        layout.addWidget(QLabel(_("dlg_edit_lay_msg")))
         
         self.list_widget = QListWidget()
         self.list_widget.setStyleSheet("background-color: #1e1e1e; border: 1px solid #444;")
@@ -443,21 +492,23 @@ class ColumnSelectDialog(QDialog):
 # 메인 테이블 모델
 # ==========================================
 class LibraryTableModel(QAbstractTableModel):
-    def __init__(self, data=None):
+    def __init__(self, data=None, thumb_dir=""):
         super().__init__()
         self._data = data or []
+        self.thumb_dir = thumb_dir
         self.ALL_COLUMNS = {
-            "name": "파일명", "size": "용량", "res": "해상도", "mtime": "수정일", "ctime": "생성일", 
-            "path": "파일경로", "ext": "확장자", "series": "시리즈", "title": "제목", 
-            "vol": "권", "num": "화", "writer": "작가",
-            "series_group": "시리즈 그룹", "creators": "제작진", "publisher": "출판사", "imprint": "임프린트",
-            "genre": "장르", "volume_count": "전체권수", "page_count": "페이지수", "format": "포맷",
-            "manga": "망가(방향)", "language": "언어", "rating": "평점", "age_rating": "연령등급", 
-            "publish_date": "출간일", "summary": "줄거리", "characters": "등장인물", 
-            "teams": "팀", "locations": "장소", "story_arc": "스토리 아크", 
-            "tags": "태그", "notes": "메모", "web": "링크"
+            "cover": _("col_cover"),
+            "name": _("col_name"), "size": _("col_size"), "res": _("col_res"), "mtime": _("col_mtime"), "ctime": _("col_ctime"), 
+            "path": _("col_path"), "ext": _("col_ext"), "series": _("col_series"), "title": _("col_title"), 
+            "vol": _("col_vol"), "num": _("col_num"), "writer": _("col_writer"),
+            "series_group": _("col_series_group"), "creators": _("col_creators"), "publisher": _("col_publisher"), "imprint": _("col_imprint"),
+            "genre": _("col_genre"), "volume_count": _("col_vol_count"), "page_count": _("col_page_count"), "format": _("col_format"),
+            "manga": _("col_manga"), "language": _("col_language"), "rating": _("col_rating"), "age_rating": _("col_age_rating"), 
+            "publish_date": _("col_pub_date"), "summary": _("col_summary"), "characters": _("col_characters"), 
+            "teams": _("col_teams"), "locations": _("col_locations"), "story_arc": _("col_story_arc"), 
+            "tags": _("col_tags"), "notes": _("col_notes"), "web": _("col_web")
         }
-        self.active_columns = ["name", "size", "mtime", "series", "title", "writer"]
+        self.active_columns = ["cover", "name", "size", "mtime", "series", "title", "writer"]
 
     def set_columns(self, columns):
         self.beginResetModel()
@@ -470,7 +521,7 @@ class LibraryTableModel(QAbstractTableModel):
 
         if row_data.get("is_group"):
             if role == Qt.ItemDataRole.DisplayRole and index.column() == 0:
-                return f"📁 {row_data['name']} ({row_data['count']} 항목)"
+                return _("group_header").format(row_data['name'], row_data['count'])
             elif role == Qt.ItemDataRole.BackgroundRole:
                 return QColor("#222222")
             elif role == Qt.ItemDataRole.ForegroundRole:
@@ -481,14 +532,17 @@ class LibraryTableModel(QAbstractTableModel):
                 return font
             return None
 
+        col_id = self.active_columns[index.column()]
+
+        if col_id == "cover" and role == Qt.ItemDataRole.DisplayRole:
+            return None 
+
         if role == Qt.ItemDataRole.TextAlignmentRole:
-            col_id = self.active_columns[index.column()]
             if col_id in ["res", "vol", "num", "size", "mtime", "ctime", "volume_count", "page_count", "rating", "age_rating", "publish_date"]:
                 return Qt.AlignmentFlag.AlignCenter.value
             return Qt.AlignmentFlag.AlignLeft.value | Qt.AlignmentFlag.AlignVCenter.value
 
         if role == Qt.ItemDataRole.DisplayRole:
-            col_id = self.active_columns[index.column()]
             if col_id in row_data and row_data[col_id] != "":
                 val = row_data[col_id]
             else:
@@ -553,6 +607,10 @@ class TabFolder(QWidget):
         self.main_window = main_window
         self.config = main_window.config
         
+        # [핵심 추가] 초기 언어 설정 (config에서 불러옴)
+        lang = self.config.get("language", self.config.get("lang", "ko"))
+        set_language(lang)
+        
         QPixmapCache.setCacheLimit(102400)
         
         self.scan_thread = None
@@ -573,6 +631,7 @@ class TabFolder(QWidget):
         self.sync_total_tasks = 0
         self.sync_completed_tasks = 0
         self.is_syncing = False
+        self.is_force_syncing = False
 
         self.scroll_timer = QTimer()
         self.scroll_timer.setSingleShot(True)
@@ -601,7 +660,7 @@ class TabFolder(QWidget):
         if hasattr(self, 'main_optimize_btn') and self.main_optimize_btn:
             self.main_optimize_btn.hide()
         if hasattr(self, 'main_status_label') and self.main_status_label:
-            self.main_status_label.setText("대기 중...")
+            self.main_status_label.setText(_("folder_ready"))
 
     def hideEvent(self, event):
         super().hideEvent(event)
@@ -610,12 +669,12 @@ class TabFolder(QWidget):
 
     def find_main_window_elements(self):
         for lbl in self.main_window.findChildren(QLabel):
-            if lbl.text() == "대기 중..." or "대기 중" in lbl.text():
+            if lbl.text() in ["대기 중...", "Ready", "待機中..."] or "대기 중" in lbl.text():
                 self.main_status_label = lbl
                 break
                 
         for btn in self.main_window.findChildren(QPushButton):
-            if "최적화 실행" in btn.text():
+            if "최적화" in btn.text() or "Optimize" in btn.text() or "最適化" in btn.text():
                 self.main_optimize_btn = btn
                 if self.isVisible(): 
                     self.main_optimize_btn.hide()
@@ -676,12 +735,12 @@ class TabFolder(QWidget):
         left_layout.setContentsMargins(5, 5, 5, 5)
         
         left_toolbar = QHBoxLayout()
-        self.btn_subfolders = QPushButton("☐ Include Subfolders")
+        self.btn_subfolders = QPushButton(_("folder_inc_sub_off"))
         self.btn_subfolders.setCheckable(True)
         self.btn_subfolders.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_subfolders.setStyleSheet(toggle_btn_style)
         
-        self.btn_refresh_tree = QPushButton("Refresh (F5)")
+        self.btn_refresh_tree = QPushButton(_("folder_refresh_tree"))
         self.btn_refresh_tree.setCursor(Qt.CursorShape.PointingHandCursor)
         left_toolbar.addWidget(self.btn_subfolders)
         left_toolbar.addStretch()
@@ -727,7 +786,7 @@ class TabFolder(QWidget):
 
         list_toolbar = QHBoxLayout()
         
-        self.btn_sidebar = QPushButton("☑ Sidebar")
+        self.btn_sidebar = QPushButton(_("folder_sidebar_on"))
         self.btn_sidebar.setCheckable(True)
         self.btn_sidebar.setChecked(True)
         self.btn_sidebar.setStyleSheet(toggle_btn_style)
@@ -739,30 +798,30 @@ class TabFolder(QWidget):
         """
         
         self.btn_views = QToolButton()
-        self.btn_views.setText("Views ▼")
+        self.btn_views.setText(_("folder_views"))
         self.btn_views.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.btn_views.setStyleSheet(menu_btn_style)
         
         self.btn_grouped = QToolButton()
-        self.btn_grouped.setText("Grouped ▼")
+        self.btn_grouped.setText(_("folder_grouped"))
         self.btn_grouped.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.btn_grouped.setStyleSheet(menu_btn_style)
 
         self.btn_sorted = QToolButton()
-        self.btn_sorted.setText("Sorted ▼")
+        self.btn_sorted.setText(_("folder_sorted"))
         self.btn_sorted.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.btn_sorted.setStyleSheet(menu_btn_style)
 
         self.btn_layouts = QToolButton()
-        self.btn_layouts.setText("Manage List Layouts ▼")
+        self.btn_layouts.setText(_("folder_layouts"))
         self.btn_layouts.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.btn_layouts.setStyleSheet(menu_btn_style)
         
-        self.btn_export = QPushButton("Export CSV")
+        self.btn_export = QPushButton(_("folder_export_csv"))
         self.btn_export.setStyleSheet(toggle_btn_style)
         
         self.search_bar = QLineEdit()
-        self.search_bar.setPlaceholderText("검색 (제목, 작가, 파일명 등)...")
+        self.search_bar.setPlaceholderText(_("folder_search_ph"))
         self.search_bar.setClearButtonEnabled(True)
         self.search_bar.setFixedWidth(220)
         self.search_bar.setStyleSheet("""
@@ -770,7 +829,7 @@ class TabFolder(QWidget):
             QLineEdit:focus { border: 1px solid #3498DB; }
         """)
         
-        self.btn_refresh_list = QPushButton("Refresh")
+        self.btn_refresh_list = QPushButton(_("folder_refresh_list"))
         
         self.btn_sidebar.setCursor(Qt.CursorShape.PointingHandCursor)
         list_toolbar.addWidget(self.btn_sidebar)
@@ -785,10 +844,12 @@ class TabFolder(QWidget):
         right_top_layout.addLayout(list_toolbar)
 
         self.view_stack = QStackedWidget()
-        self.table_model = LibraryTableModel()
+        self.table_model = LibraryTableModel(thumb_dir=self.thumb_dir)
+        self.item_delegate = ThumbnailDelegate(self.view_stack, self.thumb_dir)
         
         self.table_view = CustomTableView()
         self.table_view.setModel(self.table_model)
+        self.table_view.setItemDelegate(self.item_delegate)
         self.table_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table_view.verticalHeader().hide()
@@ -799,11 +860,11 @@ class TabFolder(QWidget):
         self.table_view.setStyleSheet("QTableView { border: none; background-color: transparent; }")
         self.table_view.setDragEnabled(False)
         self.table_view.setDragDropMode(QAbstractItemView.DragDropMode.NoDragDrop)
-        self.table_view.verticalHeader().setDefaultSectionSize(36)
+        self.table_view.verticalHeader().setDefaultSectionSize(64) 
+        self.table_view.setIconSize(QSize(45, 60)) 
         
         self.list_view = QListView()
         self.list_view.setModel(self.table_model)
-        self.item_delegate = ThumbnailDelegate(self.list_view, self.thumb_dir)
         self.list_view.setItemDelegate(self.item_delegate)
         self.list_view.setViewMode(QListView.ViewMode.IconMode)
         self.list_view.setResizeMode(QListView.ResizeMode.Adjust)
@@ -824,7 +885,7 @@ class TabFolder(QWidget):
         right_bottom_layout = QHBoxLayout(self.right_bottom_panel)
         right_bottom_layout.setContentsMargins(15, 15, 15, 15)
         
-        self.lbl_cover = QLabel("Cover Image")
+        self.lbl_cover = QLabel(_("folder_cover_img"))
         self.lbl_cover.setFixedSize(220, 310) 
         self.lbl_cover.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_cover.setStyleSheet("border: 1px solid #555; background-color: #1a1a1a; border-radius: 4px;")
@@ -851,7 +912,7 @@ class TabFolder(QWidget):
         bottom_bar = QHBoxLayout()
         bottom_bar.setContentsMargins(5, 0, 5, 0)
         
-        self.lbl_tree_status = QLabel("Ready")
+        self.lbl_tree_status = QLabel(_("folder_ready"))
         self.lbl_tree_status.setStyleSheet("color: #aaaaaa; font-size: 12px;")
         bottom_bar.addWidget(self.lbl_tree_status)
         
@@ -872,17 +933,17 @@ class TabFolder(QWidget):
         self.slider_item_size.setRange(80, 300)
         self.slider_item_size.setValue(120)
         self.slider_item_size.setFixedWidth(200)
-        bottom_bar.addWidget(QLabel("Item Size:"))
+        bottom_bar.addWidget(QLabel(_("folder_item_size")))
         bottom_bar.addWidget(self.slider_item_size)
         
         self.main_layout.addLayout(bottom_bar)
         
         self.btn_sidebar.toggled.connect(self.toggle_sidebar)
-        self.btn_sidebar.toggled.connect(lambda checked: self.btn_sidebar.setText("☑ Sidebar" if checked else "☐ Sidebar"))
+        self.btn_sidebar.toggled.connect(lambda checked: self.btn_sidebar.setText(_("folder_sidebar_on") if checked else _("folder_sidebar_off")))
         self.btn_refresh_tree.clicked.connect(self.refresh_tree)
         self.btn_refresh_list.clicked.connect(self.refresh_list)
         self.btn_subfolders.toggled.connect(self.refresh_list)
-        self.btn_subfolders.toggled.connect(lambda checked: self.btn_subfolders.setText("☑ Include Subfolders" if checked else "☐ Include Subfolders"))
+        self.btn_subfolders.toggled.connect(lambda checked: self.btn_subfolders.setText(_("folder_inc_sub_on") if checked else _("folder_inc_sub_off")))
         
         self.slider_item_size.valueChanged.connect(self.on_size_changed)
         self.tree_view.selectionModel().selectionChanged.connect(self.on_tree_selection_changed)
@@ -906,8 +967,10 @@ class TabFolder(QWidget):
     def _requires_full_metadata(self):
         return self.current_group_key in ["series", "writer"] or self.current_sort_key in ["series", "writer", "title"]
 
-    # [수정] 무한 로딩 방지 및 강제 갱신 시 전체 파일 백그라운드 처리 보장
     def _do_background_load(self):
+        if self.is_force_syncing:
+            return
+
         if self.extract_thread and self.extract_thread.isRunning():
             return
 
@@ -915,9 +978,7 @@ class TabFolder(QWidget):
         rect = view.viewport().rect()
         target_exts = ('.zip', '.cbz', '.cbr', '.rar', '.7z')
         
-        # [핵심 1] 단일 파일이 아닌, 사용자가 선택한 '모든' 파일 목록을 가져옵니다.
         selected_paths = set(self.get_selected_files())
-        
         visible_tasks = []
         hidden_tasks = []
         
@@ -930,7 +991,6 @@ class TabFolder(QWidget):
             has_img = r.get("thumb_processed")
             has_meta = r.get("meta_processed")
             
-            # 처리가 완전히 끝났으면 패스
             if has_img and has_meta: continue
             
             disp_idx = r.get("display_index", -1)
@@ -940,36 +1000,31 @@ class TabFolder(QWidget):
             else:
                 is_visible = False
                 
-            # [핵심 2] 현재 파일이 '다중 선택된 파일' 그룹에 속해있는지 확인합니다.
             is_selected = fp in selected_paths
-            
             needs_img = not has_img
             needs_meta = not has_meta
             
             thumb_path = os.path.join(self.thumb_dir, f"{r.get('hash', '')}.webp")
             task = (fp, needs_img, needs_meta, thumb_path)
             
-            # 우선순위: 화면에 보이거나, 강제로 선택된 파일들을 최우선 큐에 배정
             if is_visible or is_selected:
                 visible_tasks.append(task)
             else:
-                # [핵심 3] 화면 밖의 파일도 버리지 않고 무조건 대기열에 넣어 완벽한 전체 동기화 보장
                 hidden_tasks.append(task)
                 
         if not visible_tasks and not hidden_tasks:
             self.is_syncing = False
             self.progress_bar.hide()
             if hasattr(self, 'main_status_label') and self.main_status_label:
-                self.main_status_label.setText("대기 중...")
+                self.main_status_label.setText(_("folder_ready"))
             return
 
         tasks = (visible_tasks + hidden_tasks)[:50] 
         real_heavy_tasks_count = sum(1 for t in tasks if t[2] or (t[1] and not os.path.exists(t[3])))
         
-        # 총 작업량 카운팅
         if not self.is_syncing and real_heavy_tasks_count > 0:
-            total_unprocessed = sum(1 for r in self.table_model._data if not r.get("is_group") and (not r.get("meta_processed") or not r.get("thumb_processed")) and r.get("full_path", "").lower().endswith(target_exts))
-            self.sync_total_tasks = total_unprocessed
+            total_heavy = sum(1 for r in self.table_model._data if not r.get("is_group") and not r.get("meta_processed") and r.get("full_path", "").lower().endswith(target_exts))
+            self.sync_total_tasks = total_heavy
             self.sync_completed_tasks = 0
             self.is_syncing = True
 
@@ -996,7 +1051,7 @@ class TabFolder(QWidget):
         self.extract_thread.start()
 
     def on_extract_progress(self, count):
-        if not self.is_syncing: return
+        if not self.is_syncing and not self.is_force_syncing: return
         
         self.sync_completed_tasks += count
         if self.sync_completed_tasks > self.sync_total_tasks:
@@ -1006,25 +1061,27 @@ class TabFolder(QWidget):
         self.progress_bar.setMaximum(self.sync_total_tasks)
         self.progress_bar.setValue(self.sync_completed_tasks)
         
-        status_text = f"메타데이터 최적화 중... ({self.sync_completed_tasks}/{self.sync_total_tasks})"
+        status_text = _("folder_optimizing").format(self.sync_completed_tasks, self.sync_total_tasks)
         if hasattr(self, 'main_status_label') and self.main_status_label:
             self.main_status_label.setText(status_text)
             
         if self.sync_completed_tasks >= self.sync_total_tasks:
             self.progress_bar.hide()
             self.is_syncing = False
+            self.is_force_syncing = False
             if hasattr(self, 'main_status_label') and self.main_status_label:
-                self.main_status_label.setText("대기 중...")
+                self.main_status_label.setText(_("folder_ready"))
 
-    # [핵심 추가] 우클릭 컨텍스트 메뉴에서 사용하는 "Update files (강제 추출)" 기능
     def force_update_selected_files(self):
         paths = self.get_selected_files()
         if not paths: return
         
+        target_exts = ('.zip', '.cbz', '.cbr', '.rar', '.7z')
+        tasks = []
+        
         for fp in paths:
             row = self.file_data_map.get(fp)
-            if row:
-                # 1. 로컬 캐시 삭제
+            if row and fp.lower().endswith(target_exts):
                 file_hash = row.get("hash", "")
                 if file_hash:
                     thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.webp")
@@ -1033,23 +1090,42 @@ class TabFolder(QWidget):
                         except: pass
                     QPixmapCache.remove(file_hash)
                 
-                # 2. 메타데이터 마커 초기화 (강제 재추출을 위함)
                 row["meta_processed"] = False
                 row["thumb_processed"] = False
                 row["res"] = ""
                 row["full_meta"] = {}
                 
-        # 3. 화면 갱신 및 백그라운드 강제 로딩 시작
+                tasks.append((fp, True, True, thumb_path))
+                
+        if not tasks: return
+
+        if self.extract_thread and self.extract_thread.isRunning():
+            self.extract_thread.cancel()
+            self.extract_thread.wait()
+            self.extract_thread = None
+            
+        self.scroll_timer.stop()
+        self.is_force_syncing = True 
+        self.is_syncing = False 
+
+        self.sync_total_tasks = len(tasks)
+        self.sync_completed_tasks = 0
+        
         self.apply_grouping_and_sorting()
-        self.is_syncing = False # 진행률 바를 리셋하기 위해 강제 false 처리
-        self._do_background_load()
+        
+        seven_zip_path = get_resource_path('7za.exe')
+        self.extract_thread = MemoryExtractThread(tasks, seven_zip_path)
+        self.extract_thread.show_progress = True
+        self.extract_thread.data_extracted.connect(self.on_metadata_extracted)
+        self.extract_thread.progress_updated.connect(self.on_extract_progress)
+        self.extract_thread.start()
 
     def export_csv(self):
         if not self.table_model._data:
-            QMessageBox.information(self, "Export", "내보낼 데이터가 없습니다.")
+            QMessageBox.information(self, "Export", _("dlg_exp_no_data"))
             return
             
-        filepath, _ = QFileDialog.getSaveFileName(self, "소장 목록 CSV 저장", "My_Library_Export.csv", "CSV Files (*.csv)")
+        filepath, _ = QFileDialog.getSaveFileName(self, _("dlg_exp_title"), "My_Library_Export.csv", "CSV Files (*.csv)")
         if not filepath:
             return
             
@@ -1070,9 +1146,9 @@ class TabFolder(QWidget):
                     row_data = [str(row.get(col, "")) for col in visual_cols]
                     writer.writerow(row_data)
                     
-            QMessageBox.information(self, "Export", "CSV 데이터 내보내기가 완료되었습니다.")
+            QMessageBox.information(self, "Export", _("dlg_exp_done"))
         except Exception as e:
-            QMessageBox.critical(self, "Export Error", f"오류가 발생했습니다:\n{e}")
+            QMessageBox.critical(self, "Export Error", _("dlg_err_occurred").format(e))
 
     def save_splitter_states(self, pos=0, index=0):
         self.config["folder_main_splitter"] = self.main_splitter.saveState().toHex().data().decode()
@@ -1089,16 +1165,16 @@ class TabFolder(QWidget):
     def populate_quick_access(self):
         self.combo_quick_access.blockSignals(True)
         self.combo_quick_access.clear()
-        self.combo_quick_access.addItem("📁 빠른 이동 (Quick Access)...", "")
+        self.combo_quick_access.addItem(_("folder_quick_access"), "")
         paths = [
-            ("바탕화면 (Desktop)", QStandardPaths.StandardLocation.DesktopLocation),
-            ("문서 (Documents)", QStandardPaths.StandardLocation.DocumentsLocation),
-            ("다운로드 (Downloads)", QStandardPaths.StandardLocation.DownloadLocation),
-            ("홈 (Home)", QStandardPaths.StandardLocation.HomeLocation),
+            (_("folder_desktop"), QStandardPaths.StandardLocation.DesktopLocation),
+            (_("folder_docs"), QStandardPaths.StandardLocation.DocumentsLocation),
+            (_("folder_downloads"), QStandardPaths.StandardLocation.DownloadLocation),
+            (_("folder_home"), QStandardPaths.StandardLocation.HomeLocation),
         ]
         for name, loc in paths:
             path = QStandardPaths.writableLocation(loc)
-            if path: self.combo_quick_access.addItem(f"⭐ {name}", path)
+            if path: self.combo_quick_access.addItem(name, path)
 
         custom_favs = self.config.get("folder_favorites", [])
         if custom_favs:
@@ -1138,29 +1214,29 @@ class TabFolder(QWidget):
 
     def setup_menus(self):
         self.menu_views = QMenu(self)
-        self.menu_views.addAction("Detail", lambda: self.set_view_mode("detail"))
-        self.menu_views.addAction("Thumbnail", lambda: self.set_view_mode("thumbnail"))
-        self.menu_views.addAction("Tile", lambda: self.set_view_mode("tile"))
+        self.menu_views.addAction(_("menu_detail"), lambda: self.set_view_mode("detail"))
+        self.menu_views.addAction(_("menu_thumbnail"), lambda: self.set_view_mode("thumbnail"))
+        self.menu_views.addAction(_("menu_tile"), lambda: self.set_view_mode("tile"))
         self.btn_views.setMenu(self.menu_views)
 
         self.menu_grouped = QMenu(self)
-        self.menu_grouped.addAction("None", lambda: self.set_grouping("none"))
-        self.menu_grouped.addAction("폴더 (Folder)", lambda: self.set_grouping("path"))
-        self.menu_grouped.addAction("확장자 (Extension)", lambda: self.set_grouping("ext"))
-        self.menu_grouped.addAction("시리즈 (Series)", lambda: self.set_grouping("series"))
-        self.menu_grouped.addAction("작가 (Writer)", lambda: self.set_grouping("writer"))
+        self.menu_grouped.addAction(_("menu_none"), lambda: self.set_grouping("none"))
+        self.menu_grouped.addAction(_("menu_folder"), lambda: self.set_grouping("path"))
+        self.menu_grouped.addAction(_("col_ext"), lambda: self.set_grouping("ext"))
+        self.menu_grouped.addAction(_("col_series"), lambda: self.set_grouping("series"))
+        self.menu_grouped.addAction(_("col_writer"), lambda: self.set_grouping("writer"))
         self.btn_grouped.setMenu(self.menu_grouped)
 
         self.menu_sorted = QMenu(self)
-        self.menu_sorted.addAction("파일명 (Name)", lambda: self.set_sorting("name"))
-        self.menu_sorted.addAction("용량 (Size)", lambda: self.set_sorting("size"))
-        self.menu_sorted.addAction("수정일 (Date Modified)", lambda: self.set_sorting("mtime"))
-        self.menu_sorted.addAction("확장자 (Extension)", lambda: self.set_sorting("ext"))
-        self.menu_sorted.addAction("시리즈 (Series)", lambda: self.set_sorting("series"))
-        self.menu_sorted.addAction("제목 (Title)", lambda: self.set_sorting("title"))
-        self.menu_sorted.addAction("작가 (Writer)", lambda: self.set_sorting("writer"))
+        self.menu_sorted.addAction(_("col_name"), lambda: self.set_sorting("name"))
+        self.menu_sorted.addAction(_("col_size"), lambda: self.set_sorting("size"))
+        self.menu_sorted.addAction(_("col_mtime"), lambda: self.set_sorting("mtime"))
+        self.menu_sorted.addAction(_("col_ext"), lambda: self.set_sorting("ext"))
+        self.menu_sorted.addAction(_("col_series"), lambda: self.set_sorting("series"))
+        self.menu_sorted.addAction(_("col_title"), lambda: self.set_sorting("title"))
+        self.menu_sorted.addAction(_("col_writer"), lambda: self.set_sorting("writer"))
         self.menu_sorted.addSeparator()
-        self.menu_sorted.addAction("오름차순/내림차순 전환 (Toggle Order)", self.toggle_sort_order)
+        self.menu_sorted.addAction(_("menu_toggle_order"), self.toggle_sort_order)
         self.btn_sorted.setMenu(self.menu_sorted)
 
         self.menu_layouts = QMenu(self)
@@ -1189,7 +1265,7 @@ class TabFolder(QWidget):
         old_path = self.dir_model.filePath(index)
         old_name = os.path.basename(old_path)
         
-        new_name, ok = QInputDialog.getText(self, "폴더 이름 변경", "새 폴더 이름을 입력하세요:", text=old_name)
+        new_name, ok = QInputDialog.getText(self, _("dlg_ren_folder_title"), _("dlg_ren_folder_msg"), text=old_name)
         if ok and new_name and new_name != old_name:
             new_path = os.path.join(os.path.dirname(old_path), new_name)
             try:
@@ -1208,14 +1284,14 @@ class TabFolder(QWidget):
                     self.folder_watcher.addPath(new_path)
                     self.current_watched_folder = new_path
             except Exception as e:
-                QMessageBox.critical(self, "오류", f"폴더 이름을 변경할 수 없습니다:\n{e}")
+                QMessageBox.critical(self, _("dlg_err"), _("dlg_err_ren_folder").format(e))
 
     def delete_selected(self):
         if self.table_view.hasFocus() or self.list_view.hasFocus():
             files = self.get_selected_files()
             if not files: return
             
-            reply = QMessageBox.question(self, "파일 삭제", f"선택한 {len(files)}개의 파일을 정말 삭제하시겠습니까?\n(휴지통으로 이동하지 않고 영구 삭제됩니다)", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            reply = QMessageBox.question(self, _("dlg_del_file_title"), _("dlg_del_file_msg").format(len(files)), QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             if reply == QMessageBox.StandardButton.Yes:
                 for f in files:
                     try: os.remove(f)
@@ -1227,19 +1303,19 @@ class TabFolder(QWidget):
             if not index.isValid(): return
             path = self.dir_model.filePath(index)
             
-            reply = QMessageBox.question(self, "폴더 삭제", f"'{os.path.basename(path)}' 폴더와 내부의 모든 파일을 삭제하시겠습니까?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            reply = QMessageBox.question(self, _("dlg_del_folder_title"), _("dlg_del_folder_msg").format(os.path.basename(path)), QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             if reply == QMessageBox.StandardButton.Yes:
                 try:
                     shutil.rmtree(path)
                     self.remove_from_favorites(path)
                 except Exception as e:
-                    QMessageBox.critical(self, "오류", f"폴더를 삭제할 수 없습니다:\n{e}")
+                    QMessageBox.critical(self, _("dlg_err"), _("dlg_del_err").format(e))
 
     def load_initial_layout(self):
         view_mode = self.config.get("folder_view_mode", "detail")
         self.set_view_mode(view_mode)
         
-        active_cols = self.config.get("folder_active_columns", ["name", "size", "mtime", "series", "title", "writer"])
+        active_cols = self.config.get("folder_active_columns", ["cover", "name", "size", "mtime", "series", "title", "writer"])
         self.table_model.set_columns(active_cols)
         
         header_state_hex = self.config.get("folder_header_state", "")
@@ -1269,9 +1345,9 @@ class TabFolder(QWidget):
 
     def update_layouts_menu(self):
         self.menu_layouts.clear()
-        self.menu_layouts.addAction("Edit List Layout", self.open_layout_editor)
-        self.menu_layouts.addAction("Save List Layout", self.save_named_layout)
-        self.menu_layouts.addAction("Edit Layouts (Delete)", self.delete_named_layout)
+        self.menu_layouts.addAction(_("menu_edit_layout"), self.open_layout_editor)
+        self.menu_layouts.addAction(_("menu_save_layout"), self.save_named_layout)
+        self.menu_layouts.addAction(_("menu_del_layout"), self.delete_named_layout)
         self.menu_layouts.addSeparator()
         
         saved_layouts = self.config.get("saved_list_layouts", {})
@@ -1289,7 +1365,7 @@ class TabFolder(QWidget):
                 self.apply_grouping_and_sorting()
 
     def save_named_layout(self):
-        name, ok = QInputDialog.getText(self, "Save Layout", "저장할 레이아웃 이름을 입력하세요:")
+        name, ok = QInputDialog.getText(self, _("menu_save_layout"), _("dlg_save_lay_msg"))
         if ok and name:
             state = self.table_view.horizontalHeader().saveState().toHex().data().decode()
             saved_layouts = self.config.get("saved_list_layouts", {})
@@ -1301,7 +1377,7 @@ class TabFolder(QWidget):
     def delete_named_layout(self):
         saved_layouts = self.config.get("saved_list_layouts", {})
         if not saved_layouts: return
-        name, ok = QInputDialog.getItem(self, "Delete Layout", "삭제할 레이아웃 선택:", list(saved_layouts.keys()), 0, False)
+        name, ok = QInputDialog.getItem(self, _("menu_del_layout"), _("dlg_del_lay_msg"), list(saved_layouts.keys()), 0, False)
         if ok and name:
             del saved_layouts[name]
             self.config["saved_list_layouts"] = saved_layouts
@@ -1322,21 +1398,26 @@ class TabFolder(QWidget):
         
         if mode == "detail":
             self.view_stack.setCurrentIndex(0)
+            self.item_delegate.view_mode = "detail"
         else:
             self.view_stack.setCurrentIndex(1)
             self.item_delegate.view_mode = mode
             self.item_delegate.item_size = self.slider_item_size.value()
             self.list_view.setGridSize(QSize()) 
-            self.table_model.layoutChanged.emit()
             self.list_view.doItemsLayout()
+        self.table_model.layoutChanged.emit()
 
     def on_size_changed(self, value):
         self.item_delegate.item_size = value
         self.table_model.layoutChanged.emit()
         self.list_view.doItemsLayout()
         
-        table_row_height = max(24, int(value * 0.3))
+        table_row_height = max(36, int(value * 0.6))
         self.table_view.verticalHeader().setDefaultSectionSize(table_row_height)
+        
+        icon_h = table_row_height - 4
+        icon_w = int(icon_h * 0.75)
+        self.table_view.setIconSize(QSize(icon_w, icon_h))
 
     def toggle_sidebar(self, checked):
         self.left_panel.setVisible(checked)
@@ -1344,8 +1425,6 @@ class TabFolder(QWidget):
     def set_grouping(self, key):
         self.current_group_key = key
         self.apply_grouping_and_sorting()
-        if self._requires_full_metadata():
-            self.scroll_timer.start(100)
 
     def set_sorting(self, key):
         if self.current_sort_key == key:
@@ -1362,8 +1441,6 @@ class TabFolder(QWidget):
             self.table_view.horizontalHeader().clearIndicator()
             
         self.apply_grouping_and_sorting()
-        if self._requires_full_metadata():
-            self.scroll_timer.start(100)
 
     def on_header_clicked(self, logicalIndex):
         key = self.table_model.active_columns[logicalIndex]
@@ -1375,8 +1452,6 @@ class TabFolder(QWidget):
         
         self.table_view.horizontalHeader().setSortIndicator(logicalIndex, self.current_sort_order)
         self.apply_grouping_and_sorting()
-        if self._requires_full_metadata():
-            self.scroll_timer.start(100)
 
     def toggle_sort_order(self):
         self.current_sort_order = Qt.SortOrder.DescendingOrder if self.current_sort_order == Qt.SortOrder.AscendingOrder else Qt.SortOrder.AscendingOrder
@@ -1428,10 +1503,10 @@ class TabFolder(QWidget):
             current_group = object()
             for row in data:
                 g_val = safe_get(row, self.current_group_key)
-                if not g_val: g_val = "분류 없음 (Unknown)"
+                if not g_val: g_val = _("folder_unknown")
                 
                 if g_val != current_group:
-                    count = sum(1 for r in data if (safe_get(r, self.current_group_key) or "분류 없음 (Unknown)") == g_val)
+                    count = sum(1 for r in data if (safe_get(r, self.current_group_key) or _("folder_unknown")) == g_val)
                     display_data.append({"is_group": True, "name": g_val, "count": count})
                     current_group = g_val
                 display_data.append(row)
@@ -1458,7 +1533,7 @@ class TabFolder(QWidget):
         return f"{size:.1f} PB"
 
     def on_scan_progress(self, count):
-        self.lbl_tree_status.setText(f"📁 폴더 스캔 중... ({count}개 항목 확인됨)")
+        self.lbl_tree_status.setText(_("folder_scanning").format(count))
 
     def on_scan_finished(self, file_data_cache, total_size):
         self.is_syncing = False
@@ -1496,7 +1571,7 @@ class TabFolder(QWidget):
         
         folder_path = self.current_watched_folder
         if folder_path:
-            self.lbl_tree_status.setText(f"선택: {os.path.basename(folder_path)} | 항목: {len(self.file_data_cache)}개 | 총 용량: {self.format_size(total_size)}")
+            self.lbl_tree_status.setText(_("folder_status_sel").format(os.path.basename(folder_path), len(self.file_data_cache), self.format_size(total_size)))
             
         self.scroll_timer.start(100)
 
@@ -1528,6 +1603,8 @@ class TabFolder(QWidget):
         include_sub = self.btn_subfolders.isChecked()
         target_exts = ('.zip', '.cbz', '.cbr', '.rar', '.7z')
         
+        self.is_force_syncing = False
+        
         if self.scan_thread and self.scan_thread.isRunning():
             self.scan_thread.cancel()
             self.scan_thread.wait()
@@ -1544,10 +1621,10 @@ class TabFolder(QWidget):
         self.file_data_cache.clear()
         self.file_data_map.clear()
         self.table_model.update_data([])
-        self.lbl_tree_status.setText("📁 폴더 스캔 준비 중...")
+        self.lbl_tree_status.setText(_("folder_scan_prep"))
         self.is_syncing = False
         if hasattr(self, 'main_status_label') and self.main_status_label:
-            self.main_status_label.setText("대기 중...")
+            self.main_status_label.setText(_("folder_ready"))
         self.progress_bar.hide()
         
         self.scan_thread = FolderScanThread(folder_path, include_sub, target_exts, self.thumb_dir)
@@ -1555,7 +1632,6 @@ class TabFolder(QWidget):
         self.scan_thread.scan_finished.connect(self.on_scan_finished)
         self.scan_thread.start()
 
-    # [핵심 수정] 해상도가 뒤늦게 확보되어도 DB에 완벽히 덮어쓰도록 조건 해제
     def on_metadata_extracted(self, filepath, meta_dict, has_img_out):
         row = self.file_data_map.get(filepath)
         if not row: return
@@ -1564,54 +1640,40 @@ class TabFolder(QWidget):
             row["thumb_processed"] = True
 
         was_meta_already_processed = row.get("meta_processed", False)
-        if meta_dict is None: meta_dict = {}
-
-        # 1. 방금 이미지를 추출해서 해상도를 알아냈다면 덮어씌움
-        new_res = meta_dict.get("resolution", "")
-        if new_res:
-            row["res"] = new_res
-            row["full_meta"]["resolution"] = new_res
-
-        # 2. 메타데이터가 아예 없었던 경우 업데이트
+        
         if not was_meta_already_processed:
             row["meta_processed"] = True 
+            if meta_dict is None: meta_dict = {}
             row.update({
-                "res": meta_dict.get("resolution", row.get("res", "")),
-                "title": meta_dict.get("title", ""),
-                "series": meta_dict.get("series", ""),
-                "vol": meta_dict.get("volume", ""),
-                "num": meta_dict.get("number", ""),
-                "writer": meta_dict.get("writer", "")
+                "res": meta_dict.get("resolution", ""), "title": meta_dict.get("title", ""),
+                "series": meta_dict.get("series", ""), "vol": meta_dict.get("volume", ""),
+                "num": meta_dict.get("number", ""), "writer": meta_dict.get("writer", ""),
+                "full_meta": meta_dict
             })
-            for k, v in meta_dict.items():
-                row["full_meta"][k] = v
-                
-        # 3. 새로 알아낸 메타데이터가 있거나, 해상도를 뒤늦게 알아낸 경우 무조건 DB에 덮어씀
-        if not was_meta_already_processed or new_res:
+            
             try:
-                md = row["full_meta"]
                 creators_list = []
-                writer = md.get("writer")
+                writer = meta_dict.get("writer")
                 if writer: creators_list.append(writer)
                 for role in ['penciller', 'inker', 'colorist', 'letterer', 'cover_artist', 'editor']:
-                    val = md.get(role)
+                    val = meta_dict.get(role)
                     if val: creators_list.append(val)
                 creators_str = " / ".join(creators_list) if creators_list else ""
                 
-                y, m, d = md.get("year", ""), md.get("month", ""), md.get("day", "")
+                y, m, d = meta_dict.get("year", ""), meta_dict.get("month", ""), meta_dict.get("day", "")
                 publish_date_str = f"{y}-{m}-{d}".strip('-')
                 if publish_date_str == "--": publish_date_str = ""
                 
                 db.upsert_file_info(
                     filepath, row.get("raw_mtime", 0), row.get("raw_size", 0), row.get("ext", ""),
-                    md.get("resolution", ""), md.get("title", ""), md.get("series", ""),
-                    md.get("series_group", ""), md.get("volume", ""), md.get("number", ""),
-                    md.get("writer", ""), creators_str, md.get("publisher", ""), md.get("imprint", ""), 
-                    md.get("genre", ""), md.get("volume_count", ""), md.get("page_count", ""), 
-                    md.get("format", ""), md.get("manga", ""), md.get("language", ""),
-                    md.get("rating", ""), md.get("age_rating", ""), publish_date_str, md.get("summary", ""), 
-                    md.get("characters", ""), md.get("teams", ""), md.get("locations", ""), 
-                    md.get("story_arc", ""), md.get("tags", ""), md.get("notes", ""), md.get("web", ""), ""
+                    meta_dict.get("resolution", ""), meta_dict.get("title", ""), meta_dict.get("series", ""),
+                    meta_dict.get("series_group", ""), meta_dict.get("volume", ""), meta_dict.get("number", ""),
+                    meta_dict.get("writer", ""), creators_str, meta_dict.get("publisher", ""), meta_dict.get("imprint", ""), 
+                    meta_dict.get("genre", ""), meta_dict.get("volume_count", ""), meta_dict.get("page_count", ""), 
+                    meta_dict.get("format", ""), meta_dict.get("manga", ""), meta_dict.get("language", ""),
+                    meta_dict.get("rating", ""), meta_dict.get("age_rating", ""), publish_date_str, meta_dict.get("summary", ""), 
+                    meta_dict.get("characters", ""), meta_dict.get("teams", ""), meta_dict.get("locations", ""), 
+                    meta_dict.get("story_arc", ""), meta_dict.get("tags", ""), meta_dict.get("notes", ""), meta_dict.get("web", ""), ""
                 )
             except Exception as e: print(f"DB Upsert Error: {e}")
 
@@ -1646,7 +1708,7 @@ class TabFolder(QWidget):
             index = self.tree_view.currentIndex()
             if index.isValid():
                 folder_path = self.dir_model.filePath(index)
-                self.lbl_tree_status.setText(f"선택: {os.path.basename(folder_path)} | 항목: {len(self.file_data_cache)}개")
+                self.lbl_tree_status.setText(_("folder_status_sel").format(os.path.basename(folder_path), len(self.file_data_cache), "0 B"))
             self.right_bottom_panel.hide()
             self.current_selected_path = ""
             return
@@ -1672,7 +1734,7 @@ class TabFolder(QWidget):
         try:
             stat = os.stat(full_path)
             size_str = self.format_size(stat.st_size)
-            self.lbl_tree_status.setText(f"경로: {full_path} | 용량: {size_str}")
+            self.lbl_tree_status.setText(_("folder_status_file").format(full_path, size_str))
         except: pass
         
         row = self.file_data_map.get(full_path)
@@ -1717,16 +1779,16 @@ class TabFolder(QWidget):
                         QPixmapCache.insert(file_hash, pixmap)
                         self.lbl_cover.setPixmap(pixmap.scaled(220, 310, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
                     else:
-                        self.lbl_cover.setText("No Cover Image")
+                        self.lbl_cover.setText(_("folder_no_cover"))
                 else:
-                    self.lbl_cover.setText("No Cover Image")
+                    self.lbl_cover.setText(_("folder_no_cover"))
             else:
-                self.lbl_cover.setText("No Cover Image")
+                self.lbl_cover.setText(_("folder_no_cover"))
         else:
-            self.lbl_cover.setText("No Cover Image")
+            self.lbl_cover.setText(_("folder_no_cover"))
 
         title = meta_dict.get("title") or os.path.basename(full_path)
-        series = meta_dict.get("series") or "시리즈 정보 없음"
+        series = meta_dict.get("series") or _("info_no_series")
         series_group = meta_dict.get("series_group") or ""
         series_info = f"{series} / {series_group}" if series_group else series
         
@@ -1756,7 +1818,7 @@ class TabFolder(QWidget):
             y, m, d = meta_dict.get("year", ""), meta_dict.get("month", ""), meta_dict.get("day", "")
             publish_date = f"{y}-{m}-{d}".strip('-') or "-"
 
-        summary = meta_dict.get("summary") or "줄거리 정보가 없습니다."
+        summary = meta_dict.get("summary") or _("info_no_summary")
         characters = meta_dict.get("characters") or "-"
         teams = meta_dict.get("teams") or "-"
         locations = meta_dict.get("locations") or "-"
@@ -1776,31 +1838,31 @@ class TabFolder(QWidget):
                 <tr>
                     <td width="45%" valign="top" style="padding-right: 20px;">
                         <table width="100%" cellpadding="4" cellspacing="0" border="0">
-                            <tr><td width="80" valign="top" style="color: #aaaaaa;">제작진</td><td valign="top" style="color: #ffffff;">{creators}</td></tr>
-                            <tr><td valign="top" style="color: #aaaaaa;">출판사</td><td valign="top" style="color: #ffffff;">{pub_full}</td></tr>
-                            <tr><td valign="top" style="color: #aaaaaa;">장르</td><td valign="top" style="color: #ffffff;">{genre}</td></tr>
-                            <tr><td valign="top" style="color: #aaaaaa;">페이지수</td><td valign="top" style="color: #ffffff;">{page_count}</td></tr>
-                            <tr><td valign="top" style="color: #aaaaaa;">전체권수</td><td valign="top" style="color: #ffffff;">{volume_count}</td></tr>
-                            <tr><td valign="top" style="color: #aaaaaa;">포맷/망가</td><td valign="top" style="color: #ffffff;">{format_val} / {manga}</td></tr>
-                            <tr><td valign="top" style="color: #aaaaaa;">평점</td><td valign="top" style="color: #ffffff;">{rating}</td></tr>
-                            <tr><td valign="top" style="color: #aaaaaa;">연령등급</td><td valign="top" style="color: #ffffff;">{age_rating}</td></tr>
-                            <tr><td valign="top" style="color: #aaaaaa;">출간일</td><td valign="top" style="color: #ffffff;">{publish_date}</td></tr>
+                            <tr><td width="80" valign="top" style="color: #aaaaaa;">{_('col_creators')}</td><td valign="top" style="color: #ffffff;">{creators}</td></tr>
+                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_publisher')}</td><td valign="top" style="color: #ffffff;">{pub_full}</td></tr>
+                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_genre')}</td><td valign="top" style="color: #ffffff;">{genre}</td></tr>
+                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_page_count')}</td><td valign="top" style="color: #ffffff;">{page_count}</td></tr>
+                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_vol_count')}</td><td valign="top" style="color: #ffffff;">{volume_count}</td></tr>
+                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_format')}/{_('col_manga')}</td><td valign="top" style="color: #ffffff;">{format_val} / {manga}</td></tr>
+                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_rating')}</td><td valign="top" style="color: #ffffff;">{rating}</td></tr>
+                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_age_rating')}</td><td valign="top" style="color: #ffffff;">{age_rating}</td></tr>
+                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_pub_date')}</td><td valign="top" style="color: #ffffff;">{publish_date}</td></tr>
                         </table>
                     </td>
                     <td width="55%" valign="top">
-                        <div style="color: #aaaaaa; margin-bottom: 4px;">줄거리</div>
+                        <div style="color: #aaaaaa; margin-bottom: 4px;">{_('col_summary')}</div>
                         <div style="margin-bottom: 15px; color: #dddddd; line-height: 1.5;">{summary}</div>
                         
-                        <div style="color: #aaaaaa; margin-bottom: 4px;">스토리 아크 / 팀 / 장소</div>
+                        <div style="color: #aaaaaa; margin-bottom: 4px;">{_('info_arc_team_loc')}</div>
                         <div style="margin-bottom: 15px; color: #dddddd;">{story_arc} / {teams} / {locations}</div>
                         
-                        <div style="color: #aaaaaa; margin-bottom: 4px;">등장인물</div>
+                        <div style="color: #aaaaaa; margin-bottom: 4px;">{_('col_characters')}</div>
                         <div style="margin-bottom: 15px; color: #dddddd;">{characters}</div>
                         
-                        <div style="color: #aaaaaa; margin-bottom: 4px;">태그</div>
+                        <div style="color: #aaaaaa; margin-bottom: 4px;">{_('col_tags')}</div>
                         <div style="margin-bottom: 15px; color: #dddddd;">{tags}</div>
                         
-                        <div style="color: #aaaaaa; margin-bottom: 4px;">링크</div>
+                        <div style="color: #aaaaaa; margin-bottom: 4px;">{_('col_web')}</div>
                         <div style="margin-bottom: 15px;">{link_html}</div>
                     </td>
                 </tr>
@@ -1819,15 +1881,15 @@ class TabFolder(QWidget):
         is_fav = any(f["path"] == path for f in custom_favs)
         
         if is_fav:
-            menu.addAction("Favorites Remove", lambda: self.remove_from_favorites(path))
+            menu.addAction(_("action_fav_rem"), lambda: self.remove_from_favorites(path))
         else:
-            menu.addAction("Favorites Add", lambda: self.add_to_favorites(path))
+            menu.addAction(_("action_fav_add"), lambda: self.add_to_favorites(path))
             
         menu.addSeparator()
-        menu.addAction("Open in Explorer", lambda: self.open_in_explorer(path))
-        menu.addAction("Rename Folder", lambda: self.rename_folder(index))
-        menu.addAction("Delete Folder (Del)", self.delete_selected)
-        menu.addAction("Refresh", self.refresh_tree)
+        menu.addAction(_("action_open_exp"), lambda: self.open_in_explorer(path))
+        menu.addAction(_("action_ren_folder"), lambda: self.rename_folder(index))
+        menu.addAction(_("action_del_folder"), self.delete_selected)
+        menu.addAction(_("action_refresh"), self.refresh_tree)
         menu.exec(self.tree_view.viewport().mapToGlobal(position))
 
     def show_list_context_menu(self, position):
@@ -1837,43 +1899,18 @@ class TabFolder(QWidget):
         if not self.get_selected_files(): return
         
         menu = QMenu()
-        menu.addAction("View", self.open_viewer)
-        menu.addAction("Metadata edit (F2)", self.send_to_tab3)
-        menu.addAction("Inner Renamer (F3)", self.send_to_tab2)
-        # [핵심 추가] Update files 기능 재정의
-        menu.addAction("Update files", self.force_update_selected_files)
+        menu.addAction(_("action_view"), self.open_viewer)
+        menu.addAction(_("action_meta_edit"), self.send_to_tab3)
+        menu.addAction(_("action_inner_ren"), self.send_to_tab2)
+        menu.addAction(_("action_update_files"), self.force_update_selected_files)
         menu.addSeparator()
-        menu.addAction("Delete Files (Del)", self.delete_selected)
-        menu.addAction("Open in Explorer", self.open_selected_in_explorer)
+        menu.addAction(_("action_del_files"), self.delete_selected)
+        menu.addAction(_("action_open_exp"), self.open_selected_in_explorer)
         menu.addSeparator()
-        menu.addAction("Select All (Ctrl+A)", self.select_all_files)
-        menu.addAction("Invert Selection", self.invert_selection)
-        menu.addAction("Refresh", self.refresh_list)
+        menu.addAction(_("action_sel_all"), self.select_all_files)
+        menu.addAction(_("action_inv_sel"), self.invert_selection)
+        menu.addAction(_("action_refresh"), self.refresh_list)
         menu.exec(view.viewport().mapToGlobal(position))
-
-    def force_update_selected_files(self):
-        paths = self.get_selected_files()
-        if not paths: return
-        
-        for fp in paths:
-            row = self.file_data_map.get(fp)
-            if row:
-                row["meta_processed"] = False
-                row["thumb_processed"] = False
-                row["res"] = ""
-                row["full_meta"] = {}
-                
-                file_hash = row.get("hash", "")
-                if file_hash:
-                    thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.webp")
-                    if os.path.exists(thumb_path):
-                        try: os.remove(thumb_path)
-                        except: pass
-                    QPixmapCache.remove(file_hash)
-                    
-        self.apply_grouping_and_sorting()
-        self.is_syncing = False 
-        self._do_background_load() 
 
     def select_all_files(self):
         self.get_active_view().selectAll()
@@ -1894,7 +1931,7 @@ class TabFolder(QWidget):
     def open_viewer(self):
         viewer_path = self.config.get("viewer_path", "")
         if not viewer_path or not os.path.exists(viewer_path):
-            QMessageBox.warning(self, "Warning", "환경 설정에서 뷰어 프로그램을 지정해주세요.")
+            QMessageBox.warning(self, _("dlg_warn"), _("dlg_warn_viewer"))
             return
         files = self.get_selected_files()
         if files: subprocess.Popen([viewer_path, files[0]])
