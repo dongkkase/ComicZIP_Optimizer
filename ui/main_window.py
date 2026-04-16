@@ -123,6 +123,9 @@ class RenamerApp(QMainWindow):
         if getattr(self, 'latest_version_url', None):
             webbrowser.open(self.latest_version_url)
 
+    def open_issue_link(self):
+        webbrowser.open("https://github.com/dongkkase/ComicZIP_Optimizer/issues")
+
     def setup_ui(self):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -164,6 +167,13 @@ class RenamerApp(QMainWindow):
         toolbar_layout.addWidget(self.btn_clear_all)
         toolbar_layout.addWidget(self.btn_toggle_all)
         toolbar_layout.addStretch()
+
+        self.btn_issue = QPushButton()
+        self.btn_issue.setIcon(qta.icon('fa5s.bug', color='white'))
+        self.btn_issue.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_issue.setObjectName("settingsBtn") # 스타일 일치를 위해 settingsBtn 속성 사용
+        self.btn_issue.clicked.connect(self.open_issue_link)
+        toolbar_layout.addWidget(self.btn_issue)
 
         self.btn_version = QPushButton()
         self.btn_version.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -318,6 +328,7 @@ class RenamerApp(QMainWindow):
         self.btn_clear_all.setText(f" {t['clear_all']}")
         self.btn_toggle_all.setText(f" {t['toggle_all']}")
         self.btn_settings.setText(f" {t['settings_btn']}") 
+        self.btn_issue.setText(f" {t['btn_issue']}")
         
         if hasattr(self.tab1, 'retranslate_ui'): self.tab1.retranslate_ui(t, self.lang)
         if hasattr(self.tab2, 'retranslate_ui'): self.tab2.retranslate_ui(t, self.lang)

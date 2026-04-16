@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 import qtawesome as qta
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
@@ -225,10 +226,35 @@ class Tab1Organizer(QWidget):
                 final_ext = target_ext if target_ext else (Path(vol.get('inner_path', '')).suffix if vol.get('type') == 'archive' else ".zip")
                 if not final_ext: final_ext = ".zip"
                 
-                full_text = f"  ↳ {icon_txt} {vol['new_name']}{final_ext}"
+                # --- 상위 폴더(부, 시즌) 추출 로직 시작 ---
+                orig_path = vol.get('original_path', '')
+                path_parts = Path(orig_path).parts
+                prefix = ""
+                
+                if len(path_parts) > 1:
+                    parent_folder = path_parts[-2]
+                    # 상위 폴더명에서 'n부', '시즌n' 등의 핵심 키워드만 추출
+                    match = re.search(r'(\d+\s*부|제\s*\d+\s*부|시즌\s*\d+|season\s*\d+|part\s*\d+)', parent_folder, re.IGNORECASE)
+                    if match:
+                        prefix = f"[{match.group(1).strip()}] "
+                    else:
+                        prefix = f"[{parent_folder}] " 
+                        
+                full_text = f"  ↳ {icon_txt} {prefix}{vol['new_name']}{final_ext}"
+                # --- 상위 폴더(부, 시즌) 추출 로직 끝 ---
+
                 child.setText(0, full_text)
                 child.setForeground(0, QColor("#aaaaaa"))
-                child.setToolTip(0, full_text)
+                child.setToolTip(0, full_text)                
+                # child = QTreeWidgetItem(root_item)
+                # icon_txt = "📦" if vol.get('type') == 'archive' else "📁"
+                # final_ext = target_ext if target_ext else (Path(vol.get('inner_path', '')).suffix if vol.get('type') == 'archive' else ".zip")
+                # if not final_ext: final_ext = ".zip"
+                
+                # full_text = f"  ↳ {icon_txt} {vol['new_name']}{final_ext}"
+                # child.setText(0, full_text)
+                # child.setForeground(0, QColor("#aaaaaa"))
+                # child.setToolTip(0, full_text)
                 
             items_to_add.append(root_item)
             widgets_to_set.append((root_item, path_widget)) 
@@ -369,6 +395,32 @@ class Tab1Organizer(QWidget):
                 final_ext = target_ext if target_ext else (Path(vol_data.get('inner_path', '')).suffix if vol_data.get('type') == 'archive' else ".zip")
                 if not final_ext: final_ext = ".zip"
 
-                full_text = f"  ↳ {icon_txt} {new_name}{final_ext}"
+                # --- 수동 변경 시에도 prefix 복구 ---
+                orig_path = vol_data.get('original_path', '')
+                path_parts = Path(orig_path).parts
+                prefix = ""
+                if len(path_parts) > 1:
+                    parent_folder = path_parts[-2]
+                    match = re.search(r'(\d+\s*부|제\s*\d+\s*부|시즌\s*\d+|season\s*\d+|part\s*\d+)', parent_folder, re.IGNORECASE)
+                    if match:
+                        prefix = f"[{match.group(1).strip()}] "
+                    else:
+                        prefix = f"[{parent_folder}] "
+
+                full_text = f"  ↳ {icon_txt} {prefix}{new_name}{final_ext}"
+                # --- 복구 완료 ---
+
                 item.setText(0, full_text)
-                item.setToolTip(0, full_text)
+                item.setToolTip(0, full_text)                
+                # vol_data['new_name'] = new_name
+
+                # # UI 텍스트 재생성 (기존 로직과 동일하게 아이콘과 확장자 복구)
+                # target_ext = f".{self.main_app.config.get('target_format', 'zip')}" if self.main_app.config.get("target_format", "none") != "none" else ""
+                # icon_txt = "📦" if vol_data.get('type') == 'archive' else "📁"
+                
+                # final_ext = target_ext if target_ext else (Path(vol_data.get('inner_path', '')).suffix if vol_data.get('type') == 'archive' else ".zip")
+                # if not final_ext: final_ext = ".zip"
+
+                # full_text = f"  ↳ {icon_txt} {new_name}{final_ext}"
+                # item.setText(0, full_text)
+                # item.setToolTip(0, full_text)

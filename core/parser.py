@@ -135,11 +135,14 @@ def format_leaf_name(parent_core, leaf_name, index, total_items, lang='ko'):
         return f"{base} v{padded_num}".strip() if lang == 'en' else f"{base} {padded_num}권".strip()
 
     clean_no_brackets = re.sub(r'[\[\(].*?[\]\)]', '', leaf_clean)
-    vol_match = re.search(r'(?:제|v|vol\.?\s*)?(\d+(?:\.\d+)?(?:[~-]\d+(?:\.\d+)?)?)\s*(?:권|화|장|편|부)', leaf_clean, re.IGNORECASE)
+    # 단위를 캡처할 수 있도록 괄호(그룹) 처리 변경
+    vol_match = re.search(r'(?:제|v|vol\.?\s*)?(\d+(?:\.\d+)?(?:[~-]\d+(?:\.\d+)?)?)\s*(권|화|장|편|부)', leaf_clean, re.IGNORECASE)
     
     target_num = None
+    target_unit = None
     if vol_match:
         target_num = vol_match.group(1)
+        target_unit = vol_match.group(2)
     else:
         nums = re.findall(r'\d+(?:\.\d+)?', clean_no_brackets)
         if nums:
@@ -194,13 +197,18 @@ def format_leaf_name(parent_core, leaf_name, index, total_items, lang='ko'):
         if base_name_candidate:
             base_name = base_name_candidate
 
-    if special_suffix:
-        if lang == 'en':
-            return f"{base_name} v{padded_num}{special_suffix}".strip()
-        else:
-            return f"{base_name} {padded_num}권{special_suffix}".strip()
+    if not target_unit:
+        target_unit = '권' if lang == 'ko' else 'v'
+
+    unit_str = ""
+    if lang == 'en':
+        if target_unit == '부': unit_str = f"Part {padded_num}"
+        elif target_unit == '화': unit_str = f"Ch {padded_num}"
+        else: unit_str = f"v{padded_num}"
     else:
-        if lang == 'en':
-            return f"{base_name} v{padded_num}".strip()
-        else:
-            return f"{base_name} {padded_num}권".strip()
+        unit_str = f"{padded_num}{target_unit}" if target_unit in ['권', '화', '장', '편', '부'] else f"{padded_num}권"
+
+    if special_suffix:
+        return f"{base_name} {unit_str}{special_suffix}".strip()
+    else:
+        return f"{base_name} {unit_str}".strip()

@@ -117,7 +117,19 @@ class OrganizerProcessTask:
                                 if rel_path == '.':
                                     root_images.append(os.path.join(root_dir, f))
                                 else:
-                                    top_folder = Path(rel_path).parts[0]
+                                    parts = Path(rel_path).parts
+                                    top_folder_name = parts[0]
+                                    
+                                    # '부', '시즌' 등의 그룹핑 폴더인지 확인
+                                    p0 = top_folder_name.lower()
+                                    is_part_folder = bool(re.search(r'(\d+\s*부|제\s*\d+\s*부|시즌|season|part)', p0))
+                                    
+                                    # 그룹핑 폴더이고 하위 폴더(권)가 존재하면 한 단계 더 깊이 탐색
+                                    if is_part_folder and len(parts) > 1:
+                                        top_folder = os.path.join(top_folder_name, parts[1])
+                                    else:
+                                        top_folder = top_folder_name
+                                        
                                     leaf_folders.add(os.path.join(actual_root, top_folder))
                                     
                     if total_extracted_images == 0:
@@ -176,7 +188,9 @@ class OrganizerProcessTask:
                                     p_core = extract_core_title(p)
                                     c_core = extract_core_title(clean_title)
                                     if p_core and c_core and get_similarity(p_core, c_core) >= 0.5:
-                                        continue
+                                        # 부/시즌 폴더는 타이틀 유사도가 높아도 폴더 구조 유지를 위해 생략하지 않음
+                                        if not bool(re.search(r'(\d+\s*부|제\s*\d+\s*부|시즌|season|part)', p.lower())):
+                                            continue
                                     valid_parts.append(cp if cp else p)
                                     
                             rel_dir = os.path.join(*valid_parts) if valid_parts else ''

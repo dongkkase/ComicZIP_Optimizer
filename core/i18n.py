@@ -51,6 +51,7 @@ def get_i18n():
             "remove_sel": "선택 삭제", "clear_all": "전체 비우기",
             "toggle_all": "전체 선택/해제",
             "settings_btn": "환경 설정", "settings_title": "환경 설정",
+            "btn_issue": "버그 신고 및 건의",
             
             "tab_basic": "기본 설정",
             "tab_api": "API 및 검색 설정",
@@ -280,6 +281,7 @@ def get_i18n():
             "remove_sel": "Remove Sel", "clear_all": "Clear All",
             "toggle_all": "Toggle All",
             "settings_btn": "Settings", "settings_title": "Preferences",
+            "btn_issue": "Report Bug / Suggestion",
             
             "tab_basic": "Basic Settings",
             "tab_api": "API & Search Settings",
@@ -505,6 +507,7 @@ def get_i18n():
             "remove_sel": "選択削除", "clear_all": "全てクリア",
             "toggle_all": "全て選択/解除",
             "settings_btn": "環境設定", "settings_title": "環境設定",
+            "btn_issue": "バグ報告・要望",
             
             "tab_basic": "基本設定",
             "tab_api": "API 検索設定",

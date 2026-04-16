@@ -107,7 +107,19 @@ class OrganizerLoadTask:
                                 if len(parts) == 1:
                                     root_images.append(img_path)
                                 else:
-                                    top_folder = parts[0]
+                                    parts = Path(rel_path).parts
+                                    top_folder_name = parts[0]
+                                    
+                                    # '부', '시즌' 등의 그룹핑 폴더인지 확인 (organize_task와 동일한 기준)
+                                    p0 = top_folder_name.lower()
+                                    is_part_folder = bool(re.search(r'(\d+\s*부|제\s*\d+\s*부|시즌|season|part)', p0))
+                                    
+                                    # 그룹핑 폴더이고 하위 폴더(권) 안에 이미지가 있는 경우
+                                    if is_part_folder and len(parts) > 2:
+                                        top_folder = os.path.join(top_folder_name, parts[1])
+                                    else:
+                                        top_folder = top_folder_name
+                                        
                                     if top_folder not in volume_groups:
                                         volume_groups[top_folder] = []
                                     volume_groups[top_folder].append(img_path)
@@ -145,7 +157,9 @@ class OrganizerLoadTask:
                         parsed_vols.append({'original_path': '', 'new_name': vol_name, 'type': 'archive'})
                     else:
                         for v_idx, leaf in enumerate(group_names):
-                            vol_name = format_leaf_name(core_title, leaf, v_idx, len(group_names), self.lang)
+                            # leaf가 '1부/01권' 형태일 경우 가장 안쪽 폴더명(01권)만 추출하여 파싱
+                            leaf_basename = os.path.basename(leaf.replace('\\', '/'))
+                            vol_name = format_leaf_name(core_title, leaf_basename, v_idx, len(group_names), self.lang)
                             parsed_vols.append({'original_path': leaf, 'new_name': vol_name, 'type': 'folder'})
 
                     new_data[filepath] = {
