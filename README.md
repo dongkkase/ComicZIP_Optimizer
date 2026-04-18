@@ -1,5 +1,8 @@
 # ComicZIP Optimizer
 
+> **🌐 Multi-Language Support:**
+> Currently supports **English**, **Japanese**. We plan to support more languages in the future!
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/) [![PyQt6](https://img.shields.io/badge/UI-PyQt6-green.svg)](https://www.riverbankcomputing.com/software/pyqt/)
 
 **ComicZIP Optimizer**는 압축 파일(ZIP, CBZ, CBR, 7Z)을 위한 올인원 라이브러리 메타데이터 최적화 도구입니다. 
