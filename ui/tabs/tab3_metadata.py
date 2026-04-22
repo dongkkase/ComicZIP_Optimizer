@@ -119,6 +119,18 @@ class Tab3Metadata(QWidget):
 
         self._setup_search_panel(right_layout, t)
         self._setup_nav_panel(right_layout, t)
+
+        self.layout_options = QHBoxLayout()
+        self.cb_apply_empty = QCheckBox(t.get("t3_apply_empty", "빈 값도 덮어쓰기"))
+        self.cb_apply_empty.setChecked(False)
+        self.cb_apply_empty.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        self.cb_apply_empty.setToolTip(t.get("t3_tt_apply_empty", "체크 시 일괄 편집창의 빈 값도 원본 데이터에 덮어씁니다."))
+
+        self.layout_options.addStretch()
+        self.layout_options.addWidget(self.cb_apply_empty)
+        right_layout.addLayout(self.layout_options)
+
         self._setup_scroll_area(right_layout, t)
         self._setup_bottom_buttons(right_layout, t)
 
@@ -421,7 +433,9 @@ class Tab3Metadata(QWidget):
         cb_container = QWidget(); cb_layout = QGridLayout(cb_container); cb_layout.setContentsMargins(0, 0, 0, 5); cb_layout.setSpacing(5)
         checkboxes = {}; r, c = 0, 0
         for orig, loc in items_dict.items():
-            cb = QCheckBox(loc); checkboxes[loc] = cb; cb_layout.addWidget(cb, r, c); c += 1
+            cb = QCheckBox(loc)
+            cb.setCursor(Qt.CursorShape.PointingHandCursor) # 마우스 오버 시 손가락 모양 커서 적용
+            checkboxes[loc] = cb; cb_layout.addWidget(cb, r, c); c += 1
             if c >= 5: c = 0; r += 1
         layout.addWidget(cb_container, start_row, 1, 1, 3); start_row += 1
         
@@ -471,7 +485,11 @@ class Tab3Metadata(QWidget):
     def _setup_scroll_area(self, right_layout, t):
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setStyleSheet("QScrollArea { border: none; background-color: #1e1e1e; }")
+        
         self.scroll_content = QWidget()
+        self.scroll_content.setObjectName("scrollContent")
+        self.scroll_content.setStyleSheet("#scrollContent { background-color: #1e1e1e; }")
         
         scroll_layout = QVBoxLayout(self.scroll_content)
         scroll_layout.setContentsMargins(0, 0, 10, 0); scroll_layout.setSpacing(20)
@@ -673,6 +691,10 @@ class Tab3Metadata(QWidget):
         self.btn_reset_series.setText(t.get("t3_btn_reset_series", "시리즈\n초기화"))
         self.btn_apply_series.setText(f"{t.get('t3_btn_apply_series', '시리즈\n편집 적용')} (C)")
         
+        if hasattr(self, 'cb_apply_empty'):
+            self.cb_apply_empty.setText(t.get("t3_apply_empty", "빈 값도 덮어쓰기"))
+            self.cb_apply_empty.setToolTip(t.get("t3_tt_apply_empty", ""))
+            
         self.lbl_col_orig.setText(t.get('t3_col_orig', '원본'))
         self.lbl_col_res.setText(t.get('t3_col_res', '일괄 편집'))
         
@@ -1143,30 +1165,37 @@ class Tab3Metadata(QWidget):
             else: field['my'].setText(val)
 
     def action_apply_all(self):
+        allow_empty = getattr(self, 'cb_apply_empty', None) and self.cb_apply_empty.isChecked()
+        
         for key, field in self.meta_ui_fields.items():
             res_widget = field['res']
             
             if field.get('is_combo'):
                 data_val = res_widget.currentData()
                 val = data_val if data_val else res_widget.currentText()
+                val_str = str(val).strip() if val else ""
                 
-                if val:
-                    idx = field['my'].findData(val)
-                    if idx < 0: idx = field['my'].findText(val)
-                    
-                    if idx >= 0:
-                        field['my'].setCurrentIndex(idx)
+                if val_str or allow_empty:
+                    if not val_str:
+                        field['my'].setCurrentIndex(0)
+                        if field['my'].isEditable(): field['my'].setCurrentText("")
                     else:
-                        if field['my'].isEditable(): field['my'].setCurrentText(val)
+                        idx = field['my'].findData(val_str)
+                        if idx < 0: idx = field['my'].findText(val_str)
+                        
+                        if idx >= 0:
+                            field['my'].setCurrentIndex(idx)
+                        else:
+                            if field['my'].isEditable(): field['my'].setCurrentText(val_str)
             elif field.get('is_text'):
                 val = res_widget.toPlainText().strip()
-                if val: field['my'].setPlainText(val)
+                if val or allow_empty: field['my'].setPlainText(val)
             elif field.get('is_tag'):
                 val = res_widget.toPlainText().strip()
-                if val: field['my'].setText(val)
+                if val or allow_empty: field['my'].setText(val)
             else:
                 val = res_widget.text().strip()
-                if val: field['my'].setText(val)
+                if val or allow_empty: field['my'].setText(val)
 
     def action_apply_series(self):
         t = self.main_app.i18n[self.main_app.lang]
@@ -1174,6 +1203,9 @@ class Tab3Metadata(QWidget):
         self._save_ui_to_dict(); parent_dir = str(Path(self.current_meta_file).parent)
         if parent_dir not in self.meta_data: return
         exclude_keys = {'Volume', 'Number', 'PageCount'}; results_to_copy = {}
+        
+        allow_empty = getattr(self, 'cb_apply_empty', None) and self.cb_apply_empty.isChecked()
+        
         for key, field in self.meta_ui_fields.items():
             if key not in exclude_keys:
                 res_widget = field['res']
@@ -1181,13 +1213,14 @@ class Tab3Metadata(QWidget):
                 if field.get('is_combo'):
                     data_val = res_widget.currentData()
                     val = data_val if data_val else res_widget.currentText()
+                    val = str(val).strip() if val else ""
                 elif isinstance(res_widget, QTextEdit):
                     val = res_widget.toPlainText().strip()
                 else:
                     val = res_widget.text().strip()
                     
-                if val: 
-                    if key == 'Web':
+                if val or allow_empty: 
+                    if key == 'Web' and val:
                         val = ','.join([x.strip() for x in val.split('\n') if x.strip()])
                     results_to_copy[key] = val
                     

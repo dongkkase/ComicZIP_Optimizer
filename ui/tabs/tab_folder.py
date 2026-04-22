@@ -768,7 +768,7 @@ class TabFolder(QWidget):
         self.tree_view.setIndentation(15)
         self.tree_view.setStyle(QStyleFactory.create("Fusion"))
         self.tree_view.setStyleSheet("""
-            QTreeView { border: none; background-color: transparent; outline: none; } 
+            QTreeView { border: none; background-color: transparent; outline: none; color: white; } 
             QTreeView::item:hover { background-color: #3a3a3a; } 
             QTreeView::item:selected { background-color: #3a7ebf; color: white; }
         """)
@@ -857,7 +857,7 @@ class TabFolder(QWidget):
         self.table_view.setSortingEnabled(False) 
         self.table_view.horizontalHeader().setSortIndicatorShown(True)
         self.table_view.horizontalHeader().setSectionsMovable(True)
-        self.table_view.setStyleSheet("QTableView { border: none; background-color: transparent; }")
+        self.table_view.setStyleSheet("QTableView { border: none; background-color: transparent; color: white; }")
         self.table_view.setDragEnabled(False)
         self.table_view.setDragDropMode(QAbstractItemView.DragDropMode.NoDragDrop)
         self.table_view.verticalHeader().setDefaultSectionSize(64) 
@@ -872,9 +872,14 @@ class TabFolder(QWidget):
         self.list_view.setSelectionRectVisible(True)
         self.list_view.setSpacing(10)
         self.list_view.setWordWrap(True)
-        self.list_view.setStyleSheet("QListView { border: none; background-color: transparent; }")
+        self.list_view.setStyleSheet("QListView { border: none; background-color: transparent;  color: white; }")
         self.list_view.setDragEnabled(False)
         self.list_view.setDragDropMode(QAbstractItemView.DragDropMode.NoDragDrop)
+
+        self.table_view.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.table_view.verticalScrollBar().setSingleStep(15)
+        self.list_view.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.list_view.verticalScrollBar().setSingleStep(15)
 
         self.view_stack.addWidget(self.table_view)
         self.view_stack.addWidget(self.list_view)

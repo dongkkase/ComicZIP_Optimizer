@@ -202,6 +202,8 @@ def get_i18n():
             "t3_msg_7z_error": "7z 오류",
             "t3_no_data": "(데이터 없음)",
             "msg_done": "완료", "msg_notice": "안내", "msg_failed": "실패", "msg_success": "성공",
+            "t3_apply_empty": "빈 값도 덮어쓰기",
+            "t3_tt_apply_empty": "체크 시 일괄 편집창의 빈 값도 원본 데이터에 덮어씁니다.",
             "enter_after_input":"입력 후 Enter...",
             
             "msg_exit_title": "종료 확인",
@@ -246,6 +248,7 @@ def get_i18n():
             "col_age_rating": "연령등급", "col_pub_date": "출간일", "col_summary": "줄거리", "col_characters": "등장인물",
             "col_teams": "팀", "col_locations": "장소", "col_story_arc": "스토리 아크", "col_tags": "태그",
             "col_notes": "메모", "col_web": "링크",
+            "col_order": "순서 변경",
             
             "info_no_series": "시리즈 정보 없음",
             "info_no_summary": "줄거리 정보가 없습니다.",
@@ -428,6 +431,8 @@ def get_i18n():
             "t3_msg_save_failed_reason": "Reason: {msg}",
             "t3_msg_unsupported_format": "Unsupported format", "t3_msg_7z_error": "7z error",
             "t3_no_data": "(No Data)", "msg_done": "Done", "msg_notice": "Notice", "msg_failed": "Failed", "msg_success": "Success",
+            "t3_apply_empty": "Overwrite with empty values",
+            "t3_tt_apply_empty": "When checked, empty values from the batch edit panel will also overwrite the original data.",
             "enter_after_input":"Type and press Enter...",
             
             "msg_exit_title": "Confirm Exit",
@@ -472,6 +477,7 @@ def get_i18n():
             "col_age_rating": "Age Rating", "col_pub_date": "Pub Date", "col_summary": "Summary", "col_characters": "Characters",
             "col_teams": "Teams", "col_locations": "Locations", "col_story_arc": "Story Arc", "col_tags": "Tags",
             "col_notes": "Notes", "col_web": "Web",
+            "col_order": "Change order",
             
             "info_no_series": "No Series Info",
             "info_no_summary": "No summary available.",
@@ -659,6 +665,8 @@ def get_i18n():
             "t3_msg_7z_error": "7z エラー。",
             "t3_no_data": "(データなし)",
             "msg_done": "完了", "msg_notice": "案内", "msg_failed": "失敗", "msg_success": "成功",
+            "t3_apply_empty": "空の値も上書きする",
+            "t3_tt_apply_empty": "チェックすると、一括編集パネルの空の値も元のデータに上書きされます。",
             "enter_after_input":"入力してEnter...",
             
             "msg_exit_title": "終了確認",
@@ -703,6 +711,7 @@ def get_i18n():
             "col_age_rating": "年齢制限", "col_pub_date": "出版日", "col_summary": "あらすじ", "col_characters": "キャラクター",
             "col_teams": "チーム", "col_locations": "場所", "col_story_arc": "ストーリーアーク", "col_tags": "タグ",
             "col_notes": "メモ", "col_web": "リンク",
+            "col_order": "順序の変更",
             
             "info_no_series": "シリーズ情報なし",
             "info_no_summary": "あらすじ情報がありません。",

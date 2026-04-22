@@ -17,6 +17,36 @@ from config import get_resource_path
 from core.archive_utils import bg_load_image
 from tasks.load_task import FileLoadTask
 
+class ReorderableTableWidget(QTableWidget):
+    def __init__(self, rows, cols, parent=None):
+        super().__init__(rows, cols, parent)
+        self.parent_tab = None
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
+        self.viewport().setAcceptDrops(True)
+        self.viewport().setCursor(Qt.CursorShape.SizeAllCursor)
+        self.setDragDropOverwriteMode(False)
+        self.setDropIndicatorShown(True)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+
+    def dropEvent(self, event):
+        if event.source() == self:
+            source_row = self.currentRow()
+            drop_row = self.rowAt(event.pos().y())
+            
+            # 목록의 가장 아래 빈 공간으로 드래그한 경우
+            if drop_row == -1:
+                drop_row = self.rowCount() - 1
+
+            if source_row != drop_row and source_row >= 0 and drop_row >= 0:
+                if self.parent_tab:
+                    event.ignore() # 기본 UI 꼬임 방지
+                    self.parent_tab.move_inner_item(source_row, drop_row)
+                    return
+        super().dropEvent(event)
+
 class Tab2Renamer(QWidget):
     def __init__(self, main_app):
         super().__init__()
@@ -205,16 +235,18 @@ class Tab2Renamer(QWidget):
         self.lbl_inner.setObjectName("boldLabel")
         right_layout.addWidget(self.lbl_inner)
 
-        self.table_inner = QTableWidget(0, 3)
-        self.table_inner.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table_inner.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table_inner = ReorderableTableWidget(0, 4)
+        self.table_inner.parent_tab = self  # 테이블이 이 탭의 함수를 호출할 수 있도록 참조 전달
         self.table_inner.verticalHeader().setVisible(False)
+        self.table_inner.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         
         header_inner = self.table_inner.horizontalHeader()
         header_inner.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header_inner.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         header_inner.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        header_inner.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
         self.table_inner.setColumnWidth(2, 90)
+        self.table_inner.setColumnWidth(3, 120)
         self.table_inner.setMinimumHeight(150)
         self.table_inner.itemSelectionChanged.connect(self.on_inner_select)
         right_layout.addWidget(self.table_inner, 1)
@@ -345,7 +377,7 @@ class Tab2Renamer(QWidget):
         self.lbl_target.setText(t["target_lbl"])
         self.lbl_inner.setText(t["inner_lbl"])
         self.table_archives.setHorizontalHeaderLabels([t["col_name"], t["col_count"], t["col_size"]])
-        self.table_inner.setHorizontalHeaderLabels([t["col_old"], t["col_new"], t["col_fsize"]])
+        self.table_inner.setHorizontalHeaderLabels([t["col_old"], t["col_new"], t["col_fsize"], t.get("col_order", "순서 변경")])   
         self.lbl_total_count.setText(t["total_files"].format(count=len(self.archive_data)))
         
         if not self.current_archive_path:
@@ -428,9 +460,8 @@ class Tab2Renamer(QWidget):
         self.table_inner.clearContents()
         self.table_inner.setRowCount(0)
         
-        entries = self.archive_data[self.current_archive_path]['entries'].copy()
-        cover = next((e for e in entries if os.path.basename(e['filename']).lower().startswith('cover')), None)
-        if cover: entries.remove(cover); entries.insert(0, cover)
+        # copy() 대신 원본 배열을 직접 참조하여 사용자가 정렬한 순서를 그대로 렌더링
+        entries = self.archive_data[self.current_archive_path]['entries']
 
         total = len(entries)
         stem = Path(self.current_archive_path).stem
@@ -444,6 +475,10 @@ class Tab2Renamer(QWidget):
             start_num = int(self.le_start_num.text() or 0)
         except ValueError:
             start_num = 0
+
+        # 테마에 따른 아이콘 색상 결정
+        is_dark = getattr(self.main_app, 'is_dark_mode', True)
+        icon_c = 'white' if is_dark else '#1F2937'
 
         for idx, e in enumerate(entries):
             old = e['filename']
@@ -469,6 +504,47 @@ class Tab2Renamer(QWidget):
             i3 = QTableWidgetItem(f"{e['file_size']/1024:.1f} KB")
             i3.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             self.table_inner.setItem(idx, 0, i1); self.table_inner.setItem(idx, 1, i2); self.table_inner.setItem(idx, 2, i3)
+            
+            # --- 위/아래 이동 버튼 추가 ---
+            btn_widget = QWidget()
+            btn_layout = QHBoxLayout(btn_widget)
+            btn_layout.setContentsMargins(2, 2, 2, 2)
+            btn_layout.setSpacing(2)
+            
+            btn_top = QPushButton()
+            btn_top.setIcon(qta.icon('fa5s.angle-double-up', color=icon_c))
+            btn_top.setFixedWidth(26)
+            btn_top.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_top.clicked.connect(lambda _, r=idx: self.move_inner_item(r, 0))
+            if idx == 0: btn_top.setEnabled(False)
+
+            btn_up = QPushButton()
+            btn_up.setIcon(qta.icon('fa5s.caret-up', color=icon_c))
+            btn_up.setFixedWidth(26)
+            btn_up.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_up.clicked.connect(lambda _, r=idx: self.move_inner_item(r, r - 1))
+            if idx == 0: btn_up.setEnabled(False)
+
+            btn_down = QPushButton()
+            btn_down.setIcon(qta.icon('fa5s.caret-down', color=icon_c))
+            btn_down.setFixedWidth(26)
+            btn_down.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_down.clicked.connect(lambda _, r=idx: self.move_inner_item(r, r + 1))
+            if idx == len(entries) - 1: btn_down.setEnabled(False)
+
+            btn_bottom = QPushButton()
+            btn_bottom.setIcon(qta.icon('fa5s.angle-double-down', color=icon_c))
+            btn_bottom.setFixedWidth(26)
+            btn_bottom.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_bottom.clicked.connect(lambda _, r=idx: self.move_inner_item(r, len(entries) - 1))
+            if idx == len(entries) - 1: btn_bottom.setEnabled(False)
+
+            btn_layout.addWidget(btn_top)
+            btn_layout.addWidget(btn_up)
+            btn_layout.addWidget(btn_down)
+            btn_layout.addWidget(btn_bottom)
+            self.table_inner.setCellWidget(idx, 3, btn_widget)
+            # ------------------------------
             
         self.table_inner.blockSignals(False)
         self.table_inner.setUpdatesEnabled(True)
@@ -649,6 +725,12 @@ class Tab2Renamer(QWidget):
             image_exts = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'}
             img_entries = [e for e in entries if Path(e['filename']).suffix.lower() in image_exts]
             if not img_entries: return False 
+            
+            # 최초 로드 시 'Cover'라는 이름을 가진 파일이 있다면 배열 맨 앞으로 당겨옵니다.
+            cover = next((e for e in img_entries if os.path.basename(e['filename']).lower().startswith('cover')), None)
+            if cover:
+                img_entries.remove(cover)
+                img_entries.insert(0, cover)
 
             nested_exts = {'.zip', '.cbz', '.cbr', '.7z', '.rar', '.alz', '.egg'}
             if any(Path(e['filename']).suffix.lower() in nested_exts for e in entries):
@@ -663,3 +745,21 @@ class Tab2Renamer(QWidget):
             }
             return True
         except: return False
+
+    def move_inner_item(self, from_idx, to_idx):
+        if not self.current_archive_path or self.current_archive_path not in self.archive_data:
+            return
+        
+        entries = self.archive_data[self.current_archive_path]['entries']
+        
+        # 인덱스 유효성 검사
+        if from_idx < 0 or from_idx >= len(entries) or to_idx < 0 or to_idx >= len(entries):
+            return
+            
+        # 데이터 배열 내에서 위치 교환
+        item = entries.pop(from_idx)
+        entries.insert(to_idx, item)
+        
+        # UI 목록 재구성 및 이동된 행 다시 선택
+        self.update_inner_preview_list()
+        self.table_inner.selectRow(to_idx)

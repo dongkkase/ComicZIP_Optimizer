@@ -1,147 +1,69 @@
-# 📚 ComicZIP Optimizer
+# ComicZIP Optimizer
 
-[English](#-english) | [한국어](#-한국어)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/) [![PyQt6](https://img.shields.io/badge/UI-PyQt6-green.svg)](https://www.riverbankcomputing.com/software/pyqt/)
 
----
-<kbd>![Demo](https://github.com/dongkkase/ComicZIP_Optimizer/blob/main/demo/demo.gif?raw=true)</kbd>
----
+**ComicZIP Optimizer**는 압축 파일(ZIP, CBZ, CBR, 7Z)을 위한 올인원 라이브러리 메타데이터 최적화 도구입니다. 
 
-<a id="-english"></a>
-## 🇬🇧 English
-<kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo1_en.png)</kbd>
-<kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo2_en.png)</kbd>
-<kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo3_en.png)</kbd>
-<kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo4_en.png)</kbd>
-<kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo5_en.png)</kbd>
+파일을 한 번에 정리하고, 이미지 파일명을 표준화하며, 글로벌 표준 `ComicInfo.xml` 메타데이터를 기입하여 **Kavita, Komga, Panels**와 같은 스마트 코믹 뷰어에서 최고의 독서 환경을 구축할 수 있도록 돕습니다.
 
-**ComicZIP Optimizer** is a smart GUI tool designed for comic/manga collectors and e-book reader users (Plex, Kavita, YACReader, Komga, etc.). It helps you easily rename inner images, flatten nested folders, convert images to WebP, and manage metadata—all without manually extracting the archives.
 
-<p align="center">
-</p>
-
-### ✨ Key Features
-
-**🚀 Metadata Auto-Match & High Search Accuracy**
-* **Enhanced Search Rate:** Supports 5 major databases (Ridibooks, Aladin, Comic Vine, Anilist, Google Books) to provide highly accurate search results for both local and foreign comics.
-* **Series Auto-Match:** Scans folder names to fetch and apply the best metadata to all books in a series with a single click.
-* Edits and saves standard `ComicInfo.xml` metadata inside archives (ZIP, CBZ, 7Z, RAR, CBR).
-
-**🌐 Multi-API Search & Smart AI Translation**
-* **AI Smart Translation:** Utilizes OpenAI/Gemini to translate Korean titles to official English release names, greatly improving search success rates on foreign DBs.
-* **Tag Standardization:** Define custom rules (e.g., `Shounen -> Boy`) to unify tags across different APIs.
-* **Multilingual UI:** Supports English, Korean, and Japanese seamlessly.
-
-**🎨 Remastered UX/UI & Workflow Automation**
-* Features crisp vector icons powered by FontAwesome (`qtawesome`).
-* Non-intrusive **Toast Notifications** prevent workflow interruption.
-* **Scroll Spy Navigation:** The side menu dynamically highlights sections as you scroll through the metadata fields.
-* **Auto Workflow Transfer:** Transfers processed files from the Renamer tab (Tab 2) directly to the Metadata tab (Tab 3) for a smooth workflow.
-
-**🚀 Smart Archive Reorganization**
-* Scans integrated archives containing multiple volumes, separating, merging, and repackaging them into clean, individual volume archives.
-* High-speed In-Memory scanning previews massive files without extracting them to disk.
-
-**🧠 Intelligent Title & Volume Extraction**
-* Ignores meaningless Hash folder names and extracts real comic titles by scanning the archive.
-* Cleans up bracket tags and extracts volume/chapter numbers smartly.
-
-**🔄 Batch Inner Renaming & Folder Flattening**
-* Uniformly renames inner image files according to preset rules.
-* Removes unnecessary nested folders (double depths) that cause reading errors in e-book readers, pulling all images to the root.
-
-**⚡ Multi-threaded WebP Conversion**
-* Batch-converts JPG/PNG images to the highly efficient WebP format, saving disk space utilizing CPU Multi-threading.
-
-**🔒 System Stability**
-* Improved SQLite concurrency handling and API Rate Limit (429) protections.
-* Password masking for API keys to enhance security.
-* Safe Temp Operations with unique UUIDs prevent write errors on Network Drives (NAS).
-
-### 🚀 How to Run
-
-1. Go to the [Releases](https://github.com/dongkkase/ComicZIP_Optimizer/releases) page.
-2. Download the latest `ComicZIP_Optimizer.zip` file.
-3. Extract the ZIP file and run the executable (`.exe`). No installation is required!
-
-### 🛠️ Tech Stack
-* Python 3
-* PyQt6 (GUI Framework)
-* QtAwesome (Vector Icons)
-* Pillow (Image Processing)
-* 7-Zip (`7za.exe` for archive handling)
-
-### 📝 License
-This project is licensed under the **[MIT License](LICENSE)**.
-* **7-Zip**: This application bundles `7za.exe`, licensed under the GNU LGPL and unRAR restriction. Visit [7-zip.org](https://www.7-zip.org/).
-
-<br>
+<kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo1.png)</kbd>
+<kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo2.png)</kbd>
+<kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo3.png)</kbd>
+<kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo4.png)</kbd>
+<kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo5.png)</kbd>
+<kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo6.png)</kbd>
+<kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo7.png)</kbd>
 
 ---
 
-<a id="-한국어"></a>
-## 🇰🇷 한국어
-<kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo1_ko.png)</kbd>
-<kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo2_ko.png)</kbd>
-<kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo3_ko.png)</kbd>
-<kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo4_ko.png)</kbd>
-<kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo5_ko.png)</kbd>
+## 핵심 기능
 
-**ComicZIP Optimizer(코믹집 옵티마이저)**는 만화/코믹스 수집가 및 e-book 리더기(Kavita, Plex, YACReader, Komga 등) 사용자를 위한 GUI 기반 라이브러리 최적화 툴입니다. 
-압축 파일을 풀지 않고도 내부 이미지 파일명 일괄 변경, 폴더 구조 평탄화, 다중 코어 WebP 변환, 그리고 메타데이터(`ComicInfo.xml`) 관리까지 간편하게 처리할 수 있습니다.
+### 1. 폴더 탐색기 및 메타데이터 필터링
+* **메타데이터 스캔**: 수많은 압축 파일 중 `ComicInfo.xml`이 적용된 파일과 누락된 파일을 한눈에 식별합니다.
+* **스마트 워크플로우**: 누락된 파일을 선택하고 단축키(`F2`, `F3`)를 누르면 즉시 최적화 및 메타데이터 편집 탭으로 전송됩니다.
 
-<p align="center">
-</p>
+### 2. 압축 파일 구조 평탄화 (Folder Flattening)
+* **하위 폴더 제거**: 압축 파일 내부에 복잡하게 얽힌 다중 폴더 구조를 감지하여, 모든 이미지를 최상단(Root)으로 꺼내어 뷰어 인식 오류를 해결합니다.
+* **스마트 폴더명 추출**: 기존 폴더명에 있던 `[시즌1]`, `[1권]` 등의 중요 정보를 파일명 접두어로 자동 보존합니다.
 
-### ✨ 주요 기능
+### 3. 내부 파일명 일괄 변경 & WebP 포맷 최적화
+* **표준 넘버링 규칙**: 뒤죽박죽인 이미지 파일명을 `Cover`, `Page_001`, `002` 등 사용자가 지정한 깔끔한 도서 스타일 패턴으로 일괄 변경합니다.
+* **일괄 WebP 변환**: 압축 파일 내부의 모든 이미지를 고효율 WebP 포맷으로 강제 변환하여, 화질 저하 없이 디스크 용량을 획기적으로 줄입니다.
 
-**🚀 뛰어난 검색률과 메타데이터 자동 매칭**
-* **높은 검색 정확도:** 리디북스, 알라딘, Comic Vine, Anilist(GraphQL), Google Books 등 5개의 주요 API를 지원하여 국내외 도서의 메타데이터 검색 성공률을 크게 높였습니다.
-* **시리즈 자동 매칭:** 폴더(시리즈) 이름을 기반으로 최적의 메타데이터를 검색하여, 폴더 내 모든 책에 일괄 적용해 줍니다.
-* 압축 파일(ZIP, CBZ, 7Z, RAR, CBR) 내부에 범용 규격인 `ComicInfo.xml` 메타데이터를 직접 편집하고 저장합니다.
+### 4. 스마트 메타데이터 관리 (ComicInfo.xml)
+* **다중 API 검색 지원**: 리디북스, 알라딘, Google Books, Anilist, Comic Vine에서 도서 정보를 검색하고 일괄 적용합니다.
+* **🤖 AI 검색어 최적화**: Gemini 및 OpenAI API를 연동하여, 해외 DB(Vine, Anilist 등) 검색 시 한글 제목을 '공식 영문 발매명'으로 자동 치환하여 검색 성공률을 극대화합니다.
+* **시리즈 자동 매칭**: 폴더명만으로 작품을 인식해 시리즈 전체(1권~100권)에 동일한 메타데이터와 태그를 원클릭으로 자동 주입합니다.
 
-**🌐 다중 DB 검색 및 AI 스마트 번역**
-* **AI 스마트 번역:** OpenAI 및 Gemini API를 활용하여 해외 DB 검색 시 한글 제목을 공식 영문 발매명으로 치환하여 검색 정확도를 한층 더 끌어올렸습니다.
-* **태그 표준화 규칙:** 사용자 환경설정에서 나만의 치환 규칙(예: `Shounen, 소년만화 -> 소년`)을 등록하여 각기 다른 API의 태그를 일관성 있게 통일할 수 있습니다.
-* **다국어 UI 지원:** 한국어, 영어에 더해 **일본어(日本語)** 환경을 지원합니다.
+### 5. 다중 스레드 성능 & 다국어 UI
+* **안전한 병렬 처리**: 사용자의 PC 스펙을 자동으로 분석하여, 시스템이 멈추지 않는 '안전 코어 수' 한도 내에서 초고속 다중 스레드 작업을 수행합니다.
+* **다국어 지원**: 한국어, 영어, 일본어 UI를 완벽하게 지원합니다.
 
-**🎨 직관적인 UX/UI 및 워크플로우 자동화**
-* FontAwesome(`qtawesome`) 벡터 아이콘을 도입하여 깔끔한 디자인을 제공합니다.
-* **토스트(Toast) 알림:** 작업 흐름을 방해하던 중앙 팝업창 대신, 화면 하단에서 부드럽게 나타나는 토스트 알림을 적용했습니다.
-* **스크롤 스파이(Scroll Spy):** 메타데이터 상세 폼에서 스크롤을 내리면, 우측 내비게이션 메뉴가 현재 위치에 맞춰 실시간으로 강조됩니다.
-* **작업 목록 자동 전달:** 탭 2(파일명 변경)에서 최적화 작업이 완료되면, 추가 확인 팝업 없이 탭 3(메타데이터 관리)으로 이동하며 작업 목록을 자연스럽게 전달합니다.
+---
 
-**📦 압축 파일 구조 일괄 정리 (분리 및 병합)**
-* 내부에 여러 권의 책이 섞여 있는 통합 압축파일을 스캔하여, 각 권별로 분리 및 병합한 후 재압축합니다.
-* 디스크에 압축을 풀지 않는 In-Memory 스캔을 지원하며, 트리(Tree) 형태의 미리보기를 제공합니다.
+## 🛠️ 설치 및 실행 (Installation)
 
-**🧠 지능형 타이틀 & 볼륨 추출 엔진**
-* 의미 없는 긴 해시(Hash) 폴더명 등을 무시하고 압축 파일 스캔을 통해 실제 책 제목을 추출합니다.
-* 불필요한 태그를 정제하고, 권/화(Volume/Chapter) 번호를 지능적으로 분석합니다.
-
-**🔄 내부 파일명 변경 & 하위 폴더 평탄화**
-* 난잡한 내부 이미지 이름을 규칙에 맞게 일괄 정리합니다.
-* e-book 리더기에서 인식 오류를 일으키는 불필요한 하위 폴더를 제거하여 이미지를 최상단으로 정리합니다.
-
-**⚡ 다중 스레드 WebP 변환**
-* 용량이 큰 JPG/PNG 이미지를 고효율 WebP 포맷으로 변환하여 디스크 공간을 절약합니다. (CPU 다중 코어 활용)
-
-**🔒 시스템 안정성**
-* SQLite 다중 스레드 동시성 에러(Lock) 방지 및 API 과부하(Rate Limit) 대응 로직을 적용했습니다.
-* API Key 입력 란에 패스워드 마스킹 및 토글 버튼을 추가하여 보안성을 개선했습니다.
-
-### 🚀 실행 방법
-
-1. [Releases](https://github.com/dongkkase/ComicZIP_Optimizer/releases) 페이지로 이동합니다.
-2. 최신 버전의 `ComicZIP_Optimizer.zip` 파일을 다운로드합니다.
+본 프로그램은 빌드된 파일을 직접 실행하거나, 파이썬 소스 코드로 직접 실행 및 빌드 스크립트를 통해 단일 실행 파일(`.exe`)로 만들 수 있습니다.
+1. [Releases](https://github.com/dongkkase/ComicZIP_Optimizer/releases) 페이지로 이동합니다.
+2. 최신 버전의 `ComicZIP_Optimizer.zip` 파일을 다운로드합니다.
 3. 압축을 풀고 안에 있는 실행 파일(`.exe`)을 실행하세요. (별도 설치 불필요)
 
-### 🛠️ 사용 기술
-* Python 3
-* PyQt6 (UI 프레임워크)
-* QtAwesome (벡터 아이콘)
-* Pillow (이미지 처리)
-* 7-Zip (`7za.exe` 압축 엔진)
+---
+## 상세 사용 가이드 (Wiki)
+각 기능별 상세한 사용법과 설정 방법은 공식 [Wiki](https://github.com/dongkkase/ComicZIP_Optimizer/wiki)를 참조해 주세요.
 
-### 📝 라이선스 (License)
-이 프로젝트는 **[MIT License](LICENSE)** 를 따릅니다.
-* **7-Zip**: 본 프로그램은 파일 압축/해제를 위해 `7za.exe`를 내부적으로 사용하며, 해당 파일은 GNU LGPL 라이선스를 따릅니다. 자세한 정보는 [7-zip.org](https://www.7-zip.org/)에서 확인할 수 있습니다.
+---
+### 사용 기술
+- Python 3
+- PyQt6 (UI 프레임워크)
+- QtAwesome (벡터 아이콘)
+- Pillow (이미지 처리)
+- 7-Zip (`7za.exe` 압축 엔진)
+
+---
+## 라이선스 (License)
+
+이 프로젝트는  [MIT License](https://github.com/dongkkase/ComicZIP_Optimizer/blob/main/LICENSE)를 따릅니다. 
+- **7-Zip**: 본 프로그램은 파일 압축/해제를 위해 `7za.exe`를 내부적으로 사용하며, 해당 파일은 GNU LGPL 라이선스를 따릅니다. 자세한 정보는 [7-zip.org](https://www.7-zip.org/)에서 확인할 수 있습니다.
+
