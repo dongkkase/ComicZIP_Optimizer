@@ -41,3 +41,7 @@ venv/
 data/
 
 .api_cache.db
+ui/__pycache__/main_window.cpython-314.pyc
+cache/
+.gitignore
+data/
