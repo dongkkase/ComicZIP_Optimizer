@@ -1,28 +1,43 @@
+# Build
 build/
 dist/
-ComicZIP_Optimizer.spec
-ComicZIP_Optimizer.zip
+*.spec
+*.zip
+
+# Config
 config.json
-.vscode/
-.bak/
-.gitignore
-*/__pycache__/
+
+# Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+
+# Cache / DB
+api_cache.db
+cache/
+
+# Logs / temp
 *.log
 *.tmp
 *.bak
+
+# Editor / OS
+.vscode/
+.idea/
 *.swp
 *.swo
-*.DS_Store
+.DS_Store
 Thumbs.db
-config.json
-api_cache.db
-/.api_cache.db
-.api_cache.db
-ui/__pycache__/main_window.cpython-314.pyc
-cache/
-.gitignore
+
+# Virtual env
+venv/
+.env
+.env.*
+
+# Test / coverage
+.pytest_cache/
+.coverage
+
+# Project data
 data/
+
+.api_cache.db
