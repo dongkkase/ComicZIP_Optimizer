@@ -3,7 +3,7 @@ import qtawesome as qta
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit, QPushButton, 
     QFormLayout, QComboBox, QSlider, QFrame, QCheckBox, QDialogButtonBox,
-    QTabWidget, QWidget, QLineEdit, QMessageBox, QGroupBox
+    QTabWidget, QWidget, QLineEdit, QMessageBox, QGroupBox, QListWidget
 )
 from PyQt6.QtCore import Qt
 from ui.widgets import Toast
@@ -242,6 +242,36 @@ class SettingsDialog(QDialog):
         basic_layout.addLayout(opt_layout)
         basic_layout.addStretch()
 
+        # --- [추가됨] 폴더 탭 설정 (기본 설정과 API 설정 사이) ---
+        self.tab_folder_settings = QWidget()
+        folder_set_layout = QVBoxLayout(self.tab_folder_settings)
+        folder_set_layout.setContentsMargins(15, 15, 15, 15)
+        
+        lbl_dup_desc = QLabel(self.i18n.get("dup_folder_desc", "중복 파일을 검사할 대상 폴더를 추가하세요.\nNAS나 대용량 드라이브의 폴더를 지정할 수 있습니다."))
+        lbl_dup_desc.setStyleSheet("color: #aaaaaa; font-size: 12px; margin-bottom: 5px;")
+        folder_set_layout.addWidget(lbl_dup_desc)
+
+        self.list_dup_folders = QListWidget()
+        self.list_dup_folders.setStyleSheet("background-color: #3a3a3a; color: white; border: 1px solid #555; border-radius: 4px;")
+        for folder in config.get("dup_check_folders", []):
+            self.list_dup_folders.addItem(folder)
+        folder_set_layout.addWidget(self.list_dup_folders)
+
+        dup_btn_layout = QHBoxLayout()
+        self.btn_add_dup_folder = QPushButton(self.i18n.get("btn_add", "추가"))
+        self.btn_add_dup_folder.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_remove_dup_folder = QPushButton(self.i18n.get("btn_remove", "삭제"))
+        self.btn_remove_dup_folder.setCursor(Qt.CursorShape.PointingHandCursor)
+        
+        dup_btn_layout.addStretch()
+        dup_btn_layout.addWidget(self.btn_add_dup_folder)
+        dup_btn_layout.addWidget(self.btn_remove_dup_folder)
+        folder_set_layout.addLayout(dup_btn_layout)
+
+        self.btn_add_dup_folder.clicked.connect(self.add_dup_folder)
+        self.btn_remove_dup_folder.clicked.connect(self.remove_dup_folder)
+        # --------------------------------------------------------
+
         self.tab_api = QWidget()
         api_layout = QFormLayout(self.tab_api)
         api_layout.setSpacing(12)
@@ -360,6 +390,7 @@ class SettingsDialog(QDialog):
         api_layout.addRow(cache_layout)
 
         self.tabs.addTab(self.tab_basic, self.i18n.get("tab_basic", "기본 설정"))
+        self.tabs.addTab(self.tab_folder_settings, self.i18n.get("tab_folder_settings", "폴더 탭 설정"))
         self.tabs.addTab(self.tab_api, self.i18n.get("tab_api", "API 검색 설정"))
         
         main_layout.addWidget(self.tabs)
@@ -441,6 +472,21 @@ class SettingsDialog(QDialog):
         if path:
             self.le_viewer_path.setText(path)
 
+    def add_dup_folder(self):
+        from PyQt6.QtWidgets import QFileDialog
+        folder = QFileDialog.getExistingDirectory(self, self.i18n.get("dlg_sel_dup_folder", "중복 검사 대상 폴더 선택"))
+        if folder:
+            # 중복 방지
+            items = [self.list_dup_folders.item(i).text() for i in range(self.list_dup_folders.count())]
+            if folder not in items:
+                self.list_dup_folders.addItem(folder)
+
+    def remove_dup_folder(self):
+        selected_items = self.list_dup_folders.selectedItems()
+        if not selected_items: return
+        for item in selected_items:
+            self.list_dup_folders.takeItem(self.list_dup_folders.row(item))
+
     def get_data(self):
         format_keys = ["none", "zip", "cbz", "cbr", "7z"]
         
@@ -449,6 +495,8 @@ class SettingsDialog(QDialog):
         elif lang_text == "日本語": lang_val = "ja"
         else: lang_val = "en"
         
+        dup_folders = [self.list_dup_folders.item(i).text() for i in range(self.list_dup_folders.count())]
+
         return {
             "lang": lang_val,
             "target_format": format_keys[self.cb_format.currentIndex()],
@@ -459,6 +507,8 @@ class SettingsDialog(QDialog):
             "max_threads": self.slider_threads.value(),
             "play_sound": self.chk_sound.isChecked(),
             "viewer_path": self.le_viewer_path.text().strip(),
+
+            "dup_check_folders": dup_folders,
             
             "api_keys": {
                 "aladin": self.le_aladin_key.text().strip(),

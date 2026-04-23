@@ -7,6 +7,8 @@ import csv
 import zipfile
 import xml.etree.ElementTree as ET
 import hashlib
+import difflib
+import re
 from datetime import datetime
 
 from PyQt6.QtWidgets import (
@@ -38,6 +40,142 @@ def set_language(lang_code):
 def _(key):
     # 현재 언어의 딕셔너리에서 키를 찾고, 없으면 한국어에서 찾고, 그래도 없으면 키값 자체를 반환
     return _TRANSLATIONS.get(_CURRENT_LANG, _TRANSLATIONS["ko"]).get(key, key)
+
+
+# ==========================================
+# [추가됨] 중복 검사용 B폴더 스캔 스레드
+# ==========================================
+class DupScanThread(QThread):
+    scan_finished = pyqtSignal(list)
+    progress_updated = pyqtSignal(int, int) # 매칭된 압축파일 수, 전체 스캔한 파일 수
+
+    def __init__(self, dup_folders, target_exts):
+        super().__init__()
+        self.dup_folders = dup_folders
+        self.target_exts = tuple(target_exts)
+        self.is_cancelled = False
+
+    def cancel(self):
+        self.is_cancelled = True
+
+    def run(self):
+        b_cache = []
+        match_count = 0
+        total_scanned = 0
+        for folder in self.dup_folders:
+            if not os.path.exists(folder): continue
+            for root, dirs, files in os.walk(folder):
+                if self.is_cancelled: return
+                for file in files:
+                    if self.is_cancelled: return
+                    total_scanned += 1
+                    if file.lower().endswith(self.target_exts):
+                        fp = os.path.join(root, file)
+                        try:
+                            b_cache.append({
+                                "name": file,
+                                "path": root,
+                                "full_path": fp,
+                                "size": os.path.getsize(fp),
+                                "name_no_ext": os.path.splitext(file)[0].lower()
+                            })
+                            match_count += 1
+                        except: pass
+                    
+                    # 500개 파일을 스캔할 때마다 UI 업데이트 (프리징 방지)
+                    if total_scanned % 500 == 0:
+                        self.progress_updated.emit(match_count, total_scanned)
+                        
+        self.progress_updated.emit(match_count, total_scanned)
+        self.scan_finished.emit(b_cache)
+
+class DupMatchThread(QThread):
+    match_finished = pyqtSignal(dict)
+    match_progress = pyqtSignal(int, int)
+
+    def __init__(self, a_files, b_cache):
+        super().__init__()
+        self.a_files = a_files
+        self.b_cache = b_cache
+        self.is_cancelled = False
+
+    def cancel(self):
+        self.is_cancelled = True
+
+    def clean_name(self, name):
+        n = re.sub(r'\[.*?\]|\(.*?\)', '', name)
+        return re.sub(r'\s+', ' ', n).strip().lower()
+    
+    def extract_numbers(self, name):
+        return [int(n) for n in re.findall(r'\d+', name)]
+
+    def run(self):
+        matches = {}
+        total_a = len(self.a_files)
+        
+        a_data = []
+        for a_file in self.a_files:
+            if "name" in a_file:
+                raw_name = os.path.splitext(a_file["name"])[0]
+                cleaned = self.clean_name(raw_name)
+                if not cleaned: cleaned = raw_name.lower()
+                nums = self.extract_numbers(raw_name) # A파일 숫자 추출
+                a_data.append((a_file, cleaned, nums))
+
+        for b_file in self.b_cache:
+            if "cleaned_name" not in b_file:
+                raw_name = os.path.splitext(b_file["name"])[0]
+                c = self.clean_name(raw_name)
+                b_file["cleaned_name"] = c if c else raw_name.lower()
+                b_file["nums"] = self.extract_numbers(raw_name) # B파일 숫자 추출
+
+        for i, (a_file, a_name, a_nums) in enumerate(a_data):
+            if self.is_cancelled: return
+            
+            file_matches = []
+            matcher = difflib.SequenceMatcher(None, a_name, "")
+            len_a = len(a_name)
+            
+            # 경로 정규화 (슬래시 방향 통일)
+            a_path = os.path.normcase(os.path.normpath(a_file.get("full_path", "")))
+            
+            for b_file in self.b_cache:
+                if self.is_cancelled: return
+                
+                b_path = os.path.normcase(os.path.normpath(b_file.get("full_path", "")))
+                
+                # 1. 자기 자신 무시 (슬래시 오작동 완벽 차단)
+                if a_path == b_path: continue
+                
+                # 2. 파일명 내부의 숫자(권수 등) 구성이 다르면 일치율 검사 없이 무조건 패스
+                if a_nums != b_file["nums"]: continue
+                
+                b_name = b_file["cleaned_name"]
+                len_b = len(b_name)
+                
+                if len_a == 0 or len_b == 0: continue
+                if min(len_a, len_b) / max(len_a, len_b) < 0.6: continue 
+                
+                matcher.set_seq2(b_name)
+                if matcher.real_quick_ratio() < 0.70: continue
+                if matcher.quick_ratio() < 0.75: continue
+                
+                ratio = matcher.ratio() * 100
+                if ratio >= 80:
+                    file_matches.append({"b_file": b_file, "ratio": ratio})
+                    
+            if file_matches:
+                grouped = {}
+                for m in file_matches:
+                    bp = m["b_file"]["path"]
+                    if bp not in grouped: grouped[bp] = []
+                    grouped[bp].append(m)
+                matches[a_file["full_path"]] = grouped
+                
+            if total_a > 0 and i % max(1, total_a // 20) == 0:
+                self.match_progress.emit(i + 1, total_a)
+                
+        self.match_finished.emit(matches)
 
 # ==========================================
 # 스마트 인메모리 스레드
@@ -193,6 +331,26 @@ class CustomTableView(QTableView):
         self._origin = QPoint()
 
     def mousePressEvent(self, event):
+        index = self.indexAt(event.pos())
+        if index.isValid() and event.button() == Qt.MouseButton.LeftButton:
+            row_data = self.model()._data[index.row()]
+            if row_data.get("is_dup_folder"):
+                from PyQt6.QtGui import QFont, QFontMetrics
+                
+                text = f"📁 {row_data.get('path', '')} - ~{int(row_data.get('max_ratio', 0))}%"
+                font = QFont("맑은 고딕", 10, QFont.Weight.Bold)
+                fm = QFontMetrics(font)
+                text_width = fm.horizontalAdvance(text)
+                
+                rect = self.visualRect(index)
+                btn_rect = QRect(rect.left() + 20 + text_width + 15, rect.top() + 5, 90, 24)
+                
+                if btn_rect.contains(event.pos()):
+                    path = row_data.get("path")
+                    if os.name == 'nt': os.startfile(path)
+                    else: subprocess.Popen(['open' if sys.platform == 'darwin' else 'xdg-open', path])
+                    return # 이벤트 소비
+
         if event.button() == Qt.MouseButton.LeftButton and not self.indexAt(event.pos()).isValid():
             if not self._rubber_band:
                 self._rubber_band = QRubberBand(QRubberBand.Shape.Rectangle, self.viewport())
@@ -339,6 +497,42 @@ class ThumbnailDelegate(QStyledItemDelegate):
             painter.drawLine(option.rect.left() + 5, option.rect.bottom() - 2, option.rect.right() - 5, option.rect.bottom() - 2)
             painter.restore()
             return
+        
+        # --- [수정됨] 중복 정보 (폴더 단위) ---
+        if row_data.get("is_dup_folder"):
+            painter.fillRect(option.rect, QColor("#1e1e1e"))
+            painter.setPen(QColor("#e67e22"))
+            font = QFont("맑은 고딕", 10, QFont.Weight.Bold)
+            painter.setFont(font)
+            text = f"📁 {row_data['path']} - ~{int(row_data['max_ratio'])}%"
+            
+            flags = Qt.AlignmentFlag.AlignLeft.value | Qt.AlignmentFlag.AlignVCenter.value
+            painter.drawText(option.rect.adjusted(20, 0, 0, 0), flags, text)
+            
+            fm = painter.fontMetrics()
+            text_width = fm.horizontalAdvance(text)
+            
+            # 텍스트 바로 옆에 '폴더 열기' 버튼 그리기
+            btn_rect = QRect(option.rect.left() + 20 + text_width + 15, option.rect.top() + 5, 90, 24)
+            painter.fillRect(btn_rect, QColor("#3a3a3a"))
+            painter.setPen(QColor("#ffffff"))
+            painter.drawRect(btn_rect)
+            flags_center = Qt.AlignmentFlag.AlignCenter.value
+            painter.drawText(btn_rect, flags_center, _("btn_open_folder"))
+            painter.restore()
+            return
+
+        # --- [수정됨] 중복 정보 (파일 단위) ---
+        if row_data.get("is_dup_child"):
+            painter.fillRect(option.rect, QColor("#1e1e1e"))
+            painter.setPen(QColor("#aaaaaa"))
+            font = QFont("맑은 고딕", 9)
+            painter.setFont(font)
+            text = f"      └ 📦 {row_data['name']} ({row_data['size_str']}) - {int(row_data['ratio'])}%"
+            flags = Qt.AlignmentFlag.AlignLeft.value | Qt.AlignmentFlag.AlignVCenter.value
+            painter.drawText(option.rect.adjusted(20, 0, -10, 0), flags, text)
+            painter.restore()
+            return
             
         if self.view_mode == "detail":
             col_id = index.model().active_columns[index.column()]
@@ -442,6 +636,11 @@ class ThumbnailDelegate(QStyledItemDelegate):
 
     def sizeHint(self, option, index):
         row_data = index.model()._data[index.row()]
+        # is_dup_folder, is_dup_child 도 동일한 행 높이 사용
+        if row_data.get("is_group") or row_data.get("is_dup_folder") or row_data.get("is_dup_child"):
+            width = self.parent().viewport().width() if hasattr(self.parent(), 'viewport') else 800
+            return QSize(width - 20, 35)
+        
         if row_data.get("is_group"):
             width = self.parent().viewport().width() if hasattr(self.parent(), 'viewport') else 800
             return QSize(width - 20, 35)
@@ -556,7 +755,9 @@ class LibraryTableModel(QAbstractTableModel):
     def flags(self, index):
         flags = super().flags(index)
         if not index.isValid(): return flags
-        if self._data[index.row()].get("is_group"):
+        row_data = self._data[index.row()]
+        # 중복행들도 클릭(선택)이 안되도록 처리
+        if row_data.get("is_group") or row_data.get("is_dup_folder") or row_data.get("is_dup_child"):
             flags &= ~Qt.ItemFlag.ItemIsSelectable 
         return flags
 
@@ -641,6 +842,13 @@ class TabFolder(QWidget):
         self.grouping_timer.setSingleShot(True)
         self.grouping_timer.timeout.connect(self.apply_grouping_and_sorting)
 
+        # --- [추가됨] 중복 검사용 캐시 및 스레드 변수 ---
+        self.b_folder_cache = []
+        self.dup_matches = {}
+        self.dup_scan_thread = None
+        self.dup_match_thread = None
+        # ----------------------------------------------
+
         self.main_status_label = None
         self.main_optimize_btn = None
 
@@ -654,6 +862,111 @@ class TabFolder(QWidget):
         
         QTimer.singleShot(100, self.load_initial_layout)
         QTimer.singleShot(500, self.find_main_window_elements)
+        QTimer.singleShot(1000, self.start_dup_scan)
+
+    # --- [추가됨] 백그라운드 스레드 제어 메서드 ---
+    def start_dup_scan(self):
+        dup_folders = self.config.get("dup_check_folders", [])
+        if not dup_folders: return
+        target_exts = ('.zip', '.cbz', '.cbr', '.rar', '.7z')
+        
+        # 기존 스레드가 돌고 있으면 취소하고 완전히 닫힐 때까지 대기(.wait())
+        if self.dup_scan_thread and self.dup_scan_thread.isRunning():
+            self.dup_scan_thread.cancel()
+            self.dup_scan_thread.wait()
+            
+        self.lbl_tree_status.setText(_("dup_scan_start"))
+            
+        self.dup_scan_thread = DupScanThread(dup_folders, target_exts)
+        self.dup_scan_thread.progress_updated.connect(self.on_dup_scan_progress)
+        self.dup_scan_thread.scan_finished.connect(self.on_dup_scan_finished)
+        self.dup_scan_thread.start()
+
+    def on_dup_scan_progress(self, match_count, total_scanned):
+        msg = _("dup_scan_progress").format(total_scanned, match_count)
+        self.lbl_tree_status.setText(msg)
+
+    def on_dup_scan_finished(self, b_cache):
+        self.b_folder_cache = b_cache
+        
+        msg = _("dup_scan_complete").format(len(b_cache))
+        self.lbl_tree_status.setText(msg) # i18n 적용
+        
+        try:
+            from ui.widgets import Toast
+            Toast.show(self.main_window, msg)
+        except:
+            pass
+
+        if self.file_data_cache:
+            self.start_dup_match()
+
+    # 중복 검사 토글 이벤트 처리
+    def on_dup_check_toggled(self, checked):
+        self.btn_dup_check.setText(_("folder_dup_check_on") if checked else _("folder_dup_check_off"))
+        
+        if checked:
+            if not hasattr(self, 'b_folder_cache') or not self.b_folder_cache:
+                self.start_dup_scan()
+            else:
+                self.start_dup_match()
+        else:
+            # [수정됨] 연산 결과를 초기화하지 않고 숨김 처리만 하도록 변경
+            if hasattr(self, 'dup_match_thread') and self.dup_match_thread.isRunning():
+                self.dup_match_thread.cancel()
+            self.apply_grouping_and_sorting()
+            self.lbl_tree_status.setText(_("folder_ready"))
+
+    def start_dup_match(self):
+        if not self.btn_dup_check.isChecked():
+            return
+            
+        if not hasattr(self, 'b_folder_cache') or not self.b_folder_cache: return
+        if not hasattr(self, 'file_data_cache') or not self.file_data_cache: return
+        
+        current_a_paths = tuple(f.get("full_path") for f in self.file_data_cache)
+        if hasattr(self, 'last_matched_a_paths') and self.last_matched_a_paths == current_a_paths:
+            # [수정됨] 이미 연산된 결과가 있으므로 스레드를 돌리지 않고 UI만 즉시 갱신
+            self.apply_grouping_and_sorting()
+            
+            # 상태 표시줄 텍스트 복구
+            count = sum(len(v) for v in getattr(self, 'dup_matches', {}).values())
+            if count > 0:
+                self.lbl_tree_status.setText(_("dup_match_found").format(count))
+            else:
+                self.lbl_tree_status.setText(_("dup_match_none"))
+            return
+            
+        self.last_matched_a_paths = current_a_paths
+        
+        if self.dup_match_thread and self.dup_match_thread.isRunning():
+            self.dup_match_thread.cancel()
+            self.dup_match_thread.wait()
+            
+        self.lbl_tree_status.setText(_("dup_match_start"))
+            
+        self.dup_match_thread = DupMatchThread(self.file_data_cache, self.b_folder_cache)
+        self.dup_match_thread.match_progress.connect(self.on_dup_match_progress)
+        self.dup_match_thread.match_finished.connect(self.on_dup_match_finished)
+        self.dup_match_thread.start()
+
+    # 매칭 진행 상황 표시
+    def on_dup_match_progress(self, current, total):
+        msg = _("dup_match_progress").format(current, total)
+        self.lbl_tree_status.setText(msg)
+
+    def on_dup_match_finished(self, matches):
+        self.dup_matches = matches
+        self.apply_grouping_and_sorting()
+        
+        count = sum(len(v) for v in matches.values())
+        if count > 0:
+            msg = _("dup_match_found").format(count)
+        else:
+            msg = _("dup_match_none")
+            
+        self.lbl_tree_status.setText(msg)
+    # ----------------------------------------------
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -734,26 +1047,50 @@ class TabFolder(QWidget):
         left_layout = QVBoxLayout(self.left_panel)
         left_layout.setContentsMargins(5, 5, 5, 5)
         
-        left_toolbar = QHBoxLayout()
+        # --- 가로로 꽉 차게 늘어나도록 Expanding 정책 설정 ---
+        expanding_policy = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
         self.btn_subfolders = QPushButton(_("folder_inc_sub_off"))
         self.btn_subfolders.setCheckable(True)
         self.btn_subfolders.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_subfolders.setStyleSheet(toggle_btn_style)
+        self.btn_subfolders.setSizePolicy(expanding_policy) # 50% 확장을 위해 변경
         
+        self.btn_dup_check = QPushButton(_("folder_dup_check_off"))
+        self.btn_dup_check.setCheckable(True)
+        self.btn_dup_check.setChecked(False)
+        self.btn_dup_check.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_dup_check.setStyleSheet(toggle_btn_style)
+        self.btn_dup_check.setSizePolicy(expanding_policy) # 50% 확장을 위해 변경
+
         self.btn_refresh_tree = QPushButton(_("folder_refresh_tree"))
         self.btn_refresh_tree.setCursor(Qt.CursorShape.PointingHandCursor)
-        left_toolbar.addWidget(self.btn_subfolders)
-        left_toolbar.addStretch()
-        left_toolbar.addWidget(self.btn_refresh_tree)
-        left_layout.addLayout(left_toolbar)
+        self.btn_refresh_tree.setStyleSheet(toggle_btn_style)
+        self.btn_refresh_tree.setSizePolicy(expanding_policy) # 100% 확장을 위해 변경
 
+        # --- [1번째 줄] 하위 폴더 포함 (50%) / 중복 검사 (50%) ---
+        row1_layout = QHBoxLayout()
+        row1_layout.setSpacing(5) # 버튼 사이 여백
+        row1_layout.addWidget(self.btn_subfolders)
+        row1_layout.addWidget(self.btn_dup_check)
+        # addStretch()를 제거하여 남는 공간 없이 꽉 채우도록 함
+        left_layout.addLayout(row1_layout)
+
+        # --- [2번째 줄] 새로고침 (100%) ---
+        row2_layout = QHBoxLayout()
+        row2_layout.addWidget(self.btn_refresh_tree)
+        # addStretch()를 제거하여 남는 공간 없이 꽉 채우도록 함
+        left_layout.addLayout(row2_layout)
+
+        # --- [3번째 줄] 빠른 이동 (콤보박스) ---
         self.combo_quick_access = QComboBox()
         self.combo_quick_access.setStyleSheet("""
             QComboBox { background-color: #3a3a3a; color: white; border: 1px solid #555; border-radius: 4px; padding: 4px; margin-bottom: 5px; }
             QComboBox::drop-down { border: none; }
-        """)
+        """) 
         self.combo_quick_access.setCursor(Qt.CursorShape.PointingHandCursor)
         self.populate_quick_access()
+        
         left_layout.addWidget(self.combo_quick_access)
 
         self.dir_model = QFileSystemModel()
@@ -949,6 +1286,8 @@ class TabFolder(QWidget):
         self.btn_refresh_list.clicked.connect(self.refresh_list)
         self.btn_subfolders.toggled.connect(self.refresh_list)
         self.btn_subfolders.toggled.connect(lambda checked: self.btn_subfolders.setText(_("folder_inc_sub_on") if checked else _("folder_inc_sub_off")))
+
+        self.btn_dup_check.toggled.connect(self.on_dup_check_toggled)
         
         self.slider_item_size.valueChanged.connect(self.on_size_changed)
         self.tree_view.selectionModel().selectionChanged.connect(self.on_tree_selection_changed)
@@ -988,7 +1327,8 @@ class TabFolder(QWidget):
         hidden_tasks = []
         
         for r in self.table_model._data:
-            if r.get("is_group"): continue
+            # [수정됨] 그룹 헤더뿐만 아니라 중복 파일 표기용 가짜 행들도 추출 스캔 대상에서 완벽히 스킵합니다.
+            if r.get("is_group") or r.get("is_dup_folder") or r.get("is_dup_child"): continue
             
             fp = r.get("full_path", "")
             if not fp.lower().endswith(target_exts): continue
@@ -1021,31 +1361,17 @@ class TabFolder(QWidget):
             self.is_syncing = False
             self.progress_bar.hide()
             if hasattr(self, 'main_status_label') and self.main_status_label:
-                self.main_status_label.setText(_("folder_ready"))
+                self.main_status_label.setText(self.i18n.get("folder_ready", "Ready") if hasattr(self, 'i18n') else "Ready")
             return
 
         tasks = (visible_tasks + hidden_tasks)[:50] 
         real_heavy_tasks_count = sum(1 for t in tasks if t[2] or (t[1] and not os.path.exists(t[3])))
         
         if not self.is_syncing and real_heavy_tasks_count > 0:
-            total_heavy = sum(1 for r in self.table_model._data if not r.get("is_group") and not r.get("meta_processed") and r.get("full_path", "").lower().endswith(target_exts))
+            total_heavy = sum(1 for r in self.table_model._data if not r.get("is_group") and not r.get("is_dup_folder") and not r.get("is_dup_child") and not r.get("meta_processed") and r.get("full_path", "").lower().endswith(target_exts))
             self.sync_total_tasks = total_heavy
             self.sync_completed_tasks = 0
             self.is_syncing = True
-
-        if self.extract_thread and self.extract_thread.isRunning():
-            current_paths = [t[0] for t in getattr(self.extract_thread, 'current_tasks', [])]
-            interrupt_needed = any(vt[0] not in current_paths for vt in visible_tasks)
-            if interrupt_needed:
-                self.extract_thread.cancel()
-                try:
-                    self.extract_thread.data_extracted.disconnect()
-                    self.extract_thread.progress_updated.disconnect()
-                    self.extract_thread.finished.disconnect()
-                except TypeError: pass
-                self.extract_thread = None
-            else:
-                return 
 
         seven_zip_path = get_resource_path('7za.exe')
         self.extract_thread = MemoryExtractThread(tasks, seven_zip_path)
@@ -1258,9 +1584,16 @@ class TabFolder(QWidget):
     def setup_hotkeys(self):
         QShortcut(QKeySequence("F5"), self).activated.connect(self.refresh_tree)
         QShortcut(QKeySequence("Ctrl+A"), self).activated.connect(self.select_all_files)
-        QShortcut(QKeySequence("F2"), self).activated.connect(self.hotkey_f2)
-        QShortcut(QKeySequence("F3"), self).activated.connect(self.send_to_tab2)
+        QShortcut(QKeySequence("F1"), self).activated.connect(self.send_to_tab1)
+        QShortcut(QKeySequence("F2"), self).activated.connect(self.send_to_tab2)
+        QShortcut(QKeySequence("F3"), self).activated.connect(self.hotkey_f3)
         QShortcut(QKeySequence("Del"), self).activated.connect(self.delete_selected)
+
+    def hotkey_f3(self): # F2였던 메서드명을 논리에 맞게 변경
+        if self.tree_view.hasFocus():
+            self.rename_folder()
+        else:
+            self.send_to_tab3()
 
     def rename_folder(self, index=None):
         if not index:
@@ -1292,6 +1625,8 @@ class TabFolder(QWidget):
                 QMessageBox.critical(self, _("dlg_err"), _("dlg_err_ren_folder").format(e))
 
     def delete_selected(self):
+        from PyQt6.QtCore import QFile
+
         if self.table_view.hasFocus() or self.list_view.hasFocus():
             files = self.get_selected_files()
             if not files: return
@@ -1299,7 +1634,9 @@ class TabFolder(QWidget):
             reply = QMessageBox.question(self, _("dlg_del_file_title"), _("dlg_del_file_msg").format(len(files)), QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             if reply == QMessageBox.StandardButton.Yes:
                 for f in files:
-                    try: os.remove(f)
+                    try: 
+                        # os.remove(f) 완전 삭제 대신 휴지통으로 이동
+                        QFile.moveToTrash(f)
                     except Exception as e: print(f"Delete error: {e}")
                 self.refresh_list(force_update=True)
                 
@@ -1411,6 +1748,7 @@ class TabFolder(QWidget):
             self.list_view.setGridSize(QSize()) 
             self.list_view.doItemsLayout()
         self.table_model.layoutChanged.emit()
+        self.apply_grouping_and_sorting()
 
     def on_size_changed(self, value):
         self.item_delegate.item_size = value
@@ -1518,18 +1856,51 @@ class TabFolder(QWidget):
         else:
             display_data = data
             
+        # --- 중복 파일 결과 인젝션 ---
+        final_data = []
+        # 자세히 보기 모드이면서 + 중복 검사 버튼이 켜져 있을 때만 인젝션 수행
+        is_detail_view = (self.view_stack.currentIndex() == 0)
+        show_dup = is_detail_view and self.btn_dup_check.isChecked()
+
+        for row in display_data:
+            final_data.append(row)
+            if not row.get("is_group") and show_dup:
+                fp = row.get("full_path")
+                if hasattr(self, 'dup_matches') and fp in self.dup_matches:
+                    sorted_b_folders = sorted(self.dup_matches[fp].items(), key=lambda x: max([m["ratio"] for m in x[1]]), reverse=True)
+                    for b_folder, matched_files in sorted_b_folders:
+                        matched_files.sort(key=lambda x: x["ratio"], reverse=True)
+                        max_ratio = matched_files[0]["ratio"]
+                        
+                        final_data.append({
+                            "is_dup_folder": True,
+                            "path": b_folder,
+                            "max_ratio": max_ratio
+                        })
+                        for m in matched_files:
+                            final_data.append({
+                                "is_dup_child": True,
+                                "name": m["b_file"]["name"],
+                                "size_str": self.format_size(m["b_file"]["size"]),
+                                "ratio": m["ratio"],
+                                "full_path": m["b_file"]["full_path"]
+                            })
+
         self.file_data_map = {}
-        for i, row in enumerate(display_data):
-            row["display_index"] = i
-            if not row.get("is_group"):
+        idx_counter = 0
+        for row in final_data:
+            row["display_index"] = idx_counter
+            if not row.get("is_group") and not row.get("is_dup_folder") and not row.get("is_dup_child"):
                 self.file_data_map[row.get("full_path")] = row
+            idx_counter += 1
                 
-        self.table_model.update_data(display_data)
+        self.table_model.update_data(final_data)
         
-        if self.current_group_key != "none":
-            for i, row in enumerate(display_data):
-                if row.get("is_group"):
-                    self.table_view.setSpan(i, 0, 1, self.table_model.columnCount())
+        # 그룹 헤더 및 중복 표기 행의 Span (가로 병합) 적용
+        for i, row in enumerate(final_data):
+            if row.get("is_group") or row.get("is_dup_folder") or row.get("is_dup_child"):
+                self.table_view.setSpan(i, 0, 1, self.table_model.columnCount())
+                self.table_view.setRowHeight(i, 35)
 
     def format_size(self, size):
         for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
@@ -1573,6 +1944,16 @@ class TabFolder(QWidget):
                 print(f"DB Load Error: {e}")
 
         self.apply_grouping_and_sorting()
+
+        # 1. 먼저 현재 A폴더 스캔 결과 텍스트를 세팅합니다.
+        folder_path = self.current_watched_folder
+        if folder_path:
+            self.lbl_tree_status.setText(_("folder_status_sel").format(os.path.basename(folder_path), len(self.file_data_cache), self.format_size(total_size)))
+            
+        self.scroll_timer.start(100)
+
+        # 2. 가장 마지막에 매칭을 호출해야 상태창 텍스트가 "매칭 중..."으로 정상적으로 덮어씌워집니다.
+        self.start_dup_match()
         
         folder_path = self.current_watched_folder
         if folder_path:
@@ -1905,8 +2286,11 @@ class TabFolder(QWidget):
         
         menu = QMenu()
         menu.addAction(_("action_view"), self.open_viewer)
-        menu.addAction(_("action_meta_edit"), self.send_to_tab3)
-        menu.addAction(_("action_inner_ren"), self.send_to_tab2)
+        
+        menu.addAction(_("action_flatten_structure") + " (F1)", self.send_to_tab1)
+        menu.addAction(_("action_inner_ren") + " (F2)", self.send_to_tab2)
+        menu.addAction(_("action_meta_edit") + " (F3)", self.send_to_tab3)
+        
         menu.addAction(_("action_update_files"), self.force_update_selected_files)
         menu.addSeparator()
         menu.addAction(_("action_del_files"), self.delete_selected)
@@ -1948,6 +2332,12 @@ class TabFolder(QWidget):
     def open_selected_in_explorer(self):
         files = self.get_selected_files()
         if files: self.open_in_explorer(os.path.dirname(files[0]))
+
+    def send_to_tab1(self):
+        files = self.get_selected_files()
+        if files and hasattr(self.main_window, 'tab1'):
+            self.main_window.tabs.setCurrentWidget(self.main_window.tab1)
+            self.main_window.process_paths(files)
 
     def send_to_tab2(self):
         files = self.get_selected_files()

@@ -54,7 +54,8 @@ def load_config():
         "flatten_folders": False, "webp_conversion": False,
         "webp_quality": 100, "max_threads": default_threads,
         "play_sound": True,
-        "viewer_path": ""
+        "viewer_path": "",
+        "dup_check_folders": []
     }
     try:
         if os.path.exists(CONFIG_FILE):

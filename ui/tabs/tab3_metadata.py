@@ -977,9 +977,15 @@ class Tab3Metadata(QWidget):
             except: pass
         return None
 
-    def refresh_tree(self):
+    def refresh_tree(self, auto_select_first=True):
         t = self.main_app.i18n[self.main_app.lang]
         saved_selection = self.current_meta_file
+        
+        # 새로고침 전 기존 폴더들의 펼침/접힘 상태를 저장
+        expanded_states = {}
+        for i in range(self.tree_meta_files.topLevelItemCount()):
+            item = self.tree_meta_files.topLevelItem(i)
+            expanded_states[item.text(0)] = item.isExpanded()
         
         self.tree_meta_files.clear()
         if not self.meta_data:
@@ -1038,12 +1044,17 @@ class Tab3Metadata(QWidget):
                 item_layout.addLayout(date_layout)
                 
                 child_item.setSizeHint(0, QSize(200, 48)); self.tree_meta_files.setItemWidget(child_item, 0, item_widget)
-                
-        self.tree_meta_files.expandAll()
+            
+            # 기억해둔 이전 상태대로 복원
+            if folder_name in expanded_states:
+                root_item.setExpanded(expanded_states[folder_name])
+            else:
+                root_item.setExpanded(True)
         
         if target_item_to_select:
             self.tree_meta_files.setCurrentItem(target_item_to_select)
-        elif self.tree_meta_files.topLevelItemCount() > 0:
+        # [수정] 삭제 작업 중이 아닐 때만(auto_select_first=True) 첫 번째 파일을 임시 선택
+        elif auto_select_first and self.tree_meta_files.topLevelItemCount() > 0:
             first_root = self.tree_meta_files.topLevelItem(0)
             if first_root.childCount() > 0: self.tree_meta_files.setCurrentItem(first_root.child(0))
 
@@ -1324,8 +1335,15 @@ class Tab3Metadata(QWidget):
     def remove_selected(self):
         selected_items = self.tree_meta_files.selectedItems()
         if not selected_items: return
-        first_selected = selected_items[0]; parent = first_selected.parent() or first_selected
-        top_idx = self.tree_meta_files.indexOfTopLevelItem(parent); child_idx = parent.indexOfChild(first_selected) if first_selected.parent() else 0
+        
+        first_selected = selected_items[0]
+        parent = first_selected.parent() or first_selected
+        
+        # 삭제 전 부모 폴더의 위치와 이름을 기억해 둡니다.
+        top_idx = self.tree_meta_files.indexOfTopLevelItem(parent)
+        child_idx = parent.indexOfChild(first_selected) if first_selected.parent() else 0
+        parent_name = parent.text(0) 
+        
         fps_to_remove = set()
         for item in selected_items:
             fp = item.data(0, Qt.ItemDataRole.UserRole)
@@ -1334,28 +1352,41 @@ class Tab3Metadata(QWidget):
                 for i in range(item.childCount()):
                     child_fp = item.child(i).data(0, Qt.ItemDataRole.UserRole)
                     if child_fp: fps_to_remove.add(child_fp)
+                    
         if not fps_to_remove: return
+        
         for fp in fps_to_remove:
             parent_dir = str(Path(fp).parent)
             if parent_dir in self.meta_data:
                 self.meta_data[parent_dir] = [x for x in self.meta_data[parent_dir] if str(x) != fp]
                 if not self.meta_data[parent_dir]: del self.meta_data[parent_dir]
             if fp in self.book_meta: del self.book_meta[fp]
+            
         if self.current_meta_file in fps_to_remove:
-            self.current_meta_file = None; self.lbl_meta_cover.setPixmap(QPixmap()); self.lbl_meta_cover.setText(self.main_app.i18n[self.main_app.lang].get("t3_cover", ""))
+            self.current_meta_file = None
+            self.lbl_meta_cover.setPixmap(QPixmap())
+            self.lbl_meta_cover.setText(self.main_app.i18n[self.main_app.lang].get("t3_cover", ""))
             for key, field in self.meta_ui_fields.items():
                 if field.get('is_combo'): field['my'].setCurrentText("")
                 elif field.get('is_text'): field['my'].setPlainText("")
                 elif field.get('is_tag'): field['my'].setText("")
                 else: field['my'].setText("")
             self.set_right_panel_active(False)
-        self.refresh_tree()
+            
+        self.refresh_tree(auto_select_first=False)
+        
         total_top = self.tree_meta_files.topLevelItemCount()
         if total_top > 0:
-            valid_top_idx = min(top_idx, total_top - 1); new_parent = self.tree_meta_files.topLevelItem(valid_top_idx)
-            if new_parent.childCount() > 0:
-                valid_child_idx = min(child_idx, new_parent.childCount() - 1); self.tree_meta_files.setCurrentItem(new_parent.child(valid_child_idx))
-            else: self.tree_meta_files.setCurrentItem(new_parent)
+            valid_top_idx = min(top_idx, total_top - 1)
+            new_parent = self.tree_meta_files.topLevelItem(valid_top_idx)
+            
+            # [핵심 로직] 삭제 후에도 원래 폴더가 살아있다면 인접한 파일을 선택
+            if new_parent.text(0) == parent_name and new_parent.childCount() > 0:
+                valid_child_idx = min(child_idx, new_parent.childCount() - 1)
+                self.tree_meta_files.setCurrentItem(new_parent.child(valid_child_idx))
+            # 폴더가 통째로 삭제되어 다음 폴더로 순서가 밀렸다면, 내부 파일을 건드리지 않고 폴더 껍데기만 선택
+            else:
+                self.tree_meta_files.setCurrentItem(new_parent)
 
     def clear_list(self):
         self.meta_data.clear(); self.book_meta.clear(); self.current_meta_file = None

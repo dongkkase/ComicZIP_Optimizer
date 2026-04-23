@@ -384,6 +384,7 @@ class RenamerApp(QMainWindow):
         if dlg.exec() == int(QDialog.DialogCode.Accepted):
             new_data = dlg.get_data()
             
+            dup_folders_changed = new_data.get("dup_check_folders", []) != self.config.get("dup_check_folders", [])
             format_changed = new_data.get("target_format") != self.config.get("target_format")
             webp_conv_changed = new_data.get("webp_conversion") != self.config.get("webp_conversion")
             webp_qual_changed = new_data.get("webp_quality") != self.config.get("webp_quality")
@@ -403,6 +404,11 @@ class RenamerApp(QMainWindow):
             self.lang = self.config["lang"]
             save_config(self.config)
             self.apply_language()
+
+            # [추가됨] B폴더가 변경되었으면 재인덱싱 트리거
+            if dup_folders_changed:
+                self.tab_folder.start_dup_scan()
+
             if hasattr(self.tab2, 'update_inner_preview_list'):
                 self.tab2.update_inner_preview_list() 
 

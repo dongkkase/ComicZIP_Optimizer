@@ -54,6 +54,7 @@ def get_i18n():
             "btn_issue": "버그 신고 및 건의",
             
             "tab_basic": "기본 설정",
+            "tab_folder_settings": "폴더 탭 설정",
             "tab_api": "API 및 검색 설정",
             
             "lang_lbl": "언어 (Language) :", "format_lbl": "변환 포맷 :",
@@ -259,20 +260,35 @@ def get_i18n():
             "menu_edit_layout": "레이아웃 편집", "menu_save_layout": "레이아웃 저장", "menu_del_layout": "레이아웃 삭제",
             "action_fav_add": "즐겨찾기 추가", "action_fav_rem": "즐겨찾기 제거", "action_open_exp": "탐색기에서 열기",
             "action_ren_folder": "폴더 이름 변경", "action_del_folder": "폴더 삭제 (Del)", "action_refresh": "새로고침",
-            "action_view": "뷰어로 보기", "action_meta_edit": "메타데이터 편집 (F2)", "action_inner_ren": "내부 파일명 변경 (F3)",
+            "action_view": "뷰어로 보기", "action_flatten_structure": "압축 파일 구조 정리(평탄화)", "action_meta_edit": "메타데이터 관리", "action_inner_ren": "내부 파일명 변경",
             "action_update_files": "파일 강제 업데이트", "action_del_files": "파일 삭제 (Del)", 
             "action_sel_all": "전체 선택 (Ctrl+A)", "action_inv_sel": "선택 반전",
             
             "dlg_ren_folder_title": "폴더 이름 변경", "dlg_ren_folder_msg": "새 폴더 이름을 입력하세요:",
             "dlg_err": "오류", "dlg_err_ren_folder": "폴더 이름을 변경할 수 없습니다:\n{0}",
-            "dlg_del_file_title": "파일 삭제", "dlg_del_file_msg": "선택한 {0}개의 파일을 정말 삭제하시겠습니까?\n(휴지통으로 이동하지 않고 영구 삭제됩니다)",
+            "dlg_del_file_title": "파일 삭제", "dlg_del_file_msg": "선택한 {0}개의 파일을 정말 삭제하시겠습니까?",
             "dlg_del_folder_title": "폴더 삭제", "dlg_del_folder_msg": "'{0}' 폴더와 내부의 모든 파일을 삭제하시겠습니까?",
             "dlg_del_err": "폴더를 삭제할 수 없습니다:\n{0}", "dlg_exp_no_data": "내보낼 데이터가 없습니다.",
             "dlg_exp_title": "소장 목록 CSV 저장", "dlg_exp_done": "CSV 데이터 내보내기가 완료되었습니다.",
             "dlg_err_occurred": "오류가 발생했습니다:\n{0}", "dlg_save_lay_msg": "저장할 레이아웃 이름을 입력하세요:",
             "dlg_del_lay_msg": "삭제할 레이아웃 선택:", "dlg_warn": "경고",
             "dlg_warn_viewer": "환경 설정에서 뷰어 프로그램을 지정해주세요.", "dlg_edit_lay_title": "레이아웃 편집",
-            "dlg_edit_lay_msg": "표시할 컬럼을 선택하세요:"
+            "dlg_edit_lay_msg": "표시할 컬럼을 선택하세요:",
+
+            "dup_folder_desc": "중복 파일을 검사할 대상 폴더를 추가하세요.\nNAS나 대용량 드라이브의 폴더를 지정할 수 있습니다.",
+            "tab_folder_settings": "폴더 탭 설정",
+            "dlg_sel_dup_folder": "중복 검사 대상 폴더 선택",
+            "dup_scan_start": "중복 검사용 폴더 인덱싱 시작...",
+            "dup_scan_progress": "중복 검사용 폴더 읽는 중... (전체 스캔: {0} / 타겟 발견: {1}개)",
+            "dup_scan_complete": "중복 검사용 폴더 인덱싱 완료 (총 {0}개)",
+            "dup_match_start": "중복 파일 매칭 중... 잠시만 기다려주세요.",
+            "dup_match_progress": "중복 파일 매칭 중... ({0}/{1})",
+            "dup_match_found": "중복 파일 검사 완료 (중복 {0}건 발견)",
+            "dup_match_none": "중복 파일 검사 완료 (중복 없음)",
+            "btn_open_folder": "폴더열기",
+
+            "folder_dup_check_on": "☑ 중복 검사",
+            "folder_dup_check_off": "☐ 중복 검사",
         },
         "en": {
             "title": f"ComicZIP Optimizer v{CURRENT_VERSION}",
@@ -287,6 +303,7 @@ def get_i18n():
             "btn_issue": "Report Bug / Suggestion",
             
             "tab_basic": "Basic Settings",
+            "tab_folder_settings": "Folder Tab Settings",
             "tab_api": "API & Search Settings",
             
             "lang_lbl": "Language :", "format_lbl": "Output Format :",
@@ -488,13 +505,13 @@ def get_i18n():
             "menu_edit_layout": "Edit List Layout", "menu_save_layout": "Save List Layout", "menu_del_layout": "Delete Layouts",
             "action_fav_add": "Add to Favorites", "action_fav_rem": "Remove from Favorites", "action_open_exp": "Open in Explorer",
             "action_ren_folder": "Rename Folder", "action_del_folder": "Delete Folder (Del)", "action_refresh": "Refresh",
-            "action_view": "View", "action_meta_edit": "Metadata edit (F2)", "action_inner_ren": "Inner Renamer (F3)",
+            "action_view": "View", "action_flatten_structure": "Archive Organizer", "action_meta_edit": "Metadata Management", "action_inner_ren": "Inner Renamer",
             "action_update_files": "Update files", "action_del_files": "Delete Files (Del)", 
             "action_sel_all": "Select All (Ctrl+A)", "action_inv_sel": "Invert Selection",
             
             "dlg_ren_folder_title": "Rename Folder", "dlg_ren_folder_msg": "Enter new folder name:",
             "dlg_err": "Error", "dlg_err_ren_folder": "Cannot rename folder:\n{0}",
-            "dlg_del_file_title": "Delete Files", "dlg_del_file_msg": "Are you sure you want to permanently delete {0} files?",
+            "dlg_del_file_title": "Delete Files", "dlg_del_file_msg": "Are you sure you want to delete {0} files?",
             "dlg_del_folder_title": "Delete Folder", "dlg_del_folder_msg": "Are you sure you want to delete folder '{0}' and all its contents?",
             "dlg_del_err": "Cannot delete folder:\n{0}", "dlg_exp_no_data": "No data to export.",
             "dlg_exp_title": "Save Library as CSV", "dlg_exp_done": "CSV export completed.",
@@ -502,6 +519,21 @@ def get_i18n():
             "dlg_del_lay_msg": "Select layout to delete:", "dlg_warn": "Warning",
             "dlg_warn_viewer": "Please specify a viewer program in settings.", "dlg_edit_lay_title": "Edit List Layout",
             "dlg_edit_lay_msg": "Select columns to display:",
+
+            "dup_folder_desc": "Add target folders to check for duplicate files.\nYou can specify folders on a NAS or high-capacity drive.",
+            "tab_folder_settings": "Folder Tab Settings",
+            "dlg_sel_dup_folder": "Select Duplicate Check Target Folder",
+            "dup_scan_start": "Starting duplicate check folder indexing...",
+            "dup_scan_progress": "Scanning duplicate check folders... (Scanned: {0} / Found: {1})",
+            "dup_scan_complete": "Duplicate check folder indexing complete (Total {0})",
+            "dup_match_start": "Matching duplicates... Please wait.",
+            "dup_match_progress": "Matching duplicates... ({0}/{1})",
+            "dup_match_found": "Duplicate check complete ({0} duplicates found)",
+            "dup_match_none": "Duplicate check complete (No duplicates)",
+            "btn_open_folder": "Open",
+
+            "folder_dup_check_on": "☑ Dup Check",
+            "folder_dup_check_off": "☐ Dup Check",
         },
         "ja": {
             "title": f"ComicZIP Optimizer v{CURRENT_VERSION}",
@@ -516,6 +548,7 @@ def get_i18n():
             "btn_issue": "バグ報告・要望",
             
             "tab_basic": "基本設定",
+            "tab_folder_settings": "フォルダ タブ設定",
             "tab_api": "API 検索設定",
             
             "lang_lbl": "言語 (Language) :", "format_lbl": "変換フォーマット :",
@@ -722,13 +755,13 @@ def get_i18n():
             "menu_edit_layout": "レイアウトを編集", "menu_save_layout": "レイアウトを保存", "menu_del_layout": "レイアウトを削除",
             "action_fav_add": "お気に入りに追加", "action_fav_rem": "お気に入りから削除", "action_open_exp": "エクスプローラーで開く",
             "action_ren_folder": "フォルダー名を変更", "action_del_folder": "フォルダーを削除 (Del)", "action_refresh": "更新",
-            "action_view": "ビューアで開く", "action_meta_edit": "メタデータ編集 (F2)", "action_inner_ren": "内部ファイル名変更 (F3)",
+            "action_view": "ビューアで開く", "action_flatten_structure": "アーカイブ構成整理 (フラット化)", "action_meta_edit": "メタデータ管理", "action_inner_ren": "内部ファイル名変更",
             "action_update_files": "ファイルを強制更新", "action_del_files": "ファイルを削除 (Del)", 
             "action_sel_all": "すべて選択 (Ctrl+A)", "action_inv_sel": "選択を反転",
             
             "dlg_ren_folder_title": "フォルダー名を変更", "dlg_ren_folder_msg": "新しいフォルダー名を入力してください:",
             "dlg_err": "エラー", "dlg_err_ren_folder": "フォルダー名を変更できません:\n{0}",
-            "dlg_del_file_title": "ファイルを削除", "dlg_del_file_msg": "選択した{0}個のファイルを本当に削除しますか？\n（ゴミ箱に移動せず、完全に削除されます）",
+            "dlg_del_file_title": "ファイルを削除", "dlg_del_file_msg": "選択した{0}個のファイルを本当に削除しますか？",
             "dlg_del_folder_title": "フォルダーを削除", "dlg_del_folder_msg": "「{0}」フォルダーと内部のすべてのファイルを削除しますか？",
             "dlg_del_err": "フォルダーを削除できません:\n{0}", "dlg_exp_no_data": "エクスポートするデータがありません。",
             "dlg_exp_title": "ライブラリをCSVとして保存", "dlg_exp_done": "CSVデータのエクスポートが完了しました。",
@@ -736,5 +769,20 @@ def get_i18n():
             "dlg_del_lay_msg": "削除するレイアウトを選択してください:", "dlg_warn": "警告",
             "dlg_warn_viewer": "環境設定でビューアプログラムを指定してください。", "dlg_edit_lay_title": "レイアウトの編集",
             "dlg_edit_lay_msg": "表示する列を選択してください:",
+
+            "dup_folder_desc": "重複ファイルを検査する対象フォルダを追加してください。\nNASや大容量ドライブのフォルダを指定できます。",
+            "tab_folder_settings": "フォルダタブ設定",
+            "dlg_sel_dup_folder": "重複検査対象フォルダの選択",
+            "dup_scan_start": "重複確認用フォルダのインデックス作成を開始...",
+            "dup_scan_progress": "重複確認用フォルダをスキャン中... (全体スキャン: {0} / 発見: {1}個)",
+            "dup_scan_complete": "重複確認用フォルダのインデックス作成完了 (計 {0}個)",
+            "dup_match_start": "重複ファイルを照合中... 少々お待ちください。",
+            "dup_match_progress": "重複ファイルを照合中... ({0}/{1})",
+            "dup_match_found": "重複検査完了 ({0}件 発見)",
+            "dup_match_none": "重複検査完了 (重複なし)",
+            "btn_open_folder": "開く",
+
+            "folder_dup_check_on": "☑ 重複確認",
+            "folder_dup_check_off": "☐ 重複確認",
         }
     }
