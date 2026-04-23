@@ -61,6 +61,10 @@ class SettingsDialog(QDialog):
         self.setFixedSize(500, 750) 
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
 
+        self.chk_pass_skip_meta = QCheckBox(self.i18n.get("opt_pass_skip_meta", "스킵된 파일도 메타데이터 관리로 넘기기"))
+        self.chk_pass_skip_meta.setToolTip(self.i18n.get("opt_pass_skip_meta_tip", ""))
+        self.chk_pass_skip_meta.setChecked(self.config.get("pass_skip_meta", False))
+
         # 🌟 탭 내부 영역까지 모두 하얀색 글자와 어두운 배경이 적용되도록 강력한 CSS 주입
         self.setStyleSheet("""
             QDialog, QWidget { background-color: #1e1e1e; color: #ffffff; font-family: '맑은 고딕', 'Segoe UI Emoji'; }
@@ -171,6 +175,15 @@ class SettingsDialog(QDialog):
         lbl_flatten_desc.setStyleSheet("color: #aaaaaa; font-size: 11px; margin-left: 25px;")
         opt_layout.addWidget(self.chk_flatten)
         opt_layout.addWidget(lbl_flatten_desc)
+
+        # --- [여기에 추가] 스킵된 파일 탭 3 전달 체크박스 ---
+        opt_layout.addSpacing(15)
+        self.chk_pass_skip_meta = QCheckBox(self.i18n.get("opt_pass_skip_meta", "스킵된 파일도 메타데이터 관리로 넘기기"))
+        self.chk_pass_skip_meta.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.chk_pass_skip_meta.setChecked(config.get("pass_skip_meta", False))
+        self.chk_pass_skip_meta.setToolTip(self.i18n.get("opt_pass_skip_meta_tip", ""))
+        opt_layout.addWidget(self.chk_pass_skip_meta)
+        # --------------------------------------------------
 
         opt_layout.addSpacing(15)
         self.chk_webp = QCheckBox(self.i18n.get("webp", "WebP"))
@@ -509,6 +522,7 @@ class SettingsDialog(QDialog):
             "viewer_path": self.le_viewer_path.text().strip(),
 
             "dup_check_folders": dup_folders,
+            "pass_skip_meta": self.chk_pass_skip_meta.isChecked(),
             
             "api_keys": {
                 "aladin": self.le_aladin_key.text().strip(),

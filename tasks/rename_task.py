@@ -130,7 +130,9 @@ class RenameTask:
                     data = self.archive_data[file_path]
                     entries = data['entries'].copy() 
                     ext_type = data['ext'].lower()
-                    target_ext = ext_type if self.target_format == 'none' else f".{self.target_format}"
+                    
+                    tf = str(self.target_format).lower()
+                    target_ext = ext_type if tf == 'none' else f".{tf}"
                     archive_type = '-t7z' if target_ext == '.7z' else '-tzip'
 
                     cover_entry = next((e for e in entries if os.path.basename(e['filename']).lower().startswith('cover')), None)
@@ -144,6 +146,11 @@ class RenameTask:
 
                     has_non_webp = any(not e['original_name'].lower().endswith('.webp') for e in entries)
                     actual_webp_needed = self.webp_conversion and has_non_webp
+                    
+                    # [핵심 수정 1] 평탄화 옵션 무한 루프 방지: 이미 평탄화되어 있다면 스킵하도록 방어막 추가
+                    is_flatten_setting = (str(self.flatten_folders).lower() == 'true')
+                    is_already_flat = all('/' not in e['filename'] and '\\' not in e['filename'] for e in entries)
+                    is_flatten_needed = is_flatten_setting and not is_already_flat
 
                     for count, entry in enumerate(entries):
                         old_name = entry['original_name']
@@ -156,17 +163,46 @@ class RenameTask:
                         else:
                             new_basename = self.generate_new_name(count, ext, total_count, stem_name)
                             
-                        new_name = new_basename if self.flatten_folders else os.path.join(dir_name, new_basename).replace('\\', '/')
+                        # is_flatten_setting 대신 is_flatten_needed 사용
+                        new_name = new_basename if is_flatten_needed else os.path.join(dir_name, new_basename).replace('\\', '/')
 
-                        if old_name != new_name or actual_webp_needed:
+                        # [핵심 수정 2] 경로 내 './' 이나 '//' 등 보이지 않는 찌꺼기를 normpath로 완벽히 세탁 후 비교
+                        safe_old = os.path.normpath(old_name).replace('\\', '/').lower()
+                        safe_new = os.path.normpath(new_name).replace('\\', '/').lower()
+                        
+                        if safe_old != safe_new or actual_webp_needed:
                             rename_args.append((old_name, new_name))
 
                     format_changed = (target_ext != ext_type)
                     needs_rename = len(rename_args) > 0
-                    must_extract = actual_webp_needed or format_changed or self.flatten_folders or (ext_type not in ['.zip', '.cbz'])
+                    
+                    # 무조건 추출 조건에 is_flatten_needed 반영
+                    must_extract = actual_webp_needed or format_changed or is_flatten_needed or (ext_type not in ['.zip', '.cbz'])
 
                     if not needs_rename and not must_extract:
                         stats['skip'].append(filename)
+
+                        # --- [추가됨] 스킵된 파일 Tab 3 전달 로직 ---
+                        # rename_task는 보통 self.config나 kwargs를 통해 설정에 접근합니다.
+                        # 속성이 없을 경우를 대비해 안전하게(get) 가져옵니다.
+                        pass_skip = False
+                        if hasattr(self, 'config'):
+                            pass_skip = self.config.get("pass_skip_meta", False)
+                        elif hasattr(self, 'main_app'):
+                            pass_skip = self.main_app.config.get("pass_skip_meta", False)
+                            
+                        if pass_skip:
+                            # 1. 파일 경로를 원본 그대로 유지 (Path Mismatch 방어)
+                            # 2. Tab 3가 요구하는 딕셔너리 구조 그대로 생성 (Payload 에러 방어)
+                            if not hasattr(self, 'new_archive_data'):
+                                self.new_archive_data = {}
+                                
+                            self.new_archive_data[file_path] = {
+                                'new_path': file_path, # 새 경로가 없으므로 원본 경로를 넣음
+                                'entries': entries,
+                                'ext': ext_type
+                            }
+                        # ---------------------------------------------
                         continue
 
                     if not must_extract:

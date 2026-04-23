@@ -289,6 +289,9 @@ def get_i18n():
 
             "folder_dup_check_on": "☑ 중복 검사",
             "folder_dup_check_off": "☐ 중복 검사",
+
+            "opt_pass_skip_meta": "스킵된 파일도 메타데이터 관리로 넘기기",
+            "opt_pass_skip_meta_tip": "체크 시 내부 이름 변경 작업에서 스킵된(최적화 완료된) 파일도 메타데이터 탭으로 전달합니다.\n(주의: 너무 많은 파일이 한 번에 넘어가면 렉이 발생할 수 있습니다.)",
         },
         "en": {
             "title": f"ComicZIP Optimizer v{CURRENT_VERSION}",
@@ -534,6 +537,9 @@ def get_i18n():
 
             "folder_dup_check_on": "☑ Dup Check",
             "folder_dup_check_off": "☐ Dup Check",
+
+            "opt_pass_skip_meta": "Pass skipped files to Metadata Manager",
+            "opt_pass_skip_meta_tip": "If checked, files skipped during the rename process will also be sent to the metadata tab.\n(Note: Passing too many files at once may cause lag.)",
         },
         "ja": {
             "title": f"ComicZIP Optimizer v{CURRENT_VERSION}",
@@ -784,5 +790,8 @@ def get_i18n():
 
             "folder_dup_check_on": "☑ 重複確認",
             "folder_dup_check_off": "☐ 重複確認",
+
+            "opt_pass_skip_meta": "スキップされたファイルもメタデータ管理へ渡す",
+            "opt_pass_skip_meta_tip": "チェックすると、名前変更作業でスキップされたファイルもメタデータタブに送られます。\n(注意: 一度に大量のファイルを渡すと動作が重くなる場合があります。)",
         }
     }
