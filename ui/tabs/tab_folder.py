@@ -204,11 +204,16 @@ class DupMatchThread(QThread):
         return False, ratio
 
     def run(self):
+        import time # 스레드 내부에서 사용할 time 모듈
+        
         matches = {}
         total_a = len(self.a_files)
         
         a_data = []
-        for a_file in self.a_files:
+        for idx, a_file in enumerate(self.a_files):
+            if self.is_cancelled: return
+            if idx % 50 == 0: time.sleep(0.001) # [추가] UI 스레드에 GIL 양보
+            
             if "name" in a_file:
                 raw_name = os.path.splitext(a_file["name"])[0]
                 core_title, nums, is_bundle = self.extract_series_and_nums(raw_name)
@@ -217,7 +222,10 @@ class DupMatchThread(QThread):
 
         # B 폴더 그룹화 및 캐싱 (사전 작업)
         b_folders = {}
-        for b_file in self.b_cache:
+        for idx, b_file in enumerate(self.b_cache):
+            if self.is_cancelled: return
+            if idx % 50 == 0: time.sleep(0.001) # [추가] UI 스레드에 GIL 양보
+            
             bp = b_file["path"]
             if bp not in b_folders:
                 folder_name = os.path.basename(bp)
@@ -242,6 +250,8 @@ class DupMatchThread(QThread):
         for i, (a_file, a_core, a_nums, a_is_bundle) in enumerate(a_data):
             if self.is_cancelled: return
             
+            if i % 10 == 0: time.sleep(0.001) # [핵심 추가] 매칭 연산 중 주기적으로 UI에 제어권 양보
+            
             file_matches = []
             a_path = os.path.normcase(os.path.normpath(a_file.get("full_path", "")))
             a_dir_norm = os.path.dirname(a_path)
@@ -255,7 +265,7 @@ class DupMatchThread(QThread):
                 if a_dir_norm != bp_norm:
                     is_folder_match, ratio = self.check_similarity(a_core, b_folder["core_title"])
                     if is_folder_match:
-                        # 폴더 전체가 매칭되면 내부 파일 검사 스킵! (속도 대폭 개선)
+                        # 폴더 전체가 매칭되면 내부 파일 검사 스킵
                         dummy_b_file = {
                             "name": "(폴더 전체 매칭)",
                             "size": b_folder["size"],
@@ -2099,6 +2109,9 @@ class TabFolder(QWidget):
         print(f"[LOG] 7. Map 재생성 완료: {time.time()-t0:.3f}s")
         
         self.table_view.setUpdatesEnabled(False)
+
+        self.table_view.clearSpans()
+
         t_model = time.time()
         self.table_model.update_data(final_data)
         print(f"[LOG] 8. TableModel 내부 업데이트 (Qt 엔진 렌더링 계산): {time.time()-t_model:.3f}s")
@@ -2114,7 +2127,13 @@ class TabFolder(QWidget):
 
         from PyQt6.QtCore import QTimer
 
+        self._span_task_id = getattr(self, '_span_task_id', 0) + 1
+        current_task_id = self._span_task_id
+
         def apply_spans_chunk(targets, chunk_size=200):
+            if getattr(self, '_span_task_id', 0) != current_task_id:
+                return
+
             if not hasattr(self, '_span_start_time'):
                 self._span_start_time = time.time()
 
@@ -2231,7 +2250,12 @@ class TabFolder(QWidget):
             
         self.file_data_cache.clear()
         self.file_data_map.clear()
+        # --- [수정됨] 삭제 및 새로고침 시 UI 잔상(깨짐) 방지 ---
+        self.table_view.setUpdatesEnabled(False)
+        self.table_view.clearSpans()
         self.table_model.update_data([])
+        self.table_view.setUpdatesEnabled(True)
+        # --------------------------------------------------------
         self.lbl_tree_status.setText(_("folder_scan_prep"))
         self.is_syncing = False
         if hasattr(self, 'main_status_label') and self.main_status_label:

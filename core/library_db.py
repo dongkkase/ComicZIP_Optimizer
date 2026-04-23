@@ -2,6 +2,7 @@ import sqlite3
 import os
 import threading
 import sys
+import json
 
 def get_project_root():
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -70,6 +71,14 @@ class LibraryDB:
                 thumb_path TEXT
             )
         ''')
+        
+        # 중복 검사 결과 캐싱용 테이블 신설
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS dup_cache (
+                a_path TEXT PRIMARY KEY,
+                match_data TEXT
+            )
+        ''')
         conn.commit()
 
     def init_db(self):
@@ -79,7 +88,6 @@ class LibraryDB:
             
             cursor.execute("PRAGMA table_info(files)")
             columns = cursor.fetchall()
-            # [수정] ComicInfo 모든 항목 대응을 위해 컬럼이 32개 미만이면 초기화
             if columns and len(columns) < 32:
                 print(f"[DB System] 구버전 테이블 감지 (컬럼수: {len(columns)}). 마이그레이션을 위해 초기화합니다.")
                 cursor.execute("DROP TABLE IF EXISTS files")
@@ -124,6 +132,54 @@ class LibraryDB:
             except Exception as e:
                 print(f"DB 로드 오류: {e}")
                 return None
+            finally:
+                if 'conn' in locals():
+                    conn.close()
+
+    # --- 추가된 중복 검사 캐시 관련 메서드 ---
+    def save_dup_match(self, a_path, match_data):
+        with self.lock:
+            try:
+                conn = self.get_connection()
+                cursor = conn.cursor()
+                json_data = json.dumps(match_data, ensure_ascii=False)
+                cursor.execute('''
+                    INSERT OR REPLACE INTO dup_cache (a_path, match_data)
+                    VALUES (?, ?)
+                ''', (a_path, json_data))
+                conn.commit()
+            except Exception as e:
+                print(f"DB 중복 캐시 저장 오류: {e}")
+            finally:
+                if 'conn' in locals():
+                    conn.close()
+
+    def get_dup_match(self, a_path):
+        with self.lock:
+            try:
+                conn = self.get_connection()
+                cursor = conn.cursor()
+                cursor.execute('SELECT match_data FROM dup_cache WHERE a_path = ?', (a_path,))
+                result = cursor.fetchone()
+                if result:
+                    return json.loads(result[0])
+                return None
+            except Exception as e:
+                print(f"DB 중복 캐시 로드 오류: {e}")
+                return None
+            finally:
+                if 'conn' in locals():
+                    conn.close()
+
+    def clear_dup_cache(self):
+        with self.lock:
+            try:
+                conn = self.get_connection()
+                cursor = conn.cursor()
+                cursor.execute('DELETE FROM dup_cache')
+                conn.commit()
+            except Exception as e:
+                print(f"DB 중복 캐시 초기화 오류: {e}")
             finally:
                 if 'conn' in locals():
                     conn.close()
