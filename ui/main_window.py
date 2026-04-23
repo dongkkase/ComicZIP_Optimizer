@@ -665,15 +665,30 @@ class RenamerApp(QMainWindow):
         self.btn_run.style().polish(self.btn_run)
         
         valid_fps = []
-        for old_fp, new_fp in new_archive_data.items():
+        
+        # --- [수정된 부분] 딕셔너리와 문자열 모두 안전하게 처리 ---
+        for old_fp, val in new_archive_data.items():
+            # 스킵된 파일처럼 단순 문자열인 경우
+            if isinstance(val, str):
+                new_fp = val
+            # 만약 딕셔너리 구조가 넘어왔다면 안전하게 경로 추출
+            elif isinstance(val, dict):
+                new_fp = val.get('new_path', old_fp)
+            else:
+                continue
+
             if os.path.exists(new_fp):
                 valid_fps.append(new_fp)
+            
+            # 리스트 UI 업데이트 로직
             if old_fp != new_fp:
                 if old_fp in self.tab2.archive_data: del self.tab2.archive_data[old_fp]
                 self.tab2.load_archive_info(new_fp)
                 self.tab2.current_archive_path = new_fp 
             else:
                 self.tab2.load_archive_info(new_fp)
+        # ----------------------------------------------------
+        
         self.tab2.refresh_list()
         
         if getattr(self.tab2, 'current_archive_path', None) and self.tab2.current_archive_path in self.tab2.archive_data:

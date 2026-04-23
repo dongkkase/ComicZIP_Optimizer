@@ -19,6 +19,7 @@ class RenameTask:
         self.webp_quality = config.get("webp_quality", 100) 
         self.max_threads = config.get("max_threads", max(1, os.cpu_count() or 4)) 
         self.lang = config.get("lang", "ko")
+        self.pass_skip_meta = config.get("pass_skip_meta", False)
         self.archive_data = archive_data
         self.i18n = i18n_dict
         self.pattern_val = pattern_val
@@ -183,25 +184,8 @@ class RenameTask:
                         stats['skip'].append(filename)
 
                         # --- [추가됨] 스킵된 파일 Tab 3 전달 로직 ---
-                        # rename_task는 보통 self.config나 kwargs를 통해 설정에 접근합니다.
-                        # 속성이 없을 경우를 대비해 안전하게(get) 가져옵니다.
-                        pass_skip = False
-                        if hasattr(self, 'config'):
-                            pass_skip = self.config.get("pass_skip_meta", False)
-                        elif hasattr(self, 'main_app'):
-                            pass_skip = self.main_app.config.get("pass_skip_meta", False)
-                            
-                        if pass_skip:
-                            # 1. 파일 경로를 원본 그대로 유지 (Path Mismatch 방어)
-                            # 2. Tab 3가 요구하는 딕셔너리 구조 그대로 생성 (Payload 에러 방어)
-                            if not hasattr(self, 'new_archive_data'):
-                                self.new_archive_data = {}
-                                
-                            self.new_archive_data[file_path] = {
-                                'new_path': file_path, # 새 경로가 없으므로 원본 경로를 넣음
-                                'entries': entries,
-                                'ext': ext_type
-                            }
+                        if self.pass_skip_meta:
+                            new_archive_data[file_path] = file_path
                         # ---------------------------------------------
                         continue
 

@@ -9,6 +9,7 @@ import xml.etree.ElementTree as ET
 import hashlib
 import difflib
 import re
+import time
 from datetime import datetime
 
 from PyQt6.QtWidgets import (
@@ -19,7 +20,7 @@ from PyQt6.QtWidgets import (
     QComboBox, QStyle, QLineEdit, QFileDialog, QRubberBand, QTextBrowser, QProgressBar
 )
 from PyQt6.QtGui import QFileSystemModel, QAction, QPixmap, QPainter, QColor, QFont, QKeySequence, QShortcut, QImage, QPixmapCache
-from PyQt6.QtCore import Qt, QDir, QAbstractTableModel, QModelIndex, QSize, QByteArray, QItemSelectionModel, QItemSelection, QStandardPaths, QFileSystemWatcher, QTimer, QMimeData, QUrl, QThread, pyqtSignal, QRect, QPoint
+from PyQt6.QtCore import Qt, QDir, QAbstractTableModel, QModelIndex, QSize, QByteArray, QItemSelectionModel, QItemSelection, QStandardPaths, QFileSystemWatcher, QTimer, QMimeData, QUrl, QThread, pyqtSignal, QRect, QPoint, QCoreApplication
 
 from config import get_resource_path, save_config
 from core.library_db import db
@@ -59,32 +60,77 @@ class DupScanThread(QThread):
         self.is_cancelled = True
 
     def run(self):
+        from core.library_db import db
         b_cache = []
         match_count = 0
         total_scanned = 0
+
         for folder in self.dup_folders:
+            if self.is_cancelled: return
             if not os.path.exists(folder): continue
-            for root, dirs, files in os.walk(folder):
-                if self.is_cancelled: return
-                for file in files:
+            
+            # 1. DB에서 즉시 조회 시도 (초고속 캐시 히트)
+            like_path = folder + '%'
+            try:
+                # 파일 경로(0)와 크기(2) 정보만 빠르게 가져옴
+                cursor = db.conn.execute("SELECT * FROM files WHERE filepath LIKE ?", (like_path,))
+                rows = cursor.fetchall()
+            except Exception as e:
+                rows = []
+
+            if rows:
+                # DB에 정보가 있다면 물리적 디스크 스캔을 완전히 스킵합니다.
+                for row in rows:
                     if self.is_cancelled: return
-                    total_scanned += 1
-                    if file.lower().endswith(self.target_exts):
-                        fp = os.path.join(root, file)
-                        try:
-                            b_cache.append({
-                                "name": file,
-                                "path": root,
-                                "full_path": fp,
-                                "size": os.path.getsize(fp),
-                                "name_no_ext": os.path.splitext(file)[0].lower()
-                            })
-                            match_count += 1
-                        except: pass
+                    fp = row[0]
+                    size = row[2]
                     
-                    # 500개 파일을 스캔할 때마다 UI 업데이트 (프리징 방지)
-                    if total_scanned % 500 == 0:
-                        self.progress_updated.emit(match_count, total_scanned)
+                    name = os.path.basename(fp)
+                    if name.lower().endswith(self.target_exts):
+                        b_cache.append({
+                            "name": name,
+                            "path": os.path.dirname(fp),
+                            "full_path": fp,
+                            "size": size,
+                            "name_no_ext": os.path.splitext(name)[0].lower()
+                        })
+                        match_count += 1
+                        total_scanned += 1
+                        
+                # UI 업데이트 (프리징 방지)
+                self.progress_updated.emit(match_count, total_scanned)
+
+            else:
+                # 2. DB에 없는 폴더인 경우 os.scandir로 물리 스캔 (기존 os.walk 대비 3~5배 빠름)
+                def fast_scan(scan_path):
+                    nonlocal match_count, total_scanned
+                    if self.is_cancelled: return
+                    try:
+                        with os.scandir(scan_path) as it:
+                            for entry in it:
+                                if self.is_cancelled: return
+                                
+                                if entry.is_dir(follow_symlinks=False):
+                                    fast_scan(entry.path)
+                                elif entry.is_file(follow_symlinks=False):
+                                    total_scanned += 1
+                                    name = entry.name
+                                    
+                                    if name.lower().endswith(self.target_exts):
+                                        b_cache.append({
+                                            "name": name,
+                                            "path": scan_path,
+                                            "full_path": entry.path,
+                                            "size": entry.stat().st_size,
+                                            "name_no_ext": os.path.splitext(name)[0].lower()
+                                        })
+                                        match_count += 1
+                                    
+                                    if total_scanned % 500 == 0:
+                                        self.progress_updated.emit(match_count, total_scanned)
+                    except Exception: pass
+
+                fast_scan(folder)
                         
         self.progress_updated.emit(match_count, total_scanned)
         self.scan_finished.emit(b_cache)
@@ -102,12 +148,60 @@ class DupMatchThread(QThread):
     def cancel(self):
         self.is_cancelled = True
 
-    def clean_name(self, name):
-        n = re.sub(r'\[.*?\]|\(.*?\)', '', name)
-        return re.sub(r'\s+', ' ', n).strip().lower()
-    
-    def extract_numbers(self, name):
-        return [int(n) for n in re.findall(r'\d+', name)]
+    def extract_series_and_nums(self, name):
+        from core.parser import extract_core_title
+        
+        core_title = extract_core_title(name).lower()
+        
+        bundle_pattern = r'(?:v|vol|c|ch|chapter|제)?\.?\s*(\d+(?:\.\d+)?)\s*[~-]\s*(\d+(?:\.\d+)?)\s*(?:권|화|장|편|부)?'
+        bundle_match = re.search(bundle_pattern, name, re.IGNORECASE)
+        if bundle_match:
+            return core_title, [float(bundle_match.group(1)), float(bundle_match.group(2))], True
+
+        if re.search(r'완결|합본|전권|시리즈|\(완\)', name):
+            return core_title, [], True
+            
+        ko_single = re.search(r'(\d+(?:\.\d+)?)\s*(?:권|화|장|편|부)', name, re.IGNORECASE)
+        if ko_single:
+            return core_title, [float(ko_single.group(1))], False
+
+        en_single = re.search(r'(?:v|vol|c|ch|chapter|제)\.?\s*(\d+(?:\.\d+)?)', name, re.IGNORECASE)
+        if en_single:
+            return core_title, [float(en_single.group(1))], False
+            
+        clean_name = re.sub(r'\[.*?\]|\(.*?\)', '', name)
+        nums = re.findall(r'\d+(?:\.\d+)?', clean_name)
+        if nums:
+            return core_title, [float(nums[-1])], False
+            
+        return core_title, [], False
+
+    def clean_title_for_compare(self, title):
+        t = title.lower()
+        t = re.sub(r'만화책|만화|코믹스|e북|ebook|완결|합본|웹툰|단행본|시리즈|총집편|풀컬러', '', t)
+        t = re.sub(r'[^가-힣a-z0-9]', '', t)
+        return t
+
+    def check_similarity(self, a_core, b_core):
+        a_clean = self.clean_title_for_compare(a_core)
+        b_clean = self.clean_title_for_compare(b_core)
+        
+        if not a_clean or not b_clean: return False, 0
+
+        if len(a_clean) >= 2 and len(b_clean) >= 2:
+            if a_clean in b_clean or b_clean in a_clean: return True, 100
+            
+        ratio = difflib.SequenceMatcher(None, a_clean, b_clean).ratio() * 100
+        if ratio >= 50: return True, ratio
+        
+        a_ko = re.sub(r'[^가-힣]', '', a_clean)
+        b_ko = re.sub(r'[^가-힣]', '', b_clean)
+        if len(a_ko) >= 2 and len(b_ko) >= 2:
+            if a_ko in b_ko or b_ko in a_ko: return True, 100
+            ratio_ko = difflib.SequenceMatcher(None, a_ko, b_ko).ratio() * 100
+            if ratio_ko >= 50: return True, ratio_ko
+            
+        return False, ratio
 
     def run(self):
         matches = {}
@@ -117,53 +211,80 @@ class DupMatchThread(QThread):
         for a_file in self.a_files:
             if "name" in a_file:
                 raw_name = os.path.splitext(a_file["name"])[0]
-                cleaned = self.clean_name(raw_name)
-                if not cleaned: cleaned = raw_name.lower()
-                nums = self.extract_numbers(raw_name) # A파일 숫자 추출
-                a_data.append((a_file, cleaned, nums))
+                core_title, nums, is_bundle = self.extract_series_and_nums(raw_name)
+                if not core_title: core_title = raw_name.lower()
+                a_data.append((a_file, core_title, nums, is_bundle))
 
+        # B 폴더 그룹화 및 캐싱 (사전 작업)
+        b_folders = {}
         for b_file in self.b_cache:
-            if "cleaned_name" not in b_file:
+            bp = b_file["path"]
+            if bp not in b_folders:
+                folder_name = os.path.basename(bp)
+                f_core, _, _ = self.extract_series_and_nums(folder_name) if folder_name else ("", [], False)
+                b_folders[bp] = {
+                    "name": folder_name,
+                    "core_title": f_core if f_core else folder_name.lower(),
+                    "size": 0,
+                    "files": []
+                }
+            
+            if "core_title" not in b_file:
                 raw_name = os.path.splitext(b_file["name"])[0]
-                c = self.clean_name(raw_name)
-                b_file["cleaned_name"] = c if c else raw_name.lower()
-                b_file["nums"] = self.extract_numbers(raw_name) # B파일 숫자 추출
+                core_title, nums, is_bundle = self.extract_series_and_nums(raw_name)
+                b_file["core_title"] = core_title if core_title else raw_name.lower()
+                b_file["nums"] = nums
+                b_file["is_bundle"] = is_bundle
+                
+            b_folders[bp]["files"].append(b_file)
+            b_folders[bp]["size"] += b_file.get("size", 0)
 
-        for i, (a_file, a_name, a_nums) in enumerate(a_data):
+        for i, (a_file, a_core, a_nums, a_is_bundle) in enumerate(a_data):
             if self.is_cancelled: return
             
             file_matches = []
-            matcher = difflib.SequenceMatcher(None, a_name, "")
-            len_a = len(a_name)
-            
-            # 경로 정규화 (슬래시 방향 통일)
             a_path = os.path.normcase(os.path.normpath(a_file.get("full_path", "")))
+            a_dir_norm = os.path.dirname(a_path)
             
-            for b_file in self.b_cache:
+            for bp, b_folder in b_folders.items():
                 if self.is_cancelled: return
                 
-                b_path = os.path.normcase(os.path.normpath(b_file.get("full_path", "")))
+                bp_norm = os.path.normcase(os.path.normpath(bp))
                 
-                # 1. 자기 자신 무시 (슬래시 오작동 완벽 차단)
-                if a_path == b_path: continue
-                
-                # 2. 파일명 내부의 숫자(권수 등) 구성이 다르면 일치율 검사 없이 무조건 패스
-                if a_nums != b_file["nums"]: continue
-                
-                b_name = b_file["cleaned_name"]
-                len_b = len(b_name)
-                
-                if len_a == 0 or len_b == 0: continue
-                if min(len_a, len_b) / max(len_a, len_b) < 0.6: continue 
-                
-                matcher.set_seq2(b_name)
-                if matcher.real_quick_ratio() < 0.70: continue
-                if matcher.quick_ratio() < 0.75: continue
-                
-                ratio = matcher.ratio() * 100
-                if ratio >= 80:
-                    file_matches.append({"b_file": b_file, "ratio": ratio})
+                # 1. 폴더 단위 매칭 (A파일의 부모 폴더가 자기 자신인 경우는 제외)
+                if a_dir_norm != bp_norm:
+                    is_folder_match, ratio = self.check_similarity(a_core, b_folder["core_title"])
+                    if is_folder_match:
+                        # 폴더 전체가 매칭되면 내부 파일 검사 스킵! (속도 대폭 개선)
+                        dummy_b_file = {
+                            "name": "(폴더 전체 매칭)",
+                            "size": b_folder["size"],
+                            "full_path": bp,
+                            "path": bp
+                        }
+                        file_matches.append({"b_file": dummy_b_file, "ratio": ratio})
+                        continue
+                        
+                # 2. 폴더 매칭 실패 시 내부 개별 파일 매칭 진행
+                for b_file in b_folder["files"]:
+                    if self.is_cancelled: return
                     
+                    b_full_path = os.path.normcase(os.path.normpath(b_file.get("full_path", "")))
+                    if a_path == b_full_path: continue
+                    
+                    number_match = False
+                    if a_is_bundle or b_file["is_bundle"]:
+                        number_match = True
+                    else:
+                        if a_nums == b_file["nums"]:
+                            number_match = True
+                            
+                    if not number_match: continue
+                    
+                    is_file_match, f_ratio = self.check_similarity(a_core, b_file["core_title"])
+                    if is_file_match:
+                        file_matches.append({"b_file": b_file, "ratio": f_ratio})
+                        
             if file_matches:
                 grouped = {}
                 for m in file_matches:
@@ -398,69 +519,112 @@ class FolderScanThread(QThread):
     progress_updated = pyqtSignal(int)
     scan_finished = pyqtSignal(list, float)
     
-    def __init__(self, folder_path, include_sub, target_exts, thumb_dir):
+    def __init__(self, folder_path, include_sub, target_exts, thumb_dir, force_update=False):
         super().__init__()
         self.folder_path = folder_path
         self.include_sub = include_sub
         self.target_exts = tuple(target_exts)
         self.thumb_dir = thumb_dir
+        self.force_update = force_update
         self.is_cancelled = False
 
     def run(self):
-        paths_to_scan = []
+        # 1. 오프라인 방어 로직 (NAS 연결 끊김 등)
+        if not os.path.exists(self.folder_path):
+            self.scan_finished.emit([], 0)
+            return
+
+        # 2. 백그라운드 DB 일괄 캐싱 & WAL 모드 활성화 (UI 프리징 방지)
+        from core.library_db import db
+        cache_dict = {}
         try:
-            if self.include_sub:
-                for root, dirs, files in os.walk(self.folder_path):
-                    if self.is_cancelled: return
-                    for file in files:
-                        if file.lower().endswith(self.target_exts):
-                            paths_to_scan.append(os.path.join(root, file))
-            else:
-                for file in os.listdir(self.folder_path):
-                    if self.is_cancelled: return
-                    if file.lower().endswith(self.target_exts):
-                        paths_to_scan.append(os.path.join(self.folder_path, file))
-        except Exception:
-            pass
+            db.conn.execute("PRAGMA journal_mode=WAL;")
+            db.conn.commit()
+            
+            like_path = self.folder_path + '%' if self.include_sub else self.folder_path + '/%'
+            cursor = db.conn.execute("SELECT * FROM files WHERE filepath LIKE ?", (like_path,))
+            for row in cursor.fetchall():
+                cache_dict[row[0]] = row
+        except Exception as e:
+            print(f"DB Bulk Load Error: {e}")
 
         file_data_cache = []
         total_size = 0
+        count = 0
 
-        for i, full_path in enumerate(paths_to_scan):
+        # 3. os.scandir 기반 초고속 파일 시스템 순회
+        def scan_dir(path):
+            nonlocal total_size, count
             if self.is_cancelled: return
             try:
-                stat = os.stat(full_path)
-                mtime = stat.st_mtime
-                ctime = stat.st_ctime
-                
-                file_hash = hashlib.md5(f"{full_path}_{mtime}".encode()).hexdigest()
-                thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.webp")
-                has_thumb = os.path.exists(thumb_path)
-                
-                row_dict = {
-                    "full_path": full_path, 
-                    "hash": file_hash,
-                    "name": os.path.basename(full_path),
-                    "path": os.path.dirname(full_path), 
-                    "ext": os.path.splitext(full_path)[1].lower(), 
-                    "raw_size": stat.st_size,
-                    "raw_mtime": mtime,
-                    "raw_ctime": ctime,
-                    "ctime": datetime.fromtimestamp(ctime).strftime('%Y-%m-%d %H:%M'),
-                    "mtime": datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M'),
-                    "thumb_processed": has_thumb, 
-                    "meta_processed": False, 
-                    "full_meta": {},
-                    "res": "", "series": "", "title": "", "vol": "", "num": "", "writer": "",
-                    "display_index": -1 
-                }
-                file_data_cache.append(row_dict)
-                total_size += stat.st_size
-                
-                if i % 1000 == 0:
-                    self.progress_updated.emit(i)
+                with os.scandir(path) as it:
+                    for entry in it:
+                        if self.is_cancelled: break
+                        
+                        if entry.is_dir(follow_symlinks=False):
+                            if self.include_sub:
+                                scan_dir(entry.path)
+                        elif entry.is_file(follow_symlinks=False):
+                            name = entry.name
+                            if name.lower().endswith(self.target_exts):
+                                full_path = entry.path
+                                stat = entry.stat()
+                                mtime = stat.st_mtime
+                                ctime = stat.st_ctime
+                                size = stat.st_size
+                                
+                                cached = cache_dict.get(full_path)
+                                meta_processed = False
+                                full_meta = {}
+                                res, title, series, vol, num, writer = "", "", "", "", "", ""
+                                
+                                # DB 정보와 mtime 대조
+                                if cached and len(cached) >= 32 and abs(float(cached[1]) - float(mtime)) < 2.0 and not self.force_update:
+                                    meta_processed = True
+                                    res, title, series = cached[4], cached[5], cached[6]
+                                    vol, num, writer = cached[8], cached[9], cached[10]
+                                    
+                                    full_meta = {
+                                        "resolution": cached[4], "title": cached[5], "series": cached[6], "series_group": cached[7],
+                                        "volume": cached[8], "number": cached[9], "writer": cached[10], "creators": cached[11], 
+                                        "publisher": cached[12], "imprint": cached[13], "genre": cached[14], "volume_count": cached[15], 
+                                        "page_count": cached[16], "format": cached[17], "manga": cached[18], "language": cached[19],
+                                        "rating": cached[20], "age_rating": cached[21], "publish_date": cached[22], 
+                                        "summary": cached[23], "characters": cached[24], "teams": cached[25], "locations": cached[26], 
+                                        "story_arc": cached[27], "tags": cached[28], "notes": cached[29], "web": cached[30]
+                                    }
+
+                                file_hash = hashlib.md5(f"{full_path}_{mtime}".encode()).hexdigest()
+                                thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.webp")
+                                has_thumb = os.path.exists(thumb_path)
+                                
+                                from datetime import datetime
+                                row_dict = {
+                                    "full_path": full_path, 
+                                    "hash": file_hash,
+                                    "name": name,
+                                    "path": path, 
+                                    "ext": os.path.splitext(name)[1].lower(), 
+                                    "raw_size": size,
+                                    "raw_mtime": mtime,
+                                    "raw_ctime": ctime,
+                                    "ctime": datetime.fromtimestamp(ctime).strftime('%Y-%m-%d %H:%M'),
+                                    "mtime": datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M'),
+                                    "thumb_processed": has_thumb, 
+                                    "meta_processed": meta_processed, 
+                                    "full_meta": full_meta,
+                                    "res": res, "series": series, "title": title, "vol": vol, "num": num, "writer": writer,
+                                    "display_index": -1 
+                                }
+                                file_data_cache.append(row_dict)
+                                total_size += size
+                                count += 1
+                                
+                                if count % 1000 == 0:
+                                    self.progress_updated.emit(count)
             except Exception: pass
 
+        scan_dir(self.folder_path)
         self.scan_finished.emit(file_data_cache, total_size)
 
     def cancel(self):
@@ -1893,14 +2057,40 @@ class TabFolder(QWidget):
             if not row.get("is_group") and not row.get("is_dup_folder") and not row.get("is_dup_child"):
                 self.file_data_map[row.get("full_path")] = row
             idx_counter += 1
-                
+            
         self.table_model.update_data(final_data)
-        
-        # 그룹 헤더 및 중복 표기 행의 Span (가로 병합) 적용
+        col_count = self.table_model.columnCount()
+
+        # 1. 병합(Span)이 필요한 행(인덱스)만 미리 리스트로 추출
+        span_targets = []
         for i, row in enumerate(final_data):
             if row.get("is_group") or row.get("is_dup_folder") or row.get("is_dup_child"):
-                self.table_view.setSpan(i, 0, 1, self.table_model.columnCount())
+                span_targets.append(i)
+
+        self.table_view.setUpdatesEnabled(False)
+
+        from PyQt6.QtCore import QTimer
+
+        # 2. 비동기 청크(Chunk) 분할 함수 정의
+        def apply_spans_chunk(targets, chunk_size=200):
+            if not targets:
+                # 모든 작업이 끝나면 화면 업데이트 재개
+                self.table_view.setUpdatesEnabled(True)
+                return
+                
+            # 지정된 크기(200개)만큼 잘라서 이번 턴에 처리
+            chunk = targets[:chunk_size]
+            next_targets = targets[chunk_size:]
+            
+            for i in chunk:
+                self.table_view.setSpan(i, 0, 1, col_count)
                 self.table_view.setRowHeight(i, 35)
+                
+            # 3. 1ms(0.001초) 대기 후 다음 청크 실행 (UI 렌더링에 제어권 양보)
+            QTimer.singleShot(1, lambda: apply_spans_chunk(next_targets, chunk_size))
+
+        # 3. 분할 작업 시작
+        apply_spans_chunk(span_targets)
 
     def format_size(self, size):
         for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
@@ -1916,46 +2106,26 @@ class TabFolder(QWidget):
         self.sync_total_tasks = 0
         self.sync_completed_tasks = 0
         
+        # 오프라인 방어 체크
+        if not os.path.exists(self.current_watched_folder):
+            if hasattr(self, 'main_status_label') and self.main_status_label:
+                self.main_status_label.setText(_("folder_ready"))
+            self.lbl_tree_status.setText("Network Drive Offline / 경로를 찾을 수 없습니다.")
+            return
+
         self.file_data_cache = file_data_cache
         for row in self.file_data_cache:
             row["size"] = self.format_size(row["raw_size"])
-            fp = row["full_path"]
-            mtime = row["raw_mtime"]
-            
-            try:
-                cached = db.get_file_info(fp)
-                if cached and len(cached) >= 32 and abs(float(cached[1]) - float(mtime)) < 2.0 and not self.force_update_flag:
-                    row.update({
-                        "res": cached[4], "title": cached[5], "series": cached[6],
-                        "vol": cached[8], "num": cached[9], "writer": cached[10],
-                        "meta_processed": True 
-                    })
-                    
-                    row["full_meta"] = {
-                        "resolution": cached[4], "title": cached[5], "series": cached[6], "series_group": cached[7],
-                        "volume": cached[8], "number": cached[9], "writer": cached[10], "creators": cached[11], 
-                        "publisher": cached[12], "imprint": cached[13], "genre": cached[14], "volume_count": cached[15], 
-                        "page_count": cached[16], "format": cached[17], "manga": cached[18], "language": cached[19],
-                        "rating": cached[20], "age_rating": cached[21], "publish_date": cached[22], 
-                        "summary": cached[23], "characters": cached[24], "teams": cached[25], "locations": cached[26], 
-                        "story_arc": cached[27], "tags": cached[28], "notes": cached[29], "web": cached[30]
-                    }
-            except Exception as e:
-                print(f"DB Load Error: {e}")
 
         self.apply_grouping_and_sorting()
 
-        # 1. 먼저 현재 A폴더 스캔 결과 텍스트를 세팅합니다.
         folder_path = self.current_watched_folder
         if folder_path:
             self.lbl_tree_status.setText(_("folder_status_sel").format(os.path.basename(folder_path), len(self.file_data_cache), self.format_size(total_size)))
             
         self.scroll_timer.start(100)
-
-        # 2. 가장 마지막에 매칭을 호출해야 상태창 텍스트가 "매칭 중..."으로 정상적으로 덮어씌워집니다.
         self.start_dup_match()
         
-        folder_path = self.current_watched_folder
         if folder_path:
             self.lbl_tree_status.setText(_("folder_status_sel").format(os.path.basename(folder_path), len(self.file_data_cache), self.format_size(total_size)))
             
@@ -1985,6 +2155,18 @@ class TabFolder(QWidget):
             self.current_watched_folder = folder_path
             self.config["folder_last_path"] = folder_path
             save_config(self.config)
+            
+            # --- [추가됨] NAS 하이브리드 폴링 구동부 ---
+            if not hasattr(self, 'nas_poll_timer'):
+                self.nas_poll_timer = QTimer(self)
+                self.nas_poll_timer.setInterval(10000) # 10초 주기
+                self.nas_poll_timer.timeout.connect(self.check_nas_folder_mtime)
+            
+            try: self.last_folder_mtime = os.stat(folder_path).st_mtime
+            except: self.last_folder_mtime = 0
+            
+            self.nas_poll_timer.start()
+            # ------------------------------------------
         
         include_sub = self.btn_subfolders.isChecked()
         target_exts = ('.zip', '.cbz', '.cbr', '.rar', '.7z')
@@ -2013,7 +2195,8 @@ class TabFolder(QWidget):
             self.main_status_label.setText(_("folder_ready"))
         self.progress_bar.hide()
         
-        self.scan_thread = FolderScanThread(folder_path, include_sub, target_exts, self.thumb_dir)
+        # --- [수정됨] force_update 플래그 전달 ---
+        self.scan_thread = FolderScanThread(folder_path, include_sub, target_exts, self.thumb_dir, self.force_update_flag)
         self.scan_thread.progress_updated.connect(self.on_scan_progress)
         self.scan_thread.scan_finished.connect(self.on_scan_finished)
         self.scan_thread.start()
@@ -2350,3 +2533,14 @@ class TabFolder(QWidget):
         if files and hasattr(self.main_window, 'tab3'):
             self.main_window.tabs.setCurrentWidget(self.main_window.tab3)
             if hasattr(self.main_window.tab3, 'process_paths'): self.main_window.tab3.process_paths(files)
+
+    def check_nas_folder_mtime(self):
+        if not self.current_watched_folder or not os.path.exists(self.current_watched_folder):
+            return
+        try:
+            current_mtime = os.stat(self.current_watched_folder).st_mtime
+            if current_mtime != getattr(self, 'last_folder_mtime', 0):
+                self.last_folder_mtime = current_mtime
+                self.refresh_list(force_update=False)
+        except Exception:
+            pass
