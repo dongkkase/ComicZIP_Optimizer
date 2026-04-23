@@ -1030,14 +1030,18 @@ class TabFolder(QWidget):
 
     # --- [추가됨] 백그라운드 스레드 제어 메서드 ---
     def start_dup_scan(self):
+        t = time.time()
+        print(f"[LOG] start_dup_scan 진입: {time.time()-t:.3f}s")
+        
         dup_folders = self.config.get("dup_check_folders", [])
         if not dup_folders: return
         target_exts = ('.zip', '.cbz', '.cbr', '.rar', '.7z')
         
-        # 기존 스레드가 돌고 있으면 취소하고 완전히 닫힐 때까지 대기(.wait())
         if self.dup_scan_thread and self.dup_scan_thread.isRunning():
+            print(f"[LOG] 기존 DupScanThread 대기 중...")
             self.dup_scan_thread.cancel()
             self.dup_scan_thread.wait()
+            print(f"[LOG] 기존 DupScanThread 종료 완료: {time.time()-t:.3f}s")
             
         self.lbl_tree_status.setText(_("dup_scan_start"))
             
@@ -1045,6 +1049,7 @@ class TabFolder(QWidget):
         self.dup_scan_thread.progress_updated.connect(self.on_dup_scan_progress)
         self.dup_scan_thread.scan_finished.connect(self.on_dup_scan_finished)
         self.dup_scan_thread.start()
+        print(f"[LOG] DupScanThread 시작 완료: {time.time()-t:.3f}s")
 
     def on_dup_scan_progress(self, match_count, total_scanned):
         msg = _("dup_scan_progress").format(total_scanned, match_count)
@@ -1067,39 +1072,55 @@ class TabFolder(QWidget):
 
     # 중복 검사 토글 이벤트 처리
     def on_dup_check_toggled(self, checked):
+        import time
+        print(f"\n[LOG] =================================")
+        print(f"[LOG] 중복 검사 버튼 토글 (checked={checked})")
         self.btn_dup_check.setText(_("folder_dup_check_on") if checked else _("folder_dup_check_off"))
         
         if checked:
             if not hasattr(self, 'b_folder_cache') or not self.b_folder_cache:
+                print(f"[LOG] b_folder_cache 없음, start_dup_scan 호출")
                 self.start_dup_scan()
             else:
+                print(f"[LOG] b_folder_cache 존재, start_dup_match 호출")
                 self.start_dup_match()
         else:
-            # [수정됨] 연산 결과를 초기화하지 않고 숨김 처리만 하도록 변경
+            print(f"[LOG] 버튼 OFF, 스레드 취소 및 렌더링 복구 시작")
             if hasattr(self, 'dup_match_thread') and self.dup_match_thread.isRunning():
                 self.dup_match_thread.cancel()
             self.apply_grouping_and_sorting()
             self.lbl_tree_status.setText(_("folder_ready"))
 
     def start_dup_match(self):
-        if not self.btn_dup_check.isChecked():
-            return
-            
+        import time
+        t = time.time()
+        print(f"[LOG] start_dup_match 진입: {time.time()-t:.3f}s")
+        
+        if not self.btn_dup_check.isChecked(): return
         if not hasattr(self, 'b_folder_cache') or not self.b_folder_cache: return
         if not hasattr(self, 'file_data_cache') or not self.file_data_cache: return
         
         current_a_paths = tuple(f.get("full_path") for f in self.file_data_cache)
         if hasattr(self, 'last_matched_a_paths') and self.last_matched_a_paths == current_a_paths:
-            # [수정됨] 이미 연산된 결과가 있으므로 스레드를 돌리지 않고 UI만 즉시 갱신
+            print(f"[LOG] 동일 데이터 감지, 캐시된 결과로 UI 갱신 시작")
             self.apply_grouping_and_sorting()
-            
-            # 상태 표시줄 텍스트 복구
             count = sum(len(v) for v in getattr(self, 'dup_matches', {}).values())
-            if count > 0:
-                self.lbl_tree_status.setText(_("dup_match_found").format(count))
-            else:
-                self.lbl_tree_status.setText(_("dup_match_none"))
+            self.lbl_tree_status.setText(_("dup_match_found").format(count) if count > 0 else _("dup_match_none"))
             return
+            
+        self.last_matched_a_paths = current_a_paths
+        
+        if self.dup_match_thread and self.dup_match_thread.isRunning():
+            self.dup_match_thread.cancel()
+            self.dup_match_thread.wait()
+            
+        self.lbl_tree_status.setText(_("dup_match_start"))
+            
+        self.dup_match_thread = DupMatchThread(self.file_data_cache, self.b_folder_cache)
+        self.dup_match_thread.match_progress.connect(self.on_dup_match_progress)
+        self.dup_match_thread.match_finished.connect(self.on_dup_match_finished)
+        self.dup_match_thread.start()
+        print(f"[LOG] DupMatchThread 시작 완료: {time.time()-t:.3f}s")
             
         self.last_matched_a_paths = current_a_paths
         
@@ -1968,7 +1989,14 @@ class TabFolder(QWidget):
         self.apply_grouping_and_sorting()
 
     def apply_grouping_and_sorting(self):
-        self.table_view.clearSpans()
+        import time
+        from collections import Counter
+        t0 = time.time()
+        print(f"\n[LOG] 1. apply_grouping_and_sorting 시작")
+        
+        # [최적화] 극심한 프리징을 유발하는 원인 1: clearSpans 제거 (update_data 호출 시 자동 초기화됨)
+        # self.table_view.clearSpans() 
+        
         search_query = self.search_bar.text().strip().lower()
         
         data = []
@@ -1977,6 +2005,8 @@ class TabFolder(QWidget):
                 search_target = f"{row.get('name','')} {row.get('title','')} {row.get('series','')} {row.get('writer','')}".lower()
                 if search_query not in search_target: continue
             data.append(row)
+
+        print(f"[LOG] 2. 검색 필터링 완료: {time.time()-t0:.3f}s")
 
         if not data:
             self.table_model.update_data([])
@@ -1998,31 +2028,37 @@ class TabFolder(QWidget):
             if isinstance(val, str): return val.lower()
             return val if val is not None else ""
 
+        print(f"[LOG] 3. 정렬 중...")
         if self.current_group_key != "none":
             data.sort(key=lambda x: safe_get(x, col_id), reverse=reverse)
             data.sort(key=lambda x: safe_get(x, self.current_group_key), reverse=False) 
         else:
             data.sort(key=lambda x: safe_get(x, col_id), reverse=reverse)
             
+        print(f"[LOG] 4. 정렬 완료: {time.time()-t0:.3f}s")
+            
         display_data = []
         
         if self.current_group_key != "none":
+            # [최적화] 극심한 프리징을 유발하는 원인 2: O(N^2) 그룹 카운팅 병목을 Counter(O(N))로 해결
+            group_counts = Counter((safe_get(r, self.current_group_key) or _("folder_unknown")) for r in data)
+            
             current_group = object()
             for row in data:
                 g_val = safe_get(row, self.current_group_key)
                 if not g_val: g_val = _("folder_unknown")
                 
                 if g_val != current_group:
-                    count = sum(1 for r in data if (safe_get(r, self.current_group_key) or _("folder_unknown")) == g_val)
+                    count = group_counts[g_val]
                     display_data.append({"is_group": True, "name": g_val, "count": count})
                     current_group = g_val
                 display_data.append(row)
         else:
             display_data = data
             
-        # --- 중복 파일 결과 인젝션 ---
+        print(f"[LOG] 5. 그룹화 배열 생성 완료: {time.time()-t0:.3f}s")
+
         final_data = []
-        # 자세히 보기 모드이면서 + 중복 검사 버튼이 켜져 있을 때만 인젝션 수행
         is_detail_view = (self.view_stack.currentIndex() == 0)
         show_dup = is_detail_view and self.btn_dup_check.isChecked()
 
@@ -2050,6 +2086,8 @@ class TabFolder(QWidget):
                                 "full_path": m["b_file"]["full_path"]
                             })
 
+        print(f"[LOG] 6. 중복 파일 인젝션 완료: {time.time()-t0:.3f}s")
+
         self.file_data_map = {}
         idx_counter = 0
         for row in final_data:
@@ -2058,27 +2096,34 @@ class TabFolder(QWidget):
                 self.file_data_map[row.get("full_path")] = row
             idx_counter += 1
             
+        print(f"[LOG] 7. Map 재생성 완료: {time.time()-t0:.3f}s")
+        
+        self.table_view.setUpdatesEnabled(False)
+        t_model = time.time()
         self.table_model.update_data(final_data)
+        print(f"[LOG] 8. TableModel 내부 업데이트 (Qt 엔진 렌더링 계산): {time.time()-t_model:.3f}s")
+
         col_count = self.table_model.columnCount()
 
-        # 1. 병합(Span)이 필요한 행(인덱스)만 미리 리스트로 추출
         span_targets = []
         for i, row in enumerate(final_data):
             if row.get("is_group") or row.get("is_dup_folder") or row.get("is_dup_child"):
                 span_targets.append(i)
 
-        self.table_view.setUpdatesEnabled(False)
+        print(f"[LOG] 9. 병합(Span) 타겟 추출 완료 ({len(span_targets)}건): {time.time()-t0:.3f}s")
 
         from PyQt6.QtCore import QTimer
 
-        # 2. 비동기 청크(Chunk) 분할 함수 정의
         def apply_spans_chunk(targets, chunk_size=200):
+            if not hasattr(self, '_span_start_time'):
+                self._span_start_time = time.time()
+
             if not targets:
-                # 모든 작업이 끝나면 화면 업데이트 재개
                 self.table_view.setUpdatesEnabled(True)
+                print(f"[LOG] 10. 모든 Span 비동기 적용 및 UI 렌더링 재개 완료: {time.time()-self._span_start_time:.3f}s")
+                del self._span_start_time
                 return
                 
-            # 지정된 크기(200개)만큼 잘라서 이번 턴에 처리
             chunk = targets[:chunk_size]
             next_targets = targets[chunk_size:]
             
@@ -2086,10 +2131,8 @@ class TabFolder(QWidget):
                 self.table_view.setSpan(i, 0, 1, col_count)
                 self.table_view.setRowHeight(i, 35)
                 
-            # 3. 1ms(0.001초) 대기 후 다음 청크 실행 (UI 렌더링에 제어권 양보)
             QTimer.singleShot(1, lambda: apply_spans_chunk(next_targets, chunk_size))
 
-        # 3. 분할 작업 시작
         apply_spans_chunk(span_targets)
 
     def format_size(self, size):
