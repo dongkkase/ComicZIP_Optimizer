@@ -135,19 +135,28 @@ def format_leaf_name(parent_core, leaf_name, index, total_items, lang='ko', prev
     if not target_unit:
         target_unit = prevalent_unit if prevalent_unit else ('권' if lang == 'ko' else 'v')
         
-    rem_num_str = target_num
+    rem_num_str = str(target_num)
     if '-' in rem_num_str and '~' not in rem_num_str:
-        # 🌟 22-1화 -> 22.1화
         parts = rem_num_str.split('-')
-        padded_num = f"{parts[0].strip().zfill(pad)}.{parts[1].strip()}"
+        if len(parts) >= 2 and parts[1].strip():
+            padded_num = f"{parts[0].strip().zfill(pad)}.{parts[1].strip()}"
+        else:
+            padded_num = parts[0].strip().zfill(pad)
         unit_str = f"{padded_num}{target_unit}"
     elif '~' in rem_num_str:
-        # 🌟 004~009화 -> 004화 ~ 009화
         parts = rem_num_str.split('~')
-        unit_str = f"{parts[0].strip().zfill(pad)}{target_unit} ~ {parts[1].strip().zfill(pad)}{target_unit}"
+        if len(parts) >= 2:
+            unit_str = f"{parts[0].strip().zfill(pad)}{target_unit} ~ {parts[1].strip().zfill(pad)}{target_unit}"
+        else:
+            unit_str = f"{parts[0].strip().zfill(pad)}{target_unit}"
     else:
-        padded_num = f"{rem_num_str.split('.')[0].zfill(pad)}.{rem_num_str.split('.')[1]}" if '.' in rem_num_str else rem_num_str.zfill(pad)
+        if '.' in rem_num_str:
+            parts = rem_num_str.split('.')
+            padded_num = f"{parts[0].zfill(pad)}.{parts[1]}"
+        else:
+            padded_num = rem_num_str.zfill(pad)
         unit_str = f"{padded_num}{target_unit}" if lang == 'ko' else f"v{padded_num}"
 
-    base_name = re.sub(r'^[._\-\s]+', '', parent_core)
+    base_name = re.sub(r'^[._\-\s]+', '', str(parent_core))
     return f"{base_name} {unit_str}".strip()
+

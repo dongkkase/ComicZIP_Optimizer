@@ -239,6 +239,12 @@ class OrganizerLoadTask:
                         if '권' in leaf: unit_counts['권'] += 1
                     prevalent_unit = '화' if unit_counts['화'] > unit_counts['권'] else '권'
 
+                    def fix_encoding(text):
+                        try: return text.encode('cp949').decode('utf-8')
+                        except UnicodeError:
+                            try: return text.encode('cp437').decode('cp949')
+                            except UnicodeError: return text
+
                     def detect_spinoff(main_title, leaf_name):
                         leaf_core = extract_core_title(leaf_name)
                         if not leaf_core or leaf_core == main_title: return None, main_title

@@ -1,5 +1,6 @@
 import os
 import re
+import html
 from pathlib import Path
 import qtawesome as qta
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
@@ -225,13 +226,12 @@ class Tab1Organizer(QWidget):
                 if not final_ext: final_ext = ".zip"
                 
                 orig_name = vol.get('original_basename', "")
+                safe_orig_name = html.escape(orig_name)
                 spinoff_folder = vol.get('spinoff_folder')
                 
-                # 외전일 경우 {외전명}/{바뀔파일명} 형태로 표시
                 if spinoff_folder:
                     new_display = f"{spinoff_folder}/{vol['new_name']}{final_ext}"
                 else:
-                    # 일반 폴더(부/시즌) prefix 처리
                     orig_path = vol.get('original_path', '')
                     path_parts = Path(orig_path).parts
                     prefix = ""
@@ -241,12 +241,12 @@ class Tab1Organizer(QWidget):
                         prefix = f"[{match.group(1).strip()}] " if match else f"[{parent_folder}] "
                     new_display = f"{prefix}{vol['new_name']}{final_ext}"
 
-                # 🌟 스타일 적용: 기본 #706f72 / 오리지널 투명도 70% (rgba 0.7)
-                # 순서: {↳} {아이콘}{바뀔파일명} {(오리지널)}
+                safe_new_display = html.escape(new_display)
+
                 html_text = (
                     f"<span style='color: #706f72; white-space: pre;'>"
-                    f"  ↳ {icon_txt}{new_display} </span>"
-                    f"<span style='color: rgba(112, 111, 114, 0.7);'>({orig_name})</span>"
+                    f"  ↳ {icon_txt}{safe_new_display} </span>"
+                    f"<span style='color: rgba(112, 111, 114, 0.7);'>({safe_orig_name})</span>"
                 )
                 
                 lbl = QLabel(html_text)
@@ -254,7 +254,7 @@ class Tab1Organizer(QWidget):
                 lbl.setToolTip(f"{new_display} ({orig_name})")
                 
                 child.setText(0, f"  ↳ {new_display} ({orig_name})")
-                child.setForeground(0, QColor("transparent"))
+                child.setForeground(0, QColor(Qt.GlobalColor.transparent))
                 
                 child_widgets_to_set.append((child, lbl))
                 
