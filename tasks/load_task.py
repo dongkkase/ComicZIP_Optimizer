@@ -229,6 +229,9 @@ class OrganizerLoadTask:
                         skipped_files.append(filename)
                         continue
 
+                    # 🌟 누락되었던 group_names 변수 선언 추가
+                    group_names = sorted(list(volume_groups.keys()), key=natural_keys)
+
                     display_title, core_title = resolve_titles(filepath, inner_meaningful_name)
                     parsed_vols = []
                     
@@ -237,13 +240,20 @@ class OrganizerLoadTask:
                     for leaf in group_names:
                         if '화' in leaf: unit_counts['화'] += 1
                         if '권' in leaf: unit_counts['권'] += 1
-                    prevalent_unit = '화' if unit_counts['화'] > unit_counts['권'] else '권'
+                    
+                    # force_unit이 감지되었다면 우선 적용
+                    prevalent_unit = force_unit if force_unit else ('화' if unit_counts['화'] > unit_counts['권'] else '권')
 
+                    # 🌟 수정됨: 파싱 과정에서의 인코딩 복구 로직 강화
                     def fix_encoding(text):
+                        if not text: return text
+                        try: return text.encode('cp437').decode('cp949')
+                        except Exception: pass
+                        try: return text.encode('latin1').decode('cp949')
+                        except Exception: pass
                         try: return text.encode('cp949').decode('utf-8')
-                        except UnicodeError:
-                            try: return text.encode('cp437').decode('cp949')
-                            except UnicodeError: return text
+                        except Exception: pass
+                        return text
 
                     def detect_spinoff(main_title, leaf_name):
                         leaf_core = extract_core_title(leaf_name)

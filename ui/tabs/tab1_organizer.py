@@ -245,7 +245,7 @@ class Tab1Organizer(QWidget):
 
                 html_text = (
                     f"<span style='color: #706f72; white-space: pre;'>"
-                    f"  ↳ {icon_txt}{safe_new_display} </span>"
+                    f"  ↳ {icon_txt} {safe_new_display} </span>"
                     f"<span style='color: rgba(112, 111, 114, 0.7);'>({safe_orig_name})</span>"
                 )
                 
@@ -253,8 +253,9 @@ class Tab1Organizer(QWidget):
                 lbl.setStyleSheet("background: transparent; font-size: 12px;")
                 lbl.setToolTip(f"{new_display} ({orig_name})")
                 
-                child.setText(0, f"  ↳ {new_display} ({orig_name})")
-                child.setForeground(0, QColor(Qt.GlobalColor.transparent))
+                # 🌟 수정됨: 텍스트가 겹치지 않게 하면서 너비를 확보하기 위해 공백 문자로 채움
+                blank_spaces = " " * int((len(new_display) + len(orig_name)) * 1.5 + 15)
+                child.setText(0, blank_spaces)
                 
                 child_widgets_to_set.append((child, lbl))
                 
