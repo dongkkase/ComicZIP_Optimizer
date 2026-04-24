@@ -176,32 +176,109 @@ class DupMatchThread(QThread):
             
         return core_title, [], False
 
-    def clean_title_for_compare(self, title):
-        t = title.lower()
-        t = re.sub(r'만화책|만화|코믹스|e북|ebook|완결|합본|웹툰|단행본|시리즈|총집편|풀컬러', '', t)
-        t = re.sub(r'[^가-힣a-z0-9]', '', t)
-        return t
+    # 동의어 사전: 번역어/표기 변형 정규화
+    SYNONYMS = {
+        '블랙': '검은', 'black': '검은',
+        '화이트': '흰', 'white': '흰',
+        '레드': '빨간', 'red': '빨간',
+        '블루': '파란', 'blue': '파란',
+        '그린': '녹색', 'green': '녹색',
+        'love': '사랑',
+        'hell': '지옥',
+        'hero': '영웅', 'heroes': '영웅',
+        'king': '왕',
+        'god': '신',
+        'dark': '어둠', '다크': '어둠',
+        'new': '새로운',
+        'super': '슈퍼',
+        'dragon': '드래곤',
+        'hunter': '헌터',
+        'master': '마스터',
+        'legend': '전설',
+        'world': '세계',
+        'sword': '검',
+    }
+
+    def jamo_decompose(self, text):
+        result = []
+        for ch in text:
+            code = ord(ch)
+            if 0xAC00 <= code <= 0xD7A3:
+                code -= 0xAC00
+                result.append(chr(0x1100 + code // 588))
+                result.append(chr(0x1161 + (code % 588) // 28))
+                jong = code % 28
+                if jong: result.append(chr(0x11A7 + jong))
+            else:
+                result.append(ch)
+        return ''.join(result)
 
     def check_similarity(self, a_core, b_core):
-        a_clean = self.clean_title_for_compare(a_core)
-        b_clean = self.clean_title_for_compare(b_core)
-        
-        if not a_clean or not b_clean: return False, 0
+        STOPWORDS = {
+            '만화책', '만화', '코믹스', 'e북', 'ebook', '완결', '합본',
+            '웹툰', '단행본', '시리즈', '총집편', '풀컬러',
+            'in', 'the', 'of', 'a', 'an',
+            '미완',
+        }
 
-        if len(a_clean) >= 2 and len(b_clean) >= 2:
-            if a_clean in b_clean or b_clean in a_clean: return True, 100
-            
-        ratio = difflib.SequenceMatcher(None, a_clean, b_clean).ratio() * 100
-        if ratio >= 50: return True, ratio
-        
-        a_ko = re.sub(r'[^가-힣]', '', a_clean)
-        b_ko = re.sub(r'[^가-힣]', '', b_clean)
-        if len(a_ko) >= 2 and len(b_ko) >= 2:
-            if a_ko in b_ko or b_ko in a_ko: return True, 100
-            ratio_ko = difflib.SequenceMatcher(None, a_ko, b_ko).ratio() * 100
-            if ratio_ko >= 50: return True, ratio_ko
-            
-        return False, ratio
+        def normalize(text):
+            text = text.lower()
+            for k, v in DupMatchThread.SYNONYMS.items():
+                text = re.sub(r'\b' + re.escape(k) + r'\b', v, text)
+            return text
+
+        def tokenize(text):
+            text = normalize(text)
+            ko = re.findall(r'[가-힣]{2,}', text)
+            en = re.findall(r'[a-z]{3,}', text)
+            return [t for t in ko + en if t not in STOPWORDS]
+
+        def char_sim(a, b):
+            ac = re.sub(r'[^가-힣a-z0-9]', '', normalize(a))
+            bc = re.sub(r'[^가-힣a-z0-9]', '', normalize(b))
+            if not ac or not bc: return 0.0
+            return difflib.SequenceMatcher(None, ac, bc).ratio()
+
+        def token_sim(ta, tb):
+            if ta == tb: return 1.0
+            ka = bool(re.search(r'[가-힣]', ta))
+            kb = bool(re.search(r'[가-힣]', tb))
+            if ka and kb:
+                s = difflib.SequenceMatcher(None, self.jamo_decompose(ta), self.jamo_decompose(tb)).ratio()
+                # 2글자 한글 토큰은 오탐 방지를 위해 엄격하게
+                if min(len(ta), len(tb)) <= 2:
+                    return s if s >= 0.90 else 0.0
+                return s
+            if not ka and not kb:
+                return difflib.SequenceMatcher(None, ta, tb).ratio()
+            return 0.0
+
+        tok_a = tokenize(a_core)
+        tok_b = tokenize(b_core)
+
+        # 토큰화 실패 시 문자 수준 유사도로 fallback
+        if not tok_a or not tok_b:
+            s = char_sim(a_core, b_core)
+            return s >= 0.75, round(s * 100, 1)
+
+        # 각 토큰의 상대방 내 최고 유사도
+        a_scores = [max(token_sim(ta, tb) for tb in tok_b) for ta in tok_a]
+        b_scores = [max(token_sim(tb, ta) for ta in tok_a) for tb in tok_b]
+
+        # 부분집합 방향 모두 허용 (A⊂B, B⊂A)
+        best = max(sum(a_scores) / len(a_scores), sum(b_scores) / len(b_scores))
+
+        # 고유사도 토큰 존재 시 보너스
+        exact_count = sum(1 for ta in tok_a for tb in tok_b if token_sim(ta, tb) >= 0.85)
+        if exact_count > 0:
+            best = min(1.0, best + 0.15)
+
+        # 문자 수준 유사도 보조 (토큰 분리 케이스 구제: 슬램덩크/슬램 덩크 등)
+        cs = char_sim(a_core, b_core)
+        if cs >= 0.80 and best < 0.70:
+            best = max(best, cs * 0.85)
+
+        return best >= 0.70, round(best * 100, 1)
 
     def run(self):
         import time # 스레드 내부에서 사용할 time 모듈
@@ -452,6 +529,23 @@ class MemoryExtractThread(QThread):
         except: pass
         return meta
 
+
+class DimOverlay(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.hide()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(0, 0, 0, 178))  # rgba(0,0,0,0.7)
+        painter.end()
+
+    def showEvent(self, event):
+        self.raise_()
+        self.resize(self.parent().size())
+        super().showEvent(event)
 # ==========================================
 # 커스텀 테이블 뷰
 # ==========================================
@@ -1038,6 +1132,13 @@ class TabFolder(QWidget):
         QTimer.singleShot(500, self.find_main_window_elements)
         QTimer.singleShot(1000, self.start_dup_scan)
 
+    
+    def eventFilter(self, obj, event):
+        if obj is self.table_view and event.type() == event.Type.Resize:
+            if hasattr(self, 'dim_overlay'):
+                self.dim_overlay.resize(self.table_view.size())
+        return super().eventFilter(obj, event)
+    
     # --- [추가됨] 백그라운드 스레드 제어 메서드 ---
     def start_dup_scan(self):
         t = time.time()
@@ -1054,6 +1155,10 @@ class TabFolder(QWidget):
             print(f"[LOG] 기존 DupScanThread 종료 완료: {time.time()-t:.3f}s")
             
         self.lbl_tree_status.setText(_("dup_scan_start"))
+
+        # [추가] 자세히 보기 모드일 때 리스트 패널 비활성화
+        if self.view_stack.currentIndex() == 0:
+            self.dim_overlay.show()
             
         self.dup_scan_thread = DupScanThread(dup_folders, target_exts)
         self.dup_scan_thread.progress_updated.connect(self.on_dup_scan_progress)
@@ -1098,6 +1203,8 @@ class TabFolder(QWidget):
             print(f"[LOG] 버튼 OFF, 스레드 취소 및 렌더링 복구 시작")
             if hasattr(self, 'dup_match_thread') and self.dup_match_thread.isRunning():
                 self.dup_match_thread.cancel()
+            # [추가] 버튼 OFF 시 즉시 활성화 복원
+            self.dim_overlay.hide()
             self.apply_grouping_and_sorting()
             self.lbl_tree_status.setText(_("folder_ready"))
 
@@ -1125,6 +1232,10 @@ class TabFolder(QWidget):
             self.dup_match_thread.wait()
             
         self.lbl_tree_status.setText(_("dup_match_start"))
+
+        # [추가] 자세히 보기 모드일 때 리스트 패널 비활성화
+        if self.view_stack.currentIndex() == 0:
+            self.dim_overlay.show()
             
         self.dup_match_thread = DupMatchThread(self.file_data_cache, self.b_folder_cache)
         self.dup_match_thread.match_progress.connect(self.on_dup_match_progress)
@@ -1381,6 +1492,7 @@ class TabFolder(QWidget):
         
         self.table_view = CustomTableView()
         self.table_view.setModel(self.table_model)
+        self.table_view.installEventFilter(self)
         self.table_view.setItemDelegate(self.item_delegate)
         self.table_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -1395,6 +1507,8 @@ class TabFolder(QWidget):
         self.table_view.verticalHeader().setDefaultSectionSize(64) 
         self.table_view.setIconSize(QSize(45, 60)) 
         
+        self.dim_overlay = DimOverlay(self.table_view)
+
         self.list_view = QListView()
         self.list_view.setModel(self.table_model)
         self.list_view.setItemDelegate(self.item_delegate)
@@ -2139,6 +2253,8 @@ class TabFolder(QWidget):
 
             if not targets:
                 self.table_view.setUpdatesEnabled(True)
+                # [추가] span 적용 완료 후 리스트 패널 활성화
+                self.dim_overlay.hide()
                 print(f"[LOG] 10. 모든 Span 비동기 적용 및 UI 렌더링 재개 완료: {time.time()-self._span_start_time:.3f}s")
                 del self._span_start_time
                 return

@@ -1,7 +1,6 @@
 import sqlite3
 import os
 import threading
-import sys
 import json
 
 def get_project_root():
@@ -13,17 +12,10 @@ def get_db_path():
         os.makedirs(db_dir, exist_ok=True)
     return os.path.join(db_dir, "library.db")
 
-def get_thumb_dir():
-    thumb_dir = os.path.join(get_project_root(), "data", "thumbnails")
-    if not os.path.exists(thumb_dir):
-        os.makedirs(thumb_dir, exist_ok=True)
-    return thumb_dir
-
 class LibraryDB:
     def __init__(self):
         self.db_path = get_db_path()
         self.lock = threading.Lock()
-        print(f"[DB System] 데이터베이스 타겟 경로: {self.db_path}")
         self.init_db()
 
     def get_connection(self):
@@ -35,6 +27,8 @@ class LibraryDB:
 
     def _create_tables(self, conn):
         cursor = conn.cursor()
+        
+        # 기존 메타데이터 테이블
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS files (
                 path TEXT PRIMARY KEY,
@@ -72,11 +66,21 @@ class LibraryDB:
             )
         ''')
         
-        # 중복 검사 결과 캐싱용 테이블 신설
+        # [신규] 1. 최종 중복 매칭 결과 캐시 테이블
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS dup_cache (
                 a_path TEXT PRIMARY KEY,
                 match_data TEXT
+            )
+        ''')
+        
+        # [신규] 2. 대상 폴더(B) 고속 스캔 인덱싱 테이블
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS dup_target_index (
+                full_path TEXT PRIMARY KEY,
+                target_folder TEXT,
+                name TEXT,
+                size REAL
             )
         ''')
         conn.commit()
@@ -84,17 +88,10 @@ class LibraryDB:
     def init_db(self):
         with self.lock:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
-            cursor = conn.cursor()
-            
-            cursor.execute("PRAGMA table_info(files)")
-            columns = cursor.fetchall()
-            if columns and len(columns) < 32:
-                print(f"[DB System] 구버전 테이블 감지 (컬럼수: {len(columns)}). 마이그레이션을 위해 초기화합니다.")
-                cursor.execute("DROP TABLE IF EXISTS files")
-            
             self._create_tables(conn)
             conn.close()
 
+    # --- 기존 메타데이터 메서드 ---
     def upsert_file_info(self, path, mtime, size, ext, resolution, title, series, series_group, volume, number, 
                          writer, creators, publisher, imprint, genre, volume_count, page_count, format_val, manga, 
                          language, rating, age_rating, publish_date, summary, characters, teams, locations, 
@@ -105,21 +102,15 @@ class LibraryDB:
                 cursor = conn.cursor()
                 cursor.execute('''
                     INSERT OR REPLACE INTO files 
-                    (path, mtime, size, ext, resolution, title, series, series_group, volume, number, writer, 
-                     creators, publisher, imprint, genre, volume_count, page_count, format, manga, language, 
-                     rating, age_rating, publish_date, summary, characters, teams, locations, story_arc, 
-                     tags, notes, web, thumb_path)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (path, mtime, size, ext, resolution, title, series, series_group, volume, number, writer, 
                       creators, publisher, imprint, genre, volume_count, page_count, format_val, manga, language, 
                       rating, age_rating, publish_date, summary, characters, teams, locations, story_arc, 
                       tags, notes, web, thumb_path))
                 conn.commit()
-            except Exception as e:
-                print(f"DB 저장 오류: {e}")
-            finally:
-                if 'conn' in locals():
-                    conn.close()
+            except Exception as e: print(e)
+            finally: 
+                if 'conn' in locals(): conn.close()
 
     def get_file_info(self, path):
         with self.lock:
@@ -127,16 +118,49 @@ class LibraryDB:
                 conn = self.get_connection()
                 cursor = conn.cursor()
                 cursor.execute('SELECT * FROM files WHERE path = ?', (path,))
-                result = cursor.fetchone()
-                return result
-            except Exception as e:
-                print(f"DB 로드 오류: {e}")
-                return None
-            finally:
-                if 'conn' in locals():
-                    conn.close()
+                return cursor.fetchone()
+            except Exception as e: return None
+            finally: 
+                if 'conn' in locals(): conn.close()
 
-    # --- 추가된 중복 검사 캐시 관련 메서드 ---
+    # --- [신규] 중복 검사 인덱싱 (dup_target_index) 메서드 ---
+    def save_target_index(self, records):
+        with self.lock:
+            try:
+                conn = self.get_connection()
+                cursor = conn.cursor()
+                cursor.executemany('''
+                    INSERT OR REPLACE INTO dup_target_index (full_path, target_folder, name, size)
+                    VALUES (?, ?, ?, ?)
+                ''', records)
+                conn.commit()
+            except Exception as e: print(e)
+            finally: 
+                if 'conn' in locals(): conn.close()
+
+    def get_target_index(self, target_folder):
+        with self.lock:
+            try:
+                conn = self.get_connection()
+                cursor = conn.cursor()
+                cursor.execute('SELECT full_path, name, size FROM dup_target_index WHERE target_folder = ?', (target_folder,))
+                rows = cursor.fetchall()
+                if not rows: return None
+                
+                result = []
+                for row in rows:
+                    result.append({
+                        "full_path": row[0],
+                        "path": os.path.dirname(row[0]),
+                        "name": row[1],
+                        "size": row[2]
+                    })
+                return result
+            except Exception as e: return None
+            finally: 
+                if 'conn' in locals(): conn.close()
+
+    # --- [신규] 중복 매칭 결과 캐시 (dup_cache) 메서드 ---
     def save_dup_match(self, a_path, match_data):
         with self.lock:
             try:
@@ -148,11 +172,9 @@ class LibraryDB:
                     VALUES (?, ?)
                 ''', (a_path, json_data))
                 conn.commit()
-            except Exception as e:
-                print(f"DB 중복 캐시 저장 오류: {e}")
-            finally:
-                if 'conn' in locals():
-                    conn.close()
+            except Exception as e: print(e)
+            finally: 
+                if 'conn' in locals(): conn.close()
 
     def get_dup_match(self, a_path):
         with self.lock:
@@ -161,27 +183,9 @@ class LibraryDB:
                 cursor = conn.cursor()
                 cursor.execute('SELECT match_data FROM dup_cache WHERE a_path = ?', (a_path,))
                 result = cursor.fetchone()
-                if result:
-                    return json.loads(result[0])
-                return None
-            except Exception as e:
-                print(f"DB 중복 캐시 로드 오류: {e}")
-                return None
-            finally:
-                if 'conn' in locals():
-                    conn.close()
-
-    def clear_dup_cache(self):
-        with self.lock:
-            try:
-                conn = self.get_connection()
-                cursor = conn.cursor()
-                cursor.execute('DELETE FROM dup_cache')
-                conn.commit()
-            except Exception as e:
-                print(f"DB 중복 캐시 초기화 오류: {e}")
-            finally:
-                if 'conn' in locals():
-                    conn.close()
+                return json.loads(result[0]) if result else None
+            except Exception as e: return None
+            finally: 
+                if 'conn' in locals(): conn.close()
 
 db = LibraryDB()
