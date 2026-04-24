@@ -69,39 +69,30 @@ class DupScanThread(QThread):
             if self.is_cancelled: return
             if not os.path.exists(folder): continue
             
-            # 1. DB에서 즉시 조회 시도 (초고속 캐시 히트)
-            like_path = folder + '%'
-            try:
-                # 파일 경로(0)와 크기(2) 정보만 빠르게 가져옴
-                cursor = db.conn.execute("SELECT * FROM files WHERE filepath LIKE ?", (like_path,))
-                rows = cursor.fetchall()
-            except Exception as e:
-                rows = []
+            # --- [수정] files 테이블 대신 dup_target_index 테이블 활용 ---
+            target_records = db.get_target_index(folder)
 
-            if rows:
-                # DB에 정보가 있다면 물리적 디스크 스캔을 완전히 스킵합니다.
-                for row in rows:
+            if target_records:
+                # DB에 인덱싱된 정보가 있으면 스캔 생략
+                for record in target_records:
                     if self.is_cancelled: return
-                    fp = row[0]
-                    size = row[2]
-                    
-                    name = os.path.basename(fp)
+                    name = record["name"]
                     if name.lower().endswith(self.target_exts):
                         b_cache.append({
                             "name": name,
-                            "path": os.path.dirname(fp),
-                            "full_path": fp,
-                            "size": size,
+                            "path": record["path"],
+                            "full_path": record["full_path"],
+                            "size": record["size"],
                             "name_no_ext": os.path.splitext(name)[0].lower()
                         })
                         match_count += 1
                         total_scanned += 1
                         
-                # UI 업데이트 (프리징 방지)
                 self.progress_updated.emit(match_count, total_scanned)
 
             else:
-                # 2. DB에 없는 폴더인 경우 os.scandir로 물리 스캔 (기존 os.walk 대비 3~5배 빠름)
+                # DB에 없는 경우 물리 스캔 진행 및 완료 후 DB 저장
+                new_records = []
                 def fast_scan(scan_path):
                     nonlocal match_count, total_scanned
                     if self.is_cancelled: return
@@ -117,13 +108,16 @@ class DupScanThread(QThread):
                                     name = entry.name
                                     
                                     if name.lower().endswith(self.target_exts):
+                                        size = entry.stat().st_size
                                         b_cache.append({
                                             "name": name,
                                             "path": scan_path,
                                             "full_path": entry.path,
-                                            "size": entry.stat().st_size,
+                                            "size": size,
                                             "name_no_ext": os.path.splitext(name)[0].lower()
                                         })
+                                        # 인덱스 저장을 위한 데이터 수집 (full_path, target_folder, name, size)
+                                        new_records.append((entry.path, folder, name, size))
                                         match_count += 1
                                     
                                     if total_scanned % 500 == 0:
@@ -131,6 +125,10 @@ class DupScanThread(QThread):
                     except Exception: pass
 
                 fast_scan(folder)
+                
+                # 스캔 완료 후 DB에 인덱스 일괄 저장
+                if new_records:
+                    db.save_target_index(new_records)
                         
         self.progress_updated.emit(match_count, total_scanned)
         self.scan_finished.emit(b_cache)
@@ -199,150 +197,169 @@ class DupMatchThread(QThread):
         'sword': '검',
     }
 
-    def jamo_decompose(self, text):
-        result = []
-        for ch in text:
-            code = ord(ch)
-            if 0xAC00 <= code <= 0xD7A3:
-                code -= 0xAC00
-                result.append(chr(0x1100 + code // 588))
-                result.append(chr(0x1161 + (code % 588) // 28))
-                jong = code % 28
-                if jong: result.append(chr(0x11A7 + jong))
+
+    def normalize(self, text):
+        text = text.lower()
+        for k, v in self.SYNONYMS.items():
+            text = re.sub(r'\b' + re.escape(k) + r'\b', v, text)
+        return text
+
+
+    # 요청하신 불용어 리스트 추가   
+    STOPWORDS = [
+        '만화책', '만화', '코믹스', 'e북', 'ebook', '완결', '합본', 
+        '웹툰', '단행본', '시리즈', '총집편', '풀컬러', 'in', 'the', 'of', 'a', 'an', '미완'
+    ]
+
+    def get_char_and_bigrams(self, text):
+        text = text.lower()
+        
+        # 1. 불용어 완벽 제거 (일반 단어 훼손을 막기 위해 단어 앞뒤 맥락 고려)
+        for word in self.STOPWORDS:
+            if re.match(r'^[a-z]+$', word):
+                text = re.sub(r'\b' + re.escape(word) + r'\b', '', text)
             else:
-                result.append(ch)
-        return ''.join(result)
+                text = re.sub(r'(?<![가-힣a-z])' + re.escape(word) + r'(?![가-힣a-z])', '', text)
 
-    def check_similarity(self, a_core, b_core):
-        STOPWORDS = {
-            '만화책', '만화', '코믹스', 'e북', 'ebook', '완결', '합본',
-            '웹툰', '단행본', '시리즈', '총집편', '풀컬러',
-            'in', 'the', 'of', 'a', 'an',
-            '미완',
-        }
+        # 2. 동의어 치환
+        for k, v in self.SYNONYMS.items():
+            text = re.sub(r'\b' + re.escape(k) + r'\b', v, text)
+            
+        # 3. [핵심] 숫자 및 기호 완벽 제거 
+        # (화수/권수는 이미 number_match로 별도 검증하므로, 순수 제목 비교 시 숫자가 남으면 오탐률만 높아집니다)
+        char_only = re.sub(r'[^가-힣a-z]', '', text)
+        
+        # 예외 처리: '1984' 처럼 숫자로만 이루어진 제목인 경우만 숫자를 살림
+        if not char_only:
+            char_only = re.sub(r'[^a-z0-9가-힣]', '', text)
+            
+        # 2글자 묶음 생성
+        bigrams = set(char_only[i:i+2] for i in range(len(char_only)-1))
+        return char_only, bigrams
 
-        def normalize(text):
-            text = text.lower()
-            for k, v in DupMatchThread.SYNONYMS.items():
-                text = re.sub(r'\b' + re.escape(k) + r'\b', v, text)
-            return text
+    def check_similarity_fast(self, a_char, b_char, a_bigrams, b_bigrams):
+        if not a_char or not b_char: return False, 0.0
 
-        def tokenize(text):
-            text = normalize(text)
-            ko = re.findall(r'[가-힣]{2,}', text)
-            en = re.findall(r'[a-z]{3,}', text)
-            return [t for t in ko + en if t not in STOPWORDS]
+        # 1. 고속 필터링: 2글자 묶음 교집합이 하나도 없으면 완전 다른 제목이므로 즉시 스킵
+        if a_bigrams and b_bigrams and len(a_bigrams & b_bigrams) == 0:
+            return False, 0.0
 
-        def char_sim(a, b):
-            ac = re.sub(r'[^가-힣a-z0-9]', '', normalize(a))
-            bc = re.sub(r'[^가-힣a-z0-9]', '', normalize(b))
-            if not ac or not bc: return 0.0
-            return difflib.SequenceMatcher(None, ac, bc).ratio()
+        # 2. 문자열 비교 연산
+        import difflib
+        sm = difflib.SequenceMatcher(None, a_char, b_char)
+        
+        # 전체 길이 대비 일치율 (예: A와 B의 전체 길이가 비슷할수록 높음)
+        standard_ratio = sm.ratio() 
+        
+        # 짧은 제목이 긴 제목에 얼마나 포함되는지 비율 (예: '원피스'가 '원피스 풀컬러판'에 100% 포함됨)
+        match_len = sum(triple.size for triple in sm.get_matching_blocks())
+        min_len = min(len(a_char), len(b_char))
+        contained_ratio = match_len / min_len if min_len > 0 else 0.0
 
-        def token_sim(ta, tb):
-            if ta == tb: return 1.0
-            ka = bool(re.search(r'[가-힣]', ta))
-            kb = bool(re.search(r'[가-힣]', tb))
-            if ka and kb:
-                s = difflib.SequenceMatcher(None, self.jamo_decompose(ta), self.jamo_decompose(tb)).ratio()
-                # 2글자 한글 토큰은 오탐 방지를 위해 엄격하게
-                if min(len(ta), len(tb)) <= 2:
-                    return s if s >= 0.90 else 0.0
-                return s
-            if not ka and not kb:
-                return difflib.SequenceMatcher(None, ta, tb).ratio()
-            return 0.0
+        # 3. 최종 점수 계산 (두 비율의 평균)
+        score = (standard_ratio + contained_ratio) / 2.0
+        
+        # 짧은 제목이 긴 제목에 거의 그대로 포함된다면 합격선으로 보정
+        if contained_ratio >= 0.9: 
+            score = max(score, 0.75) 
 
-        tok_a = tokenize(a_core)
-        tok_b = tokenize(b_core)
+            # 단, 단어 자체가 너무 짧으면서 전체 일치율이 처참하다면 우연의 일치로 간주하여 페널티
+            # (예: '마도' 2글자가 포함되었다고 무조건 75%를 주지 않음)
+            if min_len <= 3 and standard_ratio < 0.4:
+                score = score * 0.8 
 
-        # 토큰화 실패 시 문자 수준 유사도로 fallback
-        if not tok_a or not tok_b:
-            s = char_sim(a_core, b_core)
-            return s >= 0.75, round(s * 100, 1)
+        return score >= 0.70, round(score * 100, 1)
 
-        # 각 토큰의 상대방 내 최고 유사도
-        a_scores = [max(token_sim(ta, tb) for tb in tok_b) for ta in tok_a]
-        b_scores = [max(token_sim(tb, ta) for ta in tok_a) for tb in tok_b]
-
-        # 부분집합 방향 모두 허용 (A⊂B, B⊂A)
-        best = max(sum(a_scores) / len(a_scores), sum(b_scores) / len(b_scores))
-
-        # 고유사도 토큰 존재 시 보너스
-        exact_count = sum(1 for ta in tok_a for tb in tok_b if token_sim(ta, tb) >= 0.85)
-        if exact_count > 0:
-            best = min(1.0, best + 0.15)
-
-        # 문자 수준 유사도 보조 (토큰 분리 케이스 구제: 슬램덩크/슬램 덩크 등)
-        cs = char_sim(a_core, b_core)
-        if cs >= 0.80 and best < 0.70:
-            best = max(best, cs * 0.85)
-
-        return best >= 0.70, round(best * 100, 1)
-
+    # [수정됨] run 메서드
     def run(self):
-        import time # 스레드 내부에서 사용할 time 모듈
+        import time 
+        from core.library_db import db
         
         matches = {}
         total_a = len(self.a_files)
         
+        all_cached_matches = db.get_all_dup_match()
+        new_matches_to_save = [] 
+        
         a_data = []
         for idx, a_file in enumerate(self.a_files):
             if self.is_cancelled: return
-            if idx % 50 == 0: time.sleep(0.001) # [추가] UI 스레드에 GIL 양보
+            if idx % 50 == 0: time.sleep(0.001) 
             
             if "name" in a_file:
                 raw_name = os.path.splitext(a_file["name"])[0]
                 core_title, nums, is_bundle = self.extract_series_and_nums(raw_name)
                 if not core_title: core_title = raw_name.lower()
-                a_data.append((a_file, core_title, nums, is_bundle))
+                
+                # --- 전처리 단순화 ---
+                a_char, a_bigrams = self.get_char_and_bigrams(core_title)
+                a_data.append((a_file, core_title, nums, is_bundle, a_char, a_bigrams))
 
-        # B 폴더 그룹화 및 캐싱 (사전 작업)
         b_folders = {}
         for idx, b_file in enumerate(self.b_cache):
             if self.is_cancelled: return
-            if idx % 50 == 0: time.sleep(0.001) # [추가] UI 스레드에 GIL 양보
+            if idx % 50 == 0: time.sleep(0.001) 
             
             bp = b_file["path"]
             if bp not in b_folders:
                 folder_name = os.path.basename(bp)
                 f_core, _, _ = self.extract_series_and_nums(folder_name) if folder_name else ("", [], False)
+                f_core_str = f_core if f_core else folder_name.lower()
+                
+                f_char, f_bigrams = self.get_char_and_bigrams(f_core_str)
+
                 b_folders[bp] = {
                     "name": folder_name,
-                    "core_title": f_core if f_core else folder_name.lower(),
-                    "size": 0,
-                    "files": []
+                    "core_title": f_core_str,
+                    "f_char": f_char, "f_bigrams": f_bigrams,
+                    "size": 0, "files": []
                 }
             
             if "core_title" not in b_file:
                 raw_name = os.path.splitext(b_file["name"])[0]
                 core_title, nums, is_bundle = self.extract_series_and_nums(raw_name)
-                b_file["core_title"] = core_title if core_title else raw_name.lower()
+                core_str = core_title if core_title else raw_name.lower()
+                
+                b_char, b_bigrams = self.get_char_and_bigrams(core_str)
+
+                b_file["core_title"] = core_str
                 b_file["nums"] = nums
                 b_file["is_bundle"] = is_bundle
+                b_file["b_char"] = b_char
+                b_file["b_bigrams"] = b_bigrams
                 
             b_folders[bp]["files"].append(b_file)
             b_folders[bp]["size"] += b_file.get("size", 0)
 
-        for i, (a_file, a_core, a_nums, a_is_bundle) in enumerate(a_data):
+        for i, (a_file, a_core, a_nums, a_is_bundle, a_char, a_bigrams) in enumerate(a_data):
             if self.is_cancelled: return
             
-            if i % 10 == 0: time.sleep(0.001) # [핵심 추가] 매칭 연산 중 주기적으로 UI에 제어권 양보
+            a_full_path = a_file.get("full_path", "")
+            
+            if a_full_path in all_cached_matches:
+                cached_data = all_cached_matches[a_full_path]
+                if cached_data: 
+                    matches[a_full_path] = cached_data
+                if total_a > 0 and i % max(1, total_a // 20) == 0:
+                    self.match_progress.emit(i + 1, total_a)
+                continue
+
+            if i % 10 == 0: time.sleep(0.001) 
             
             file_matches = []
-            a_path = os.path.normcase(os.path.normpath(a_file.get("full_path", "")))
+            a_path = os.path.normcase(os.path.normpath(a_full_path))
             a_dir_norm = os.path.dirname(a_path)
             
             for bp, b_folder in b_folders.items():
                 if self.is_cancelled: return
-                
                 bp_norm = os.path.normcase(os.path.normpath(bp))
                 
-                # 1. 폴더 단위 매칭 (A파일의 부모 폴더가 자기 자신인 경우는 제외)
                 if a_dir_norm != bp_norm:
-                    is_folder_match, ratio = self.check_similarity(a_core, b_folder["core_title"])
+                    # [비교 호출부 수정] 파라미터 간소화
+                    is_folder_match, ratio = self.check_similarity_fast(
+                        a_char, b_folder["f_char"], a_bigrams, b_folder["f_bigrams"]
+                    )
                     if is_folder_match:
-                        # 폴더 전체가 매칭되면 내부 파일 검사 스킵
                         dummy_b_file = {
                             "name": "(폴더 전체 매칭)",
                             "size": b_folder["size"],
@@ -352,10 +369,8 @@ class DupMatchThread(QThread):
                         file_matches.append({"b_file": dummy_b_file, "ratio": ratio})
                         continue
                         
-                # 2. 폴더 매칭 실패 시 내부 개별 파일 매칭 진행
                 for b_file in b_folder["files"]:
                     if self.is_cancelled: return
-                    
                     b_full_path = os.path.normcase(os.path.normpath(b_file.get("full_path", "")))
                     if a_path == b_full_path: continue
                     
@@ -368,7 +383,10 @@ class DupMatchThread(QThread):
                             
                     if not number_match: continue
                     
-                    is_file_match, f_ratio = self.check_similarity(a_core, b_file["core_title"])
+                    # [비교 호출부 수정] 파라미터 간소화
+                    is_file_match, f_ratio = self.check_similarity_fast(
+                        a_char, b_file["b_char"], a_bigrams, b_file["b_bigrams"]
+                    )
                     if is_file_match:
                         file_matches.append({"b_file": b_file, "ratio": f_ratio})
                         
@@ -378,10 +396,16 @@ class DupMatchThread(QThread):
                     bp = m["b_file"]["path"]
                     if bp not in grouped: grouped[bp] = []
                     grouped[bp].append(m)
-                matches[a_file["full_path"]] = grouped
+                matches[a_full_path] = grouped
+                new_matches_to_save.append((a_full_path, grouped))
+            else:
+                new_matches_to_save.append((a_full_path, {}))
                 
             if total_a > 0 and i % max(1, total_a // 20) == 0:
                 self.match_progress.emit(i + 1, total_a)
+                
+        if new_matches_to_save and not self.is_cancelled:
+            db.save_dup_matches_bulk(new_matches_to_save)
                 
         self.match_finished.emit(matches)
 
@@ -1157,7 +1181,7 @@ class TabFolder(QWidget):
         self.lbl_tree_status.setText(_("dup_scan_start"))
 
         # [추가] 자세히 보기 모드일 때 리스트 패널 비활성화
-        if self.view_stack.currentIndex() == 0:
+        if self.view_stack.currentIndex() == 0 and self.btn_dup_check.isChecked():
             self.dim_overlay.show()
             
         self.dup_scan_thread = DupScanThread(dup_folders, target_exts)
@@ -1184,6 +1208,9 @@ class TabFolder(QWidget):
 
         if self.file_data_cache:
             self.start_dup_match()
+        else:
+            # [추가] 매칭할 파일 데이터가 없어서 진행되지 않는 경우 오버레이 해제
+            self.dim_overlay.hide()
 
     # 중복 검사 토글 이벤트 처리
     def on_dup_check_toggled(self, checked):

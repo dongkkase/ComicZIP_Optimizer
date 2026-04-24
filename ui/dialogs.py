@@ -283,6 +283,26 @@ class SettingsDialog(QDialog):
 
         self.btn_add_dup_folder.clicked.connect(self.add_dup_folder)
         self.btn_remove_dup_folder.clicked.connect(self.remove_dup_folder)
+
+        cache_line = QFrame()
+        cache_line.setFrameShape(QFrame.Shape.HLine)
+        cache_line.setObjectName("divider")
+        folder_set_layout.addWidget(cache_line)
+
+        dup_cache_layout = QHBoxLayout()
+        lbl_cache_desc = QLabel(self.i18n.get("folder_clear_cache_desc", "저장된 중복 파일 매칭 결과 캐시를 초기화합니다."))
+        lbl_cache_desc.setStyleSheet("color: #aaaaaa; font-size: 11px;")
+        
+        self.btn_clear_dup_cache = QPushButton(self.i18n.get("folder_clear_cache", "중복 매칭 캐시 초기화"))
+        self.btn_clear_dup_cache.setIcon(qta.icon('fa5s.trash-alt', color='white'))
+        self.btn_clear_dup_cache.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_clear_dup_cache.setStyleSheet("background-color: #E74C3C; color: white; padding: 6px 12px; border-radius: 4px; font-weight: bold; border: none;")
+        self.btn_clear_dup_cache.clicked.connect(self.action_clear_dup_cache)
+
+        dup_cache_layout.addWidget(lbl_cache_desc)
+        dup_cache_layout.addStretch()
+        dup_cache_layout.addWidget(self.btn_clear_dup_cache)
+        folder_set_layout.addLayout(dup_cache_layout)
         # --------------------------------------------------------
 
         self.tab_api = QWidget()
@@ -430,6 +450,18 @@ class SettingsDialog(QDialog):
             Toast.show(self.parent(), self.i18n.get("msg_cache_cleared", "캐시가 초기화되었습니다."))
         except Exception as e:
             pass
+
+    def action_clear_dup_cache(self):
+        reply = QMessageBox.question(
+            self,
+            self.i18n.get("folder_clear_cache", "중복 매칭 캐시 초기화"),
+            self.i18n.get("folder_clear_cache_confirm", "저장된 모든 중복 매칭 결과 캐시를 삭제하시겠습니까?\n(매칭 속도가 일시적으로 느려질 수 있습니다.)"),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            from core.library_db import db
+            if hasattr(db, 'clear_dup_cache') and db.clear_dup_cache():
+                Toast.show(self.parent(), self.i18n.get("folder_clear_cache_done", "중복 매칭 캐시가 초기화되었습니다."))
 
     def show_api_manual(self):
         msg = QMessageBox(self)

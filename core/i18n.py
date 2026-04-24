@@ -292,6 +292,11 @@ def get_i18n():
 
             "opt_pass_skip_meta": "스킵된 파일도 메타데이터 관리로 넘기기",
             "opt_pass_skip_meta_tip": "체크 시 내부 이름 변경 작업에서 스킵된(최적화 완료된) 파일도 메타데이터 탭으로 전달합니다.\n(주의: 너무 많은 파일이 한 번에 넘어가면 렉이 발생할 수 있습니다.)",
+
+            "folder_clear_cache": "중복 매칭 캐시 초기화",
+            "folder_clear_cache_desc": "저장된 중복 파일 매칭 결과 캐시를 초기화합니다.",
+            "folder_clear_cache_confirm": "저장된 모든 중복 매칭 결과 캐시를 삭제하시겠습니까?\n(매칭 속도가 일시적으로 느려질 수 있습니다.)",
+            "folder_clear_cache_done": "중복 매칭 캐시가 초기화되었습니다.",          
         },
         "en": {
             "title": f"ComicZIP Optimizer v{CURRENT_VERSION}",
@@ -540,6 +545,11 @@ def get_i18n():
 
             "opt_pass_skip_meta": "Pass skipped files to Metadata Manager",
             "opt_pass_skip_meta_tip": "If checked, files skipped during the rename process will also be sent to the metadata tab.\n(Note: Passing too many files at once may cause lag.)",
+
+            "folder_clear_cache": "Clear Duplicate Cache",
+            "folder_clear_cache_desc": "Initialize saved duplicate file match result cache.",
+            "folder_clear_cache_confirm": "Are you sure you want to clear all saved duplicate match results?\n(Matching may be temporarily slower.)",
+            "folder_clear_cache_done": "Duplicate match cache has been cleared.",
         },
         "ja": {
             "title": f"ComicZIP Optimizer v{CURRENT_VERSION}",
@@ -793,5 +803,10 @@ def get_i18n():
 
             "opt_pass_skip_meta": "スキップされたファイルもメタデータ管理へ渡す",
             "opt_pass_skip_meta_tip": "チェックすると、名前変更作業でスキップされたファイルもメタデータタブに送られます。\n(注意: 一度に大量のファイルを渡すと動作が重くなる場合があります。)",
+
+            "folder_clear_cache": "重複キャッシュをクリアします",
+            "folder_clear_cache_desc": "保存済みの重複ファイル一致結果キャッシュを初期化します。",
+            "folder_clear_cache_confirm": "保存済みの重複一致結果をすべてクリアしてもよろしいですか？\n（マッチング処理が一時的に遅くなる場合があります。）",
+            "folder_clear_cache_done": "重複一致キャッシュがクリアされました。",
         }
     }

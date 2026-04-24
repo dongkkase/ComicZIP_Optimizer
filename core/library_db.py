@@ -188,4 +188,55 @@ class LibraryDB:
             finally: 
                 if 'conn' in locals(): conn.close()
 
+    # --- [추가/수정] 중복 매칭 일괄 처리 메서드 ---
+    def get_all_dup_match(self):
+        with self.lock:
+            try:
+                conn = self.get_connection()
+                cursor = conn.cursor()
+                cursor.execute('SELECT a_path, match_data FROM dup_cache')
+                rows = cursor.fetchall()
+                # 딕셔너리 형태로 한 번에 반환 { "파일경로": 매칭결과_딕셔너리 }
+                import json
+                return {row[0]: json.loads(row[1]) for row in rows}
+            except Exception as e: 
+                return {}
+            finally: 
+                if 'conn' in locals(): conn.close()
+
+    def save_dup_matches_bulk(self, match_list):
+        # match_list 포맷: [(a_path, match_data_dict), (a_path, match_data_dict), ...]
+        if not match_list: return
+        with self.lock:
+            try:
+                conn = self.get_connection()
+                # WAL 모드 또는 동기화 옵션 조정으로 쓰기 속도 극대화
+                conn.execute("PRAGMA synchronous = NORMAL") 
+                cursor = conn.cursor()
+                import json
+                records = [(m[0], json.dumps(m[1], ensure_ascii=False)) for m in match_list]
+                cursor.executemany('''
+                    INSERT OR REPLACE INTO dup_cache (a_path, match_data)
+                    VALUES (?, ?)
+                ''', records)
+                conn.commit()
+            except Exception as e: 
+                print(f"Bulk Save Error: {e}")
+            finally: 
+                if 'conn' in locals(): conn.close()
+
+    def clear_dup_cache(self):
+        with self.lock:
+            try:
+                conn = self.get_connection()
+                cursor = conn.cursor()
+                cursor.execute('DELETE FROM dup_cache')
+                conn.commit()
+                return True
+            except Exception as e:
+                print(f"Clear Cache Error: {e}")
+                return False
+            finally:
+                if 'conn' in locals(): conn.close()
+
 db = LibraryDB()
