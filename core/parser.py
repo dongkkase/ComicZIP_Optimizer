@@ -1,5 +1,6 @@
 import re
 import difflib
+import unicodedata
 from pathlib import Path
 
 def clean_display_title(text):
@@ -110,26 +111,15 @@ def resolve_titles(filepath, inner_name=""):
 
 def fix_encoding(text):
     if not text: return text
+    try: text = text.encode('cp437').decode('cp949')
+    except Exception: pass
+    try: text = text.encode('latin1').decode('cp949')
+    except Exception: pass
+    try: text = text.encode('cp949').decode('utf-8')
+    except Exception: pass
     
-    try:
-        # 1. 윈도우 기본 압축해제 시 CP949가 CP437로 깨진 경우 복구
-        return text.encode('cp437').decode('cp949')
-    except Exception:
-        pass
-        
-    try:
-        # 2. 특정 압축앱이 서유럽어(Latin-1)로 잘못 읽어들인 경우 복구 (주로 '화' 글자가 깨질 때)
-        return text.encode('latin1').decode('cp949')
-    except Exception:
-        pass
-        
-    try:
-        # 3. 맥(UTF-8)에서 압축한 파일이 윈도우에서 깨진 경우 복구
-        return text.encode('cp949').decode('utf-8')
-    except Exception:
-        pass
-        
-    return text
+    # Mac OS에서 압축되어 자음/모음이 분리된 한글('ㅎㅗㅏ')을 합치기 (정규식 인식 오류 방지)
+    return unicodedata.normalize('NFC', text)
 
 def format_leaf_name(parent_core, leaf_name, index, total_items, lang='ko', prevalent_unit='권'):
     pad = max(2, len(str(total_items)))

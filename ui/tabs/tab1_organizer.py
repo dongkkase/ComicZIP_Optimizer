@@ -5,11 +5,62 @@ from pathlib import Path
 import qtawesome as qta
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                              QLabel, QLineEdit, QAbstractItemView, QHeaderView, QTreeWidgetItem, QStackedWidget,
-                             QMenu, QDialog, QDialogButtonBox)
+                             QMenu, QDialog, QDialogButtonBox,
+                             QStyledItemDelegate, QStyle, QApplication
+                             )
 from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor,QTextDocument, QAbstractTextDocumentLayout
 
 from ui.widgets import OrgTreeWidget
+
+class RichTextDelegate(QStyledItemDelegate):
+    def paint(self, painter, option, index):
+        options = option
+        self.initStyleOption(options, index)
+        style = options.widget.style() if options.widget else QApplication.style()
+        style.drawControl(QStyle.ControlElement.CE_ItemViewItem, options, painter, options.widget)
+        
+        text = index.data(Qt.ItemDataRole.DisplayRole)
+        if not text: return
+        
+        if "||" in text:
+            parts = text.split("||")
+            main_text = html.escape(parts[0])
+            orig_text = html.escape(parts[1]) if len(parts) > 1 else ""
+            
+            # 선택되었을 때 글자가 안보이는 현상 방지 (선택 시 강제 흰색 처리)
+            is_selected = options.state & QStyle.StateFlag.State_Selected
+            main_color = "#ffffff" if is_selected else "#706f72"
+            orig_color = "rgba(255, 255, 255, 0.7)" if is_selected else "rgba(112, 111, 114, 0.7)"
+            
+            html_str = f"<span style='color: {main_color}; white-space: pre;'>{main_text} </span><span style='color: {orig_color};'>({orig_text})</span>"
+            doc = QTextDocument()
+            doc.setHtml(html_str)
+            doc.setDefaultFont(options.font)
+            
+            painter.save()
+            textRect = style.subElementRect(QStyle.SubElement.SE_ItemViewItemText, options)
+            painter.translate(textRect.topLeft())
+            painter.setClipRect(textRect.translated(-textRect.topLeft()))
+            ctx = QAbstractTextDocumentLayout.PaintContext()
+            doc.documentLayout().draw(painter, ctx)
+            painter.restore()
+        else:
+            super().paint(painter, option, index)
+
+    def sizeHint(self, option, index):
+        options = option
+        self.initStyleOption(options, index)
+        text = index.data(Qt.ItemDataRole.DisplayRole) or ""
+        if "||" in text:
+            parts = text.split("||")
+            main_text = html.escape(parts[0])
+            orig_text = html.escape(parts[1]) if len(parts) > 1 else ""
+            doc = QTextDocument()
+            doc.setHtml(f"<span style='white-space: pre;'>{main_text} </span><span>({orig_text})</span>")
+            doc.setDefaultFont(options.font)
+            return QSize(int(doc.idealWidth()), int(doc.size().height()) + 4)
+        return super().sizeHint(option, index)
 
 class Tab1Organizer(QWidget):
     def __init__(self, main_app):
@@ -169,6 +220,10 @@ class Tab1Organizer(QWidget):
         self.tree_org.setUpdatesEnabled(False)
         self.tree_org.blockSignals(True)
         self.tree_org.clear()
+
+        if getattr(self, '_delegate_applied', None) is None:
+            self.tree_org.setItemDelegateForColumn(0, RichTextDelegate(self.tree_org))
+            self._delegate_applied = True
         
         target_ext = f".{self.main_app.config.get('target_format', 'zip')}" if self.main_app.config.get("target_format", "none") != "none" else ""
         items_to_add = []
@@ -241,23 +296,8 @@ class Tab1Organizer(QWidget):
                         prefix = f"[{match.group(1).strip()}] " if match else f"[{parent_folder}] "
                     new_display = f"{prefix}{vol['new_name']}{final_ext}"
 
-                safe_new_display = html.escape(new_display)
-
-                html_text = (
-                    f"<span style='color: #706f72; white-space: pre;'>"
-                    f"  ↳ {icon_txt} {safe_new_display} </span>"
-                    f"<span style='color: rgba(112, 111, 114, 0.7);'>({safe_orig_name})</span>"
-                )
-                
-                lbl = QLabel(html_text)
-                lbl.setStyleSheet("background: transparent; font-size: 12px;")
-                lbl.setToolTip(f"{new_display} ({orig_name})")
-                
-                # 🌟 수정됨: 텍스트가 겹치지 않게 하면서 너비를 확보하기 위해 공백 문자로 채움
-                blank_spaces = " " * int((len(new_display) + len(orig_name)) * 1.5 + 15)
-                child.setText(0, blank_spaces)
-                
-                child_widgets_to_set.append((child, lbl))
+                child.setText(0, f"  ↳ {icon_txt} {new_display}||{orig_name}")
+                child.setToolTip(0, f"{new_display} ({orig_name})")
                 
             items_to_add.append(root_item)
             root_widgets_to_set.append((root_item, path_widget)) 

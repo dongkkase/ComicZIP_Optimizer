@@ -244,17 +244,6 @@ class OrganizerLoadTask:
                     # force_unit이 감지되었다면 우선 적용
                     prevalent_unit = force_unit if force_unit else ('화' if unit_counts['화'] > unit_counts['권'] else '권')
 
-                    # 🌟 수정됨: 파싱 과정에서의 인코딩 복구 로직 강화
-                    def fix_encoding(text):
-                        if not text: return text
-                        try: return text.encode('cp437').decode('cp949')
-                        except Exception: pass
-                        try: return text.encode('latin1').decode('cp949')
-                        except Exception: pass
-                        try: return text.encode('cp949').decode('utf-8')
-                        except Exception: pass
-                        return text
-
                     def detect_spinoff(main_title, leaf_name):
                         leaf_core = extract_core_title(leaf_name)
                         if not leaf_core or leaf_core == main_title: return None, main_title
