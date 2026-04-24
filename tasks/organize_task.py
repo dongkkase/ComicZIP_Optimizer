@@ -162,20 +162,22 @@ class OrganizerProcessTask:
                         total_packed_images += img_count
 
                         if v_idx < len(data['volumes']):
-                            vol_base = data['volumes'][v_idx]['new_name']
+                            vol_info = data['volumes'][v_idx]
+                            vol_base = vol_info['new_name']
+                            spinoff_folder = vol_info.get('spinoff_folder')
                         else:
                             pad = max(2, len(str(len(leaf_folders))))
                             if self.lang == 'en': vol_base = f"{clean_title} v{v_idx+1:0{pad}d}"
                             else: vol_base = f"{clean_title} {v_idx+1:0{pad}d}권"
+                            spinoff_folder = None
                             
-                        # 🌟 볼륨 이름 앞의 점(.)과 공백 등 불순물 제거
                         vol_base = re.sub(r'^[._\-\s]+', '', vol_base)
                         vol_name = f"{vol_base}{target_ext}"
                         
                         rel_path = os.path.relpath(leaf, actual_root)
                         
                         if rel_path == '.' or rel_path == 'Root_Files':
-                            out_dir = base_out_dir
+                            out_dir = os.path.join(base_out_dir, spinoff_folder) if spinoff_folder else base_out_dir
                         else:
                             parts = Path(rel_path).parts
                             valid_parts = []
@@ -188,31 +190,19 @@ class OrganizerProcessTask:
                                     p_core = extract_core_title(p)
                                     c_core = extract_core_title(clean_title)
                                     if p_core and c_core and get_similarity(p_core, c_core) >= 0.5:
-                                        # 부/시즌 폴더는 타이틀 유사도가 높아도 폴더 구조 유지를 위해 생략하지 않음
                                         if not bool(re.search(r'(\d+\s*부|제\s*\d+\s*부|시즌|season|part)', p.lower())):
                                             continue
                                     valid_parts.append(cp if cp else p)
                                     
                             rel_dir = os.path.join(*valid_parts) if valid_parts else ''
-                            out_dir = os.path.join(base_out_dir, rel_dir) if rel_dir else base_out_dir
+                            
+                            # 🌟 외전 폴더가 감지된 경우 최우선으로 해당 폴더에 배치
+                            if spinoff_folder:
+                                out_dir = os.path.join(base_out_dir, spinoff_folder)
+                            else:
+                                out_dir = os.path.join(base_out_dir, rel_dir) if rel_dir else base_out_dir
 
                         os.makedirs(out_dir, exist_ok=True)
-                        
-                        base_target_path = os.path.join(out_dir, vol_name)
-                        target_path = base_target_path
-                        base_name, ext = os.path.splitext(vol_name)
-                        counter = 1
-                        while os.path.exists(target_path):
-                            target_path = os.path.join(out_dir, f"{base_name}_{counter}{ext}")
-                            counter += 1
-
-                        temp_archive = os.path.join(sys_temp, f"ComicZIP_Done_{safe_id}_{uuid.uuid4().hex[:4]}_{os.path.basename(target_path)}")
-                        if os.path.exists(temp_archive): os.remove(temp_archive)
-                        
-                        subprocess.run([self.seven_z_exe, 'a', archive_type, temp_archive, '*', '-mx=0'], cwd=leaf, stdout=subprocess.DEVNULL, creationflags=CREATE_NO_WINDOW, check=True)
-                        
-                        shutil.move(temp_archive, target_path)
-                        current_target_created_zips.append(target_path)
 
                     shutil.rmtree(temp_base, ignore_errors=True)
                     

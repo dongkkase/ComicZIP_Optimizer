@@ -9,7 +9,7 @@ import uuid
 import shutil
 
 from utils import natural_keys
-from core.parser import is_garbage_folder_name, resolve_titles, format_leaf_name
+from core.parser import is_garbage_folder_name, resolve_titles, format_leaf_name, extract_core_title, fix_encoding
 
 CREATE_NO_WINDOW = 0x08000000 if sys.platform == 'win32' else 0
 
@@ -230,30 +230,42 @@ class OrganizerLoadTask:
                         continue
 
                     display_title, core_title = resolve_titles(filepath, inner_meaningful_name)
-                    group_names = sorted(list(volume_groups.keys()), key=natural_keys)
                     parsed_vols = []
+                    
+                    # 단위 판별
+                    unit_counts = {'권': 0, '화': 0}
+                    for leaf in group_names:
+                        if '화' in leaf: unit_counts['화'] += 1
+                        if '권' in leaf: unit_counts['권'] += 1
+                    prevalent_unit = '화' if unit_counts['화'] > unit_counts['권'] else '권'
 
-                    if len(group_names) == 1 and group_names[0] == 'Root_Files':
-                        vol_name, needs_warning = format_leaf_name(
-                            core_title,
-                            inner_meaningful_name or filename,
-                            0, 1, self.lang, force_unit
-                        )
+                    def detect_spinoff(main_title, leaf_name):
+                        leaf_core = extract_core_title(leaf_name)
+                        if not leaf_core or leaf_core == main_title: return None, main_title
+                        
+                        main_clean = main_title.replace(" ", "")
+                        leaf_clean = leaf_core.replace(" ", "")
+                        
+                        # 오리지널 폴더/파일명이 메인 제목과 다르면 외전으로 판별
+                        if (main_clean in leaf_clean and len(leaf_clean) > len(main_clean)) or \
+                           re.search(r'(외전|특별편|단편|스핀오프|ss|ex)', leaf_name, re.IGNORECASE):
+                            return leaf_core, leaf_core
+                        return None, main_title
+
+                    for v_idx, leaf in enumerate(group_names):
+                        # 한글 깨짐 복구 적용
+                        leaf_basename = fix_encoding(os.path.basename(leaf.replace('\\', '/')) if leaf != 'Root_Files' else filename)
+                        spinoff_folder, effective_core = detect_spinoff(core_title, leaf_basename)
+                        
+                        vol_name = format_leaf_name(effective_core, leaf_basename, v_idx, len(group_names), self.lang, prevalent_unit)
+                        
                         parsed_vols.append({
-                            'original_path': '', 'new_name': vol_name,
-                            'type': 'archive', 'needs_warning': needs_warning
+                            'original_path': leaf if leaf != 'Root_Files' else '', 
+                            'original_basename': leaf_basename,
+                            'new_name': vol_name, 
+                            'spinoff_folder': spinoff_folder,
+                            'type': 'archive' if leaf == 'Root_Files' else 'folder'
                         })
-                    else:
-                        for v_idx, leaf in enumerate(group_names):
-                            leaf_basename = os.path.basename(leaf.replace('\\', '/'))
-                            vol_name, needs_warning = format_leaf_name(
-                                core_title, leaf_basename,
-                                v_idx, len(group_names), self.lang, force_unit
-                            )
-                            parsed_vols.append({
-                                'original_path': leaf, 'new_name': vol_name,
-                                'type': 'folder', 'needs_warning': needs_warning
-                            })
 
                     new_data[filepath] = {
                         'checked': True,

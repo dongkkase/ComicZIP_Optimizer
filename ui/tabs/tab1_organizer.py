@@ -171,7 +171,8 @@ class Tab1Organizer(QWidget):
         
         target_ext = f".{self.main_app.config.get('target_format', 'zip')}" if self.main_app.config.get("target_format", "none") != "none" else ""
         items_to_add = []
-        widgets_to_set = []
+        root_widgets_to_set = []
+        child_widgets_to_set = []
         
         for fp, data in self.org_data.items():
             root_item = QTreeWidgetItem()
@@ -204,11 +205,8 @@ class Tab1Organizer(QWidget):
             data['le_path'] = le_path 
             
             btn_def = QPushButton("기본값" if self.main_app.lang == "ko" else "Default")
-            btn_def.setCursor(Qt.CursorShape.PointingHandCursor)
             btn_def.clicked.connect(lambda _, key=fp, p=default_path: self.set_single_path(key, p))
-            
             btn_tit = QPushButton("책제목" if self.main_app.lang == "ko" else "Title")
-            btn_tit.setCursor(Qt.CursorShape.PointingHandCursor)
             btn_tit.clicked.connect(lambda _, key=fp, p=title_path: self.set_single_path(key, p))
             
             btn_style = "QPushButton { padding: 4px 8px; font-size: 11px; border-radius: 4px; background-color: #4a4a4a; } QPushButton:hover { background-color: #5a5a5a; }"
@@ -221,50 +219,52 @@ class Tab1Organizer(QWidget):
             path_layout.addWidget(btn_tit)
             
             for vol in data['volumes']:
-                    child = QTreeWidgetItem(root_item)
-                    icon_txt = "📦" if vol.get('type') == 'archive' else "📁"
-                    final_ext = target_ext if target_ext else (Path(vol.get('inner_path', '')).suffix if vol.get('type') == 'archive' else ".zip")
-                    if not final_ext: final_ext = ".zip"
-
+                child = QTreeWidgetItem(root_item)
+                icon_txt = "📦" if vol.get('type') == 'archive' else "📁"
+                final_ext = target_ext if target_ext else (Path(vol.get('inner_path', '')).suffix if vol.get('type') == 'archive' else ".zip")
+                if not final_ext: final_ext = ".zip"
+                
+                orig_name = vol.get('original_basename', "")
+                spinoff_folder = vol.get('spinoff_folder')
+                
+                # 외전일 경우 {외전명}/{바뀔파일명} 형태로 표시
+                if spinoff_folder:
+                    new_display = f"{spinoff_folder}/{vol['new_name']}{final_ext}"
+                else:
+                    # 일반 폴더(부/시즌) prefix 처리
                     orig_path = vol.get('original_path', '')
                     path_parts = Path(orig_path).parts
                     prefix = ""
                     if len(path_parts) > 1:
                         parent_folder = path_parts[-2]
                         match = re.search(r'(\d+\s*부|제\s*\d+\s*부|시즌\s*\d+|season\s*\d+|part\s*\d+)', parent_folder, re.IGNORECASE)
-                        if match:
-                            prefix = f"[{match.group(1).strip()}] "
-                        else:
-                            prefix = f"[{parent_folder}] "
+                        prefix = f"[{match.group(1).strip()}] " if match else f"[{parent_folder}] "
+                    new_display = f"{prefix}{vol['new_name']}{final_ext}"
 
-                    # 원본 이름 표시
-                    # 원본 이름 표시 - 경로 구분자 정규화 후 basename 추출
-                    orig_path_clean = orig_path.replace('\\', '/')
-                    orig_basename = orig_path_clean.split('/')[-1] if orig_path_clean else ""
-                    # 확장자 제거 (압축파일 확장자만)
-                    orig_basename_clean = re.sub(r'\.(zip|cbz|cbr|rar|7z)$', '', orig_basename, flags=re.IGNORECASE)
-                    orig_display = f"  ({orig_basename_clean})" if orig_basename_clean else ""
-
-                    full_text = f"  ↳ {icon_txt} {prefix}{vol['new_name']}{final_ext}{orig_display}"
-
-                    child.setText(0, full_text)
-                    child.setForeground(0, QColor("#aaaaaa"))
-                    child.setToolTip(0, full_text)
-
-                    if vol.get('needs_warning'):
-                        import qtawesome as qta
-                        child.setIcon(0, qta.icon('fa5s.exclamation-triangle', color='#f1c40f'))        
+                # 🌟 스타일 적용: 기본 #706f72 / 오리지널 투명도 70% (rgba 0.7)
+                # 순서: {↳} {아이콘}{바뀔파일명} {(오리지널)}
+                html_text = (
+                    f"<span style='color: #706f72; white-space: pre;'>"
+                    f"  ↳ {icon_txt}{new_display} </span>"
+                    f"<span style='color: rgba(112, 111, 114, 0.7);'>({orig_name})</span>"
+                )
+                
+                lbl = QLabel(html_text)
+                lbl.setStyleSheet("background: transparent; font-size: 12px;")
+                lbl.setToolTip(f"{new_display} ({orig_name})")
+                
+                child.setText(0, f"  ↳ {new_display} ({orig_name})")
+                child.setForeground(0, QColor("transparent"))
+                
+                child_widgets_to_set.append((child, lbl))
                 
             items_to_add.append(root_item)
-            widgets_to_set.append((root_item, path_widget)) 
+            root_widgets_to_set.append((root_item, path_widget)) 
             
-        # 🌟 핵심 수정: 아이템을 트리에 완전히 등록(Add)한 직후에 병합(colspan)을 적용합니다!
         self.tree_org.addTopLevelItems(items_to_add)
-        
-        for item, widget in widgets_to_set:
-            self.tree_org.setItemWidget(item, 1, widget)
+        for item, widget in root_widgets_to_set: self.tree_org.setItemWidget(item, 1, widget)
+        for child, widget in child_widgets_to_set: self.tree_org.setItemWidget(child, 0, widget)
             
-        # 🌟 PyQt 버그 회피: 트리에 등록된 후 하위 항목들을 순회하며 가로 전체 병합 옵션 먹이기
         for i in range(self.tree_org.topLevelItemCount()):
             top_item = self.tree_org.topLevelItem(i)
             top_item.setExpanded(self.is_expanded)
@@ -272,7 +272,6 @@ class Tab1Organizer(QWidget):
                 top_item.child(j).setFirstColumnSpanned(True)
                 
         self.adjust_columns()
-        
         self.tree_org.blockSignals(False)
         self.tree_org.setUpdatesEnabled(True)
         self.lbl_count.setText(self.main_app.i18n[self.main_app.lang]["total_files"].format(count=len(self.org_data)))
@@ -337,67 +336,50 @@ class Tab1Organizer(QWidget):
             self.edit_child_filename(item)
 
     def edit_child_filename(self, item):
-        """지정된 크기(580x290)와 커진 폰트가 적용된 다이얼로그 생성 및 데이터 업데이트"""
+        """수동 수정 팝업 후 리스트 갱신 대응"""
         parent = item.parent()
         if not parent: return
-
         fp = parent.data(0, Qt.ItemDataRole.UserRole)
         if fp not in self.org_data: return
 
         child_idx = parent.indexOfChild(item)
-        volumes = self.org_data[fp].get('volumes', [])
-        if child_idx < 0 or child_idx >= len(volumes): return
-
-        vol_data = volumes[child_idx]
+        vol_data = self.org_data[fp]['volumes'][child_idx]
         current_name = vol_data.get('new_name', '')
 
         is_ko = self.main_app.lang == "ko"
-        title = "파일명 수정" if is_ko else "Edit Filename"
-        label_text = "새 파일명을 입력하세요:" if is_ko else "Enter new filename:"
-
-        # 커스텀 팝업 다이얼로그 구성
         dialog = QDialog(self)
-        dialog.setWindowTitle(title)
-        dialog.setFixedSize(580, 290)  # 요청하신 580x290 픽셀 고정
+        dialog.setWindowTitle("파일명 수정" if is_ko else "Edit Filename")
+        dialog.setFixedSize(580, 290)
         layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel("새 파일명을 입력하세요:" if is_ko else "Enter new filename:"))
 
-        # 안내 라벨
-        lbl = QLabel(label_text)
-        layout.addWidget(lbl)
-
-        # 입력 필드 및 폰트 +2pt 적용
         input_field = QLineEdit(current_name)
-        font = input_field.font()
-        font.setPointSize(font.pointSize() + 2)
-        input_field.setFont(font)
-        input_field.setMinimumHeight(40) # 창이 커진 만큼 입력창 높이도 약간 키움
+        font = input_field.font(); font.setPointSize(font.pointSize() + 2)
+        input_field.setFont(font); input_field.setMinimumHeight(40)
         layout.addWidget(input_field)
-
         layout.addStretch()
 
-        # 확인/취소 버튼
         btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        btn_box.accepted.connect(dialog.accept)
-        btn_box.rejected.connect(dialog.reject)
+        btn_box.accepted.connect(dialog.accept); btn_box.rejected.connect(dialog.reject)
         layout.addWidget(btn_box)
 
-        # 확인을 눌렀고 내용이 비어있지 않은 경우 데이터 업데이트
         if dialog.exec() == QDialog.DialogCode.Accepted:
             new_name = input_field.text().strip()
             if new_name:
                 vol_data['new_name'] = new_name
+                # 수정 후 UI 업데이트를 위해 refresh_list 호출 (일관성 유지)
+                self.refresh_list()
 
-                # UI 텍스트 재생성 (기존 로직과 동일하게 아이콘과 확장자 복구)
                 target_ext = f".{self.main_app.config.get('target_format', 'zip')}" if self.main_app.config.get("target_format", "none") != "none" else ""
                 icon_txt = "📦" if vol_data.get('type') == 'archive' else "📁"
-                
                 final_ext = target_ext if target_ext else (Path(vol_data.get('inner_path', '')).suffix if vol_data.get('type') == 'archive' else ".zip")
                 if not final_ext: final_ext = ".zip"
 
-                # --- 수동 변경 시에도 prefix 복구 ---
                 orig_path = vol_data.get('original_path', '')
-                path_parts = Path(orig_path).parts
+                orig_name = vol_data.get('original_basename', os.path.basename(orig_path.replace('\\', '/')))
                 prefix = ""
+                
+                path_parts = Path(orig_path).parts
                 if len(path_parts) > 1:
                     parent_folder = path_parts[-2]
                     match = re.search(r'(\d+\s*부|제\s*\d+\s*부|시즌\s*\d+|season\s*\d+|part\s*\d+)', parent_folder, re.IGNORECASE)
@@ -406,23 +388,13 @@ class Tab1Organizer(QWidget):
                     else:
                         prefix = f"[{parent_folder}] "
 
-                orig_path_clean = orig_path.replace('\\', '/')
-                orig_basename = orig_path_clean.split('/')[-1] if orig_path_clean else ""
-                orig_basename_clean = re.sub(r'\.(zip|cbz|cbr|rar|7z)$', '', orig_basename, flags=re.IGNORECASE)
-                orig_display = f"  ({orig_basename_clean})" if orig_basename_clean else ""
-                full_text = f"  ↳ {icon_txt} {prefix}{new_name}{final_ext}{orig_display}"
-
-                item.setText(0, full_text)
-                item.setToolTip(0, full_text)            
-                # vol_data['new_name'] = new_name
-
-                # # UI 텍스트 재생성 (기존 로직과 동일하게 아이콘과 확장자 복구)
-                # target_ext = f".{self.main_app.config.get('target_format', 'zip')}" if self.main_app.config.get("target_format", "none") != "none" else ""
-                # icon_txt = "📦" if vol_data.get('type') == 'archive' else "📁"
+                new_display = f"{prefix}{new_name}{final_ext} {icon_txt}"
+                html_text = f"<span style='white-space: pre;'>  ↳ {new_display}</span> <font color='#8b8b8b'>({orig_name})</font>"
                 
-                # final_ext = target_ext if target_ext else (Path(vol_data.get('inner_path', '')).suffix if vol_data.get('type') == 'archive' else ".zip")
-                # if not final_ext: final_ext = ".zip"
+                lbl_widget = self.tree_org.itemWidget(item, 0)
+                if lbl_widget:
+                    lbl_widget.setText(html_text)
+                    lbl_widget.setToolTip(f"{new_display} ({orig_name})")
 
-                # full_text = f"  ↳ {icon_txt} {new_name}{final_ext}"
-                # item.setText(0, full_text)
-                # item.setToolTip(0, full_text)
+                item.setText(0, f"  ↳ {new_display} ({orig_name})")
+                item.setToolTip(0, f"{new_display} ({orig_name})")
