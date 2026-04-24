@@ -110,16 +110,29 @@ def resolve_titles(filepath, inner_name=""):
     return file_disp, file_core
 
 def fix_encoding(text):
-    if not text: return text
-    try: text = text.encode('cp437').decode('cp949')
-    except Exception: pass
-    try: text = text.encode('latin1').decode('cp949')
-    except Exception: pass
-    try: text = text.encode('cp949').decode('utf-8')
-    except Exception: pass
+    if not text or not isinstance(text, str): return text
     
-    # Mac OS에서 압축되어 자음/모음이 분리된 한글('ㅎㅗㅏ')을 합치기 (정규식 인식 오류 방지)
-    return unicodedata.normalize('NFC', text)
+    # Mac OS 자음/모음 분리(NFD) -> 윈도우용(NFC) 병합
+    text = unicodedata.normalize('NFC', text)
+    
+    # 흔히 발생하는 인코딩 깨짐 패턴
+    encodings_to_test = [
+        ('cp437', 'cp949'),
+        ('latin1', 'cp949'),
+        ('cp850', 'cp949'),
+        ('mac_roman', 'cp949'),
+    ]
+    
+    for enc_from, enc_to in encodings_to_test:
+        try:
+            fixed = text.encode(enc_from).decode(enc_to)
+            # 정상적으로 변환되었고, 변환된 문자열에 완벽한 한글이 포함되어 있다면 복구 성공
+            if fixed != text and re.search(r'[가-힣]', fixed):
+                return fixed
+        except Exception:
+            continue
+            
+    return text
 
 def format_leaf_name(parent_core, leaf_name, index, total_items, lang='ko', prevalent_unit='권'):
     pad = max(2, len(str(total_items)))

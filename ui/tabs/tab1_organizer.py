@@ -15,33 +15,36 @@ from ui.widgets import OrgTreeWidget
 
 class RichTextDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
-        options = option
-        self.initStyleOption(options, index)
-        style = options.widget.style() if options.widget else QApplication.style()
-        style.drawControl(QStyle.ControlElement.CE_ItemViewItem, options, painter, options.widget)
-        
         text = index.data(Qt.ItemDataRole.DisplayRole)
-        if not text: return
         
-        if "||" in text:
+        if text and "||" in text:
+            options = option
+            self.initStyleOption(options, index)
+            options.text = ""
+            
+            style = options.widget.style() if options.widget else QApplication.style()
+            style.drawControl(QStyle.ControlElement.CE_ItemViewItem, options, painter, options.widget)
+            
             parts = text.split("||")
             main_text = html.escape(parts[0])
             orig_text = html.escape(parts[1]) if len(parts) > 1 else ""
+            is_spinoff = len(parts) > 2 and parts[2] == "SPINOFF"
             
-            # 선택되었을 때 글자가 안보이는 현상 방지 (선택 시 강제 흰색 처리)
             is_selected = options.state & QStyle.StateFlag.State_Selected
             main_color = "#ffffff" if is_selected else "#706f72"
             orig_color = "rgba(255, 255, 255, 0.7)" if is_selected else "rgba(112, 111, 114, 0.7)"
             
-            html_str = f"<span style='color: {main_color}; white-space: pre;'>{main_text} </span><span style='color: {orig_color};'>({orig_text})</span>"
+            # 외전일 경우 폰트어썸 느낌표 아이콘(f071) 노란색 적용
+            warning_icon = "<span style='color: #f1c40f; font-family: \"Font Awesome 5 Free Solid\", \"FontAwesome\", sans-serif;'>&#xf071;</span> " if is_spinoff else ""
+            
+            html_str = f"<span style='color: {main_color}; white-space: pre;'>{main_text} </span>{warning_icon}<span style='color: {orig_color};'>({orig_text})</span>"
             doc = QTextDocument()
             doc.setHtml(html_str)
             doc.setDefaultFont(options.font)
             
             painter.save()
             textRect = style.subElementRect(QStyle.SubElement.SE_ItemViewItemText, options)
-            painter.translate(textRect.topLeft())
-            painter.setClipRect(textRect.translated(-textRect.topLeft()))
+            painter.translate(textRect.left(), textRect.top() + 2)
             ctx = QAbstractTextDocumentLayout.PaintContext()
             doc.documentLayout().draw(painter, ctx)
             painter.restore()
@@ -49,17 +52,23 @@ class RichTextDelegate(QStyledItemDelegate):
             super().paint(painter, option, index)
 
     def sizeHint(self, option, index):
-        options = option
-        self.initStyleOption(options, index)
-        text = index.data(Qt.ItemDataRole.DisplayRole) or ""
-        if "||" in text:
+        text = index.data(Qt.ItemDataRole.DisplayRole)
+        
+        if text and "||" in text:
+            options = option
+            self.initStyleOption(options, index)
             parts = text.split("||")
             main_text = html.escape(parts[0])
             orig_text = html.escape(parts[1]) if len(parts) > 1 else ""
+            is_spinoff = len(parts) > 2 and parts[2] == "SPINOFF"
+            
+            warning_icon = "<span style='font-family: \"Font Awesome 5 Free Solid\", \"FontAwesome\", sans-serif;'>&#xf071;</span> " if is_spinoff else ""
+            
             doc = QTextDocument()
-            doc.setHtml(f"<span style='white-space: pre;'>{main_text} </span><span>({orig_text})</span>")
+            doc.setHtml(f"<span style='white-space: pre;'>{main_text} </span>{warning_icon}<span>({orig_text})</span>")
             doc.setDefaultFont(options.font)
-            return QSize(int(doc.idealWidth()), int(doc.size().height()) + 4)
+            return QSize(int(doc.idealWidth()), int(doc.size().height()) + 0)
+            
         return super().sizeHint(option, index)
 
 class Tab1Organizer(QWidget):
@@ -281,22 +290,22 @@ class Tab1Organizer(QWidget):
                 if not final_ext: final_ext = ".zip"
                 
                 orig_name = vol.get('original_basename', "")
-                safe_orig_name = html.escape(orig_name)
                 spinoff_folder = vol.get('spinoff_folder')
                 
-                if spinoff_folder:
-                    new_display = f"{spinoff_folder}/{vol['new_name']}{final_ext}"
-                else:
-                    orig_path = vol.get('original_path', '')
-                    path_parts = Path(orig_path).parts
-                    prefix = ""
-                    if len(path_parts) > 1:
-                        parent_folder = path_parts[-2]
-                        match = re.search(r'(\d+\s*부|제\s*\d+\s*부|시즌\s*\d+|season\s*\d+|part\s*\d+)', parent_folder, re.IGNORECASE)
-                        prefix = f"[{match.group(1).strip()}] " if match else f"[{parent_folder}] "
-                    new_display = f"{prefix}{vol['new_name']}{final_ext}"
+                # 외전 폴더명을 경로에 붙이지 않고 일반 prefix 로직과 동일하게 통일
+                orig_path = vol.get('original_path', '')
+                path_parts = Path(orig_path).parts
+                prefix = ""
+                if len(path_parts) > 1:
+                    parent_folder = path_parts[-2]
+                    match = re.search(r'(\d+\s*부|제\s*\d+\s*부|시즌\s*\d+|season\s*\d+|part\s*\d+)', parent_folder, re.IGNORECASE)
+                    prefix = f"[{match.group(1).strip()}] " if match else f"[{parent_folder}] "
+                
+                new_display = f"{prefix}{vol['new_name']}{final_ext}"
 
-                child.setText(0, f"  ↳ {icon_txt} {new_display}||{orig_name}")
+                # 외전 여부를 Delegate에 넘기기 위해 플래그 추가
+                spinoff_flag = "SPINOFF" if spinoff_folder else ""
+                child.setText(0, f"  ↳ {icon_txt} {new_display}||{orig_name}||{spinoff_flag}")
                 child.setToolTip(0, f"{new_display} ({orig_name})")
                 
             items_to_add.append(root_item)
@@ -429,13 +438,8 @@ class Tab1Organizer(QWidget):
                     else:
                         prefix = f"[{parent_folder}] "
 
-                new_display = f"{prefix}{new_name}{final_ext} {icon_txt}"
-                html_text = f"<span style='white-space: pre;'>  ↳ {new_display}</span> <font color='#8b8b8b'>({orig_name})</font>"
+                new_display = f"{prefix}{new_name}{final_ext}"
+                spinoff_flag = "SPINOFF" if vol_data.get('spinoff_folder') else ""
                 
-                lbl_widget = self.tree_org.itemWidget(item, 0)
-                if lbl_widget:
-                    lbl_widget.setText(html_text)
-                    lbl_widget.setToolTip(f"{new_display} ({orig_name})")
-
-                item.setText(0, f"  ↳ {new_display} ({orig_name})")
+                item.setText(0, f"  ↳ {icon_txt} {new_display}||{orig_name}||{spinoff_flag}")
                 item.setToolTip(0, f"{new_display} ({orig_name})")

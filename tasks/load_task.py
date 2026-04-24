@@ -28,7 +28,8 @@ def _list_entries(seven_z_exe, filepath):
         )
         # Windows에서 한글 인코딩 자동 감지
         raw = result.stdout
-        for enc in ('utf-8', 'cp949', 'euc-kr', 'utf-8-sig'):
+        # 🌟 핵심: cp437, latin1을 탐지 목록에 추가하여 ignore로 문자가 증발하는 것을 방지
+        for enc in ('utf-8', 'cp949', 'euc-kr', 'utf-8-sig', 'cp437', 'latin1'):
             try:
                 stdout = raw.decode(enc)
                 break
@@ -425,7 +426,8 @@ class FileLoadTask:
             **_subprocess_kwargs()
         )
         raw = result.stdout
-        for enc in ('utf-8', 'cp949', 'euc-kr', 'utf-8-sig'):
+        # 🌟 동일하게 cp437, latin1 탐지 목록 추가
+        for enc in ('utf-8', 'cp949', 'euc-kr', 'utf-8-sig', 'cp437', 'latin1'):
             try:
                 stdout = raw.decode(enc)
                 break
