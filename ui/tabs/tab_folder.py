@@ -669,10 +669,16 @@ class FolderScanThread(QThread):
             db.conn.execute("PRAGMA journal_mode=WAL;")
             db.conn.commit()
             
-            like_path = self.folder_path + '%' if self.include_sub else self.folder_path + '/%'
-            cursor = db.conn.execute("SELECT * FROM files WHERE filepath LIKE ?", (like_path,))
+            # 🌟 [버그 수정] Qt 경로(/)와 OS 경로(\) 불일치로 인한 캐시 누락 방지
+            like_path_fwd = self.folder_path + '%'
+            like_path_back = self.folder_path.replace('/', '\\') + '%'
+            
+            # DB에서 / 와 \ 방향을 모두 검색하여 확실하게 데이터를 가져옵니다
+            cursor = db.conn.execute("SELECT * FROM files WHERE filepath LIKE ? OR filepath LIKE ?", (like_path_fwd, like_path_back))
             for row in cursor.fetchall():
-                cache_dict[row[0]] = row
+                # OS 표준 경로(슬래시 방향, 대소문자)로 완전히 정규화하여 딕셔너리 키로 저장
+                norm_key = os.path.normcase(os.path.normpath(row[0]))
+                cache_dict[norm_key] = row
         except Exception as e:
             print(f"DB Bulk Load Error: {e}")
 
@@ -696,12 +702,16 @@ class FolderScanThread(QThread):
                             name = entry.name
                             if name.lower().endswith(self.target_exts):
                                 full_path = entry.path
+                                # 🌟 [버그 수정] 스캔된 실제 파일 경로도 완벽하게 정규화하여 DB 캐시와 매칭시킵니다.
+                                norm_full_path = os.path.normcase(os.path.normpath(full_path))
+                                
                                 stat = entry.stat()
                                 mtime = stat.st_mtime
                                 ctime = stat.st_ctime
                                 size = stat.st_size
                                 
-                                cached = cache_dict.get(full_path)
+                                # 정규화된 경로로 캐시 딕셔너리 탐색
+                                cached = cache_dict.get(norm_full_path)
                                 meta_processed = False
                                 full_meta = {}
                                 res, title, series, vol, num, writer = "", "", "", "", "", ""

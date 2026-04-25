@@ -228,6 +228,15 @@ class Tab1Organizer(QWidget):
         self.stacked_org.setCurrentIndex(1)
         self.tree_org.setUpdatesEnabled(False)
         self.tree_org.blockSignals(True)
+        
+        # 🌟 변경: 트리 초기화 전, 기존 아이템들의 펼침/접힘 상태 저장
+        saved_expanded_states = {}
+        for i in range(self.tree_org.topLevelItemCount()):
+            item = self.tree_org.topLevelItem(i)
+            fp = item.data(0, Qt.ItemDataRole.UserRole)
+            if fp:
+                saved_expanded_states[fp] = item.isExpanded()
+
         self.tree_org.clear()
 
         if getattr(self, '_delegate_applied', None) is None:
@@ -292,7 +301,6 @@ class Tab1Organizer(QWidget):
                 orig_name = vol.get('original_basename', "")
                 spinoff_folder = vol.get('spinoff_folder')
                 
-                # 외전 폴더명을 경로에 붙이지 않고 일반 prefix 로직과 동일하게 통일
                 orig_path = vol.get('original_path', '')
                 path_parts = Path(orig_path).parts
                 prefix = ""
@@ -303,7 +311,6 @@ class Tab1Organizer(QWidget):
                 
                 new_display = f"{prefix}{vol['new_name']}{final_ext}"
 
-                # 외전 여부를 Delegate에 넘기기 위해 플래그 추가
                 spinoff_flag = "SPINOFF" if spinoff_folder else ""
                 child.setText(0, f"  ↳ {icon_txt} {new_display}||{orig_name}||{spinoff_flag}")
                 child.setToolTip(0, f"{new_display} ({orig_name})")
@@ -317,7 +324,12 @@ class Tab1Organizer(QWidget):
             
         for i in range(self.tree_org.topLevelItemCount()):
             top_item = self.tree_org.topLevelItem(i)
-            top_item.setExpanded(self.is_expanded)
+            fp = top_item.data(0, Qt.ItemDataRole.UserRole)
+            
+            # 🌟 변경: 항목 복원 시 저장된 이전 상태를 확인하여 유지, 새로 로드된 파일은 기본값 적용
+            should_expand = saved_expanded_states.get(fp, self.is_expanded)
+            top_item.setExpanded(should_expand)
+            
             for j in range(top_item.childCount()):
                 top_item.child(j).setFirstColumnSpanned(True)
                 

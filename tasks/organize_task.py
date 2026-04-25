@@ -4,6 +4,7 @@ import uuid
 import tempfile
 import subprocess
 import re
+import concurrent.futures
 from pathlib import Path
 
 from utils import natural_keys
@@ -151,12 +152,11 @@ class OrganizerProcessTask:
                     archive_type = '-t7z' if target_ext == '.7z' else '-tzip'
 
                     total_packed_images = 0
+                    pack_tasks = []
 
+                    # 1단계: 각 권/화별 출력 경로 및 7za 명령어 세팅 (실행은 아직 안 함)
                     for v_idx, leaf in enumerate(leaf_folders):
                         if self._is_cancelled: break
-                        
-                        sub_prog = int((idx / total) * 100) + int((v_idx / len(leaf_folders)) * (100 / total))
-                        self.signals.progress.emit(sub_prog, f"{msg} ({v_idx+1}/{len(leaf_folders)})")
 
                         img_count = sum(1 for r, _, fs in os.walk(leaf) for f in fs if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif')))
                         total_packed_images += img_count
@@ -195,14 +195,36 @@ class OrganizerProcessTask:
                                     valid_parts.append(cp if cp else p)
                                     
                             rel_dir = os.path.join(*valid_parts) if valid_parts else ''
-                            
-                            # 🌟 외전 폴더가 감지된 경우 최우선으로 해당 폴더에 배치
-                            if spinoff_folder:
-                                out_dir = os.path.join(base_out_dir, spinoff_folder)
-                            else:
-                                out_dir = os.path.join(base_out_dir, rel_dir) if rel_dir else base_out_dir
+                            out_dir = os.path.join(base_out_dir, spinoff_folder) if spinoff_folder else (os.path.join(base_out_dir, rel_dir) if rel_dir else base_out_dir)
 
                         os.makedirs(out_dir, exist_ok=True)
+                        out_filepath = os.path.join(out_dir, vol_name)
+                        
+                        # 🌟 개선 1: -mx=0 옵션을 추가하여 무압축(Store) 모드로 속도 극대화
+                        cmd = [self.seven_z_exe, 'a', out_filepath, os.path.join(leaf, '*'), archive_type, '-mx=0']
+                        pack_tasks.append(cmd)
+                        current_target_created_zips.append(out_filepath)
+
+                    # 2단계: 스레드풀을 이용한 병렬 패킹 실행
+                    if pack_tasks and not self._is_cancelled:
+                        def run_7z(command):
+                            subprocess.run(command, stdout=subprocess.DEVNULL, creationflags=CREATE_NO_WINDOW)
+
+                        # 🌟 개선 2: CPU 코어 수에 맞춰 병렬 처리 (디스크 I/O 고려 최대 4개 제한)
+                        max_workers = min(4, os.cpu_count() or 2)
+                        completed_tasks = 0
+                        
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                            futures = [executor.submit(run_7z, cmd) for cmd in pack_tasks]
+                            
+                            for future in concurrent.futures.as_completed(futures):
+                                if self._is_cancelled:
+                                    executor.shutdown(wait=False, cancel_futures=True)
+                                    break
+                                    
+                                completed_tasks += 1
+                                sub_prog = int((idx / total) * 100) + int((completed_tasks / len(pack_tasks)) * (100 / total))
+                                self.signals.progress.emit(sub_prog, f"{msg} ({completed_tasks}/{len(pack_tasks)})")
 
                     shutil.rmtree(temp_base, ignore_errors=True)
                     
