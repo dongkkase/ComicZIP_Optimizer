@@ -239,4 +239,31 @@ class LibraryDB:
             finally:
                 if 'conn' in locals(): conn.close()
 
+
+    def get_all_files_in_path(self, folder_path, include_sub):
+        """FolderScanThread용 일괄 캐시 조회"""
+        import os
+        with self.lock:
+            try:
+                conn = self.get_connection()
+                cursor = conn.cursor()
+                
+                # 🌟 수정됨: 작성자님의 원래 스키마(path 컬럼) 로직으로 원복 (DB 에러 원천 차단)
+                if include_sub:
+                    like_path = folder_path + '%'
+                    cursor.execute('SELECT * FROM files WHERE path LIKE ?', (like_path,))
+                else:
+                    cursor.execute('SELECT * FROM files WHERE path = ?', (folder_path,))
+                    
+                rows = cursor.fetchall()
+                
+                # 🌟 딕셔너리에 저장할 때 경로의 대소문자와 슬래시만 표준 규격으로 정규화
+                return {os.path.normcase(os.path.normpath(row[0])): row for row in rows}
+                
+            except Exception as e:
+                print(f"get_all_files_in_path error: {e}")
+                return {}
+            finally:
+                if 'conn' in locals():
+                    conn.close()
 db = LibraryDB()

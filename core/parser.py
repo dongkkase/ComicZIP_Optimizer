@@ -154,7 +154,8 @@ def format_leaf_name(parent_core, leaf_name, index, total_items, lang='ko', prev
     if '-' in rem_num_str and '~' not in rem_num_str:
         parts = rem_num_str.split('-')
         if len(parts) >= 2 and parts[1].strip():
-            padded_num = f"{parts[0].strip().zfill(pad)}.{parts[1].strip()}"
+            # 하이픈(-)을 점(.)으로 변환하던 로직 제거, 하이픈(-) 유지
+            padded_num = f"{parts[0].strip().zfill(pad)}-{parts[1].strip()}"
         else:
             padded_num = parts[0].strip().zfill(pad)
         unit_str = f"{padded_num}{target_unit}"

@@ -657,44 +657,27 @@ class FolderScanThread(QThread):
         self.is_cancelled = False
 
     def run(self):
-        # 1. 오프라인 방어 로직 (NAS 연결 끊김 등)
         if not os.path.exists(self.folder_path):
             self.scan_finished.emit([], 0)
             return
 
-        # 2. 백그라운드 DB 일괄 캐싱 & WAL 모드 활성화 (UI 프리징 방지)
         from core.library_db import db
-        cache_dict = {}
-        try:
-            db.conn.execute("PRAGMA journal_mode=WAL;")
-            db.conn.commit()
-            
-            # 🌟 [버그 수정] Qt 경로(/)와 OS 경로(\) 불일치로 인한 캐시 누락 방지
-            like_path_fwd = self.folder_path + '%'
-            like_path_back = self.folder_path.replace('/', '\\') + '%'
-            
-            # DB에서 / 와 \ 방향을 모두 검색하여 확실하게 데이터를 가져옵니다
-            cursor = db.conn.execute("SELECT * FROM files WHERE filepath LIKE ? OR filepath LIKE ?", (like_path_fwd, like_path_back))
-            for row in cursor.fetchall():
-                # OS 표준 경로(슬래시 방향, 대소문자)로 완전히 정규화하여 딕셔너리 키로 저장
-                norm_key = os.path.normcase(os.path.normpath(row[0]))
-                cache_dict[norm_key] = row
-        except Exception as e:
-            print(f"DB Bulk Load Error: {e}")
+        cache_dict = db.get_all_files_in_path(self.folder_path, self.include_sub)
 
         file_data_cache = []
         total_size = 0
         count = 0
 
-        # 3. os.scandir 기반 초고속 파일 시스템 순회
         def scan_dir(path):
             nonlocal total_size, count
-            if self.is_cancelled: return
+            if self.is_cancelled:
+                return
             try:
                 with os.scandir(path) as it:
                     for entry in it:
-                        if self.is_cancelled: break
-                        
+                        if self.is_cancelled:
+                            break
+
                         if entry.is_dir(follow_symlinks=False):
                             if self.include_sub:
                                 scan_dir(entry.path)
@@ -702,65 +685,94 @@ class FolderScanThread(QThread):
                             name = entry.name
                             if name.lower().endswith(self.target_exts):
                                 full_path = entry.path
-                                # 🌟 [버그 수정] 스캔된 실제 파일 경로도 완벽하게 정규화하여 DB 캐시와 매칭시킵니다.
-                                norm_full_path = os.path.normcase(os.path.normpath(full_path))
-                                
+
+                                norm_path = os.path.normcase(os.path.normpath(full_path))
+
                                 stat = entry.stat()
                                 mtime = stat.st_mtime
                                 ctime = stat.st_ctime
                                 size = stat.st_size
-                                
-                                # 정규화된 경로로 캐시 딕셔너리 탐색
-                                cached = cache_dict.get(norm_full_path)
+
+                                cached = cache_dict.get(norm_path)
                                 meta_processed = False
                                 full_meta = {}
                                 res, title, series, vol, num, writer = "", "", "", "", "", ""
-                                
-                                # DB 정보와 mtime 대조
-                                if cached and len(cached) >= 32 and abs(float(cached[1]) - float(mtime)) < 2.0 and not self.force_update:
-                                    meta_processed = True
-                                    res, title, series = cached[4], cached[5], cached[6]
-                                    vol, num, writer = cached[8], cached[9], cached[10]
-                                    
-                                    full_meta = {
-                                        "resolution": cached[4], "title": cached[5], "series": cached[6], "series_group": cached[7],
-                                        "volume": cached[8], "number": cached[9], "writer": cached[10], "creators": cached[11], 
-                                        "publisher": cached[12], "imprint": cached[13], "genre": cached[14], "volume_count": cached[15], 
-                                        "page_count": cached[16], "format": cached[17], "manga": cached[18], "language": cached[19],
-                                        "rating": cached[20], "age_rating": cached[21], "publish_date": cached[22], 
-                                        "summary": cached[23], "characters": cached[24], "teams": cached[25], "locations": cached[26], 
-                                        "story_arc": cached[27], "tags": cached[28], "notes": cached[29], "web": cached[30]
-                                    }
+
+                                if cached and not self.force_update:
+                                    cached_mtime = cached[1]  # mtime은 index 1
+                                    if abs(float(cached_mtime) - float(mtime)) < 2.0:
+                                        meta_processed = True
+                                        res       = cached[4]  if len(cached) > 4  else ""
+                                        title     = cached[5]  if len(cached) > 5  else ""
+                                        series    = cached[6]  if len(cached) > 6  else ""
+                                        vol       = cached[8]  if len(cached) > 8  else ""
+                                        num       = cached[9]  if len(cached) > 9  else ""
+                                        writer    = cached[10] if len(cached) > 10 else ""
+
+                                        full_meta = {
+                                            "resolution":   cached[4]  if len(cached) > 4  else "",
+                                            "title":        cached[5]  if len(cached) > 5  else "",
+                                            "series":       cached[6]  if len(cached) > 6  else "",
+                                            "series_group": cached[7]  if len(cached) > 7  else "",
+                                            "volume":       cached[8]  if len(cached) > 8  else "",
+                                            "number":       cached[9]  if len(cached) > 9  else "",
+                                            "writer":       cached[10] if len(cached) > 10 else "",
+                                            "creators":     cached[11] if len(cached) > 11 else "",
+                                            "publisher":    cached[12] if len(cached) > 12 else "",
+                                            "imprint":      cached[13] if len(cached) > 13 else "",
+                                            "genre":        cached[14] if len(cached) > 14 else "",
+                                            "volume_count": cached[15] if len(cached) > 15 else "",
+                                            "page_count":   cached[16] if len(cached) > 16 else "",
+                                            "format":       cached[17] if len(cached) > 17 else "",
+                                            "manga":        cached[18] if len(cached) > 18 else "",
+                                            "language":     cached[19] if len(cached) > 19 else "",
+                                            "rating":       cached[20] if len(cached) > 20 else "",
+                                            "age_rating":   cached[21] if len(cached) > 21 else "",
+                                            "publish_date": cached[22] if len(cached) > 22 else "",
+                                            "summary":      cached[23] if len(cached) > 23 else "",
+                                            "characters":   cached[24] if len(cached) > 24 else "",
+                                            "teams":        cached[25] if len(cached) > 25 else "",
+                                            "locations":    cached[26] if len(cached) > 26 else "",
+                                            "story_arc":    cached[27] if len(cached) > 27 else "",
+                                            "tags":         cached[28] if len(cached) > 28 else "",
+                                            "notes":        cached[29] if len(cached) > 29 else "",
+                                            "web":          cached[30] if len(cached) > 30 else "",
+                                        }
 
                                 file_hash = hashlib.md5(f"{full_path}_{mtime}".encode()).hexdigest()
                                 thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.webp")
                                 has_thumb = os.path.exists(thumb_path)
-                                
-                                from datetime import datetime
+
                                 row_dict = {
-                                    "full_path": full_path, 
-                                    "hash": file_hash,
-                                    "name": name,
-                                    "path": path, 
-                                    "ext": os.path.splitext(name)[1].lower(), 
-                                    "raw_size": size,
-                                    "raw_mtime": mtime,
-                                    "raw_ctime": ctime,
-                                    "ctime": datetime.fromtimestamp(ctime).strftime('%Y-%m-%d %H:%M'),
-                                    "mtime": datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M'),
-                                    "thumb_processed": has_thumb, 
-                                    "meta_processed": meta_processed, 
-                                    "full_meta": full_meta,
-                                    "res": res, "series": series, "title": title, "vol": vol, "num": num, "writer": writer,
-                                    "display_index": -1 
+                                    "full_path":      full_path,
+                                    "hash":           file_hash,
+                                    "name":           name,
+                                    "path":           path,
+                                    "ext":            os.path.splitext(name)[1].lower(),
+                                    "raw_size":       size,
+                                    "raw_mtime":      mtime,
+                                    "raw_ctime":      ctime,
+                                    "ctime":          datetime.fromtimestamp(ctime).strftime('%Y-%m-%d %H:%M'),
+                                    "mtime":          datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M'),
+                                    "thumb_processed": has_thumb,
+                                    "meta_processed": meta_processed,
+                                    "full_meta":      full_meta,
+                                    "res":    res,
+                                    "series": series,
+                                    "title":  title,
+                                    "vol":    vol,
+                                    "num":    num,
+                                    "writer": writer,
+                                    "display_index": -1
                                 }
                                 file_data_cache.append(row_dict)
                                 total_size += size
                                 count += 1
-                                
+
                                 if count % 1000 == 0:
                                     self.progress_updated.emit(count)
-            except Exception: pass
+            except Exception as e:
+                print(f"scan_dir error: {e}")
 
         scan_dir(self.folder_path)
         self.scan_finished.emit(file_data_cache, total_size)
@@ -1240,6 +1252,7 @@ class TabFolder(QWidget):
             print(f"[LOG] 버튼 OFF, 스레드 취소 및 렌더링 복구 시작")
             if hasattr(self, 'dup_match_thread') and self.dup_match_thread.isRunning():
                 self.dup_match_thread.cancel()
+                self.dup_match_thread.wait()
             # [추가] 버튼 OFF 시 즉시 활성화 복원
             self.dim_overlay.hide()
             self.apply_grouping_and_sorting()
@@ -1264,13 +1277,14 @@ class TabFolder(QWidget):
             
         self.last_matched_a_paths = current_a_paths
         
+        # 이전 스레드 안전하게 종료
         if self.dup_match_thread and self.dup_match_thread.isRunning():
             self.dup_match_thread.cancel()
             self.dup_match_thread.wait()
             
         self.lbl_tree_status.setText(_("dup_match_start"))
 
-        # [추가] 자세히 보기 모드일 때 리스트 패널 비활성화
+        # 자세히 보기 모드일 때 리스트 패널 비활성화
         if self.view_stack.currentIndex() == 0:
             self.dim_overlay.show()
             
@@ -1279,19 +1293,7 @@ class TabFolder(QWidget):
         self.dup_match_thread.match_finished.connect(self.on_dup_match_finished)
         self.dup_match_thread.start()
         print(f"[LOG] DupMatchThread 시작 완료: {time.time()-t:.3f}s")
-            
-        self.last_matched_a_paths = current_a_paths
         
-        if self.dup_match_thread and self.dup_match_thread.isRunning():
-            self.dup_match_thread.cancel()
-            self.dup_match_thread.wait()
-            
-        self.lbl_tree_status.setText(_("dup_match_start"))
-            
-        self.dup_match_thread = DupMatchThread(self.file_data_cache, self.b_folder_cache)
-        self.dup_match_thread.match_progress.connect(self.on_dup_match_progress)
-        self.dup_match_thread.match_finished.connect(self.on_dup_match_finished)
-        self.dup_match_thread.start()
 
     # 매칭 진행 상황 표시
     def on_dup_match_progress(self, current, total):
@@ -2395,6 +2397,7 @@ class TabFolder(QWidget):
             
         if self.extract_thread and self.extract_thread.isRunning():
             self.extract_thread.cancel()
+            self.extract_thread.wait()
             try:
                 self.extract_thread.data_extracted.disconnect()
                 self.extract_thread.progress_updated.disconnect()
@@ -2538,6 +2541,7 @@ class TabFolder(QWidget):
                     
                     if self.extract_thread and self.extract_thread.isRunning():
                         self.extract_thread.cancel()
+                        self.extract_thread.wait()
                         try:
                             self.extract_thread.data_extracted.disconnect()
                             self.extract_thread.progress_updated.disconnect()
