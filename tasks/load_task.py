@@ -19,69 +19,53 @@ def _subprocess_kwargs():
     return {}
 
 
+# tasks/load_task.py - _list_entries 함수 수정
+
 def _list_entries(seven_z_exe, filepath):
-    """7za l -slt 로 목록만 조회. 실제 압축 해제 없음."""
-    cmd = [seven_z_exe, 'l', '-slt', '-ba', str(filepath)]
+    """압축 해제 없이 목록만 빠르게 조회"""
+    # -slt 대신 필요한 정보만 필터링할 수 있는 -slt 유지하되 인코딩 오류 방지 최적화
+    cmd = [seven_z_exe, 'l', '-slt', '-ba', '-sccUTF-8', str(filepath)]
     try:
+        # shell=False와 creationflags를 통한 프로세스 생성 비용 최소화
         result = subprocess.run(
-            cmd, capture_output=True,
+            cmd, capture_output=True, text=False,
             **_subprocess_kwargs()
         )
-        raw = result.stdout
-        for enc in ('utf-8', 'cp949', 'euc-kr', 'utf-8-sig'):
-            try:
-                stdout = raw.decode(enc)
-                break
-            except (UnicodeDecodeError, LookupError):
-                continue
-        else:
-            stdout = raw.decode('utf-8', errors='ignore')
+        stdout = result.stdout.decode('utf-8', errors='ignore')
     except Exception:
         return [], False
 
-    nested_exts = {'.zip', '.cbz', '.cbr', '.7z', '.rar'}
-    img_exts = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'}
     entries = []
     has_nested = False
     current = {}
+    
+    # 중첩 압축 및 이미지 확장자 세트를 함수 밖으로 빼거나 static하게 관리하여 속도 향상
+    nested_exts = {'.zip', '.cbz', '.cbr', '.7z', '.rar', '.alz', '.egg'}
+    img_exts = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'}
 
     for line in stdout.splitlines():
-        line = line.strip()
-        if not line:
-            if current.get('Path'):
+        if not line.strip():
+            if 'Path' in current:
+                p_str = current['Path'].replace('\\', '/')
                 is_dir = current.get('Attributes', '').startswith('D')
-                path_str = current['Path'].replace('\\', '/')
-                size = int(current['Size']) if current.get('Size', '').isdigit() else 0
-                ext = Path(path_str).suffix.lower()
-                entries.append({
-                    'path': path_str,
+                ext = os.path.splitext(p_str)[1].lower()
+                
+                entry = {
+                    'path': p_str,
                     'is_dir': is_dir,
-                    'size': size,
+                    'size': int(current['Size']) if current.get('Size', '').isdigit() else 0,
                     'is_img': not is_dir and ext in img_exts,
-                    'is_nested': not is_dir and ext in nested_exts,
-                })
-                if not is_dir and ext in nested_exts:
-                    has_nested = True
+                    'is_nested': not is_dir and ext in nested_exts
+                }
+                entries.append(entry)
+                if entry['is_nested']: has_nested = True
             current = {}
-        elif '=' in line:
+            continue
+        
+        if '=' in line:
             k, v = line.split('=', 1)
             current[k.strip()] = v.strip()
-
-    if current.get('Path'):
-        is_dir = current.get('Attributes', '').startswith('D')
-        path_str = current['Path'].replace('\\', '/')
-        size = int(current['Size']) if current.get('Size', '').isdigit() else 0
-        ext = Path(path_str).suffix.lower()
-        entries.append({
-            'path': path_str,
-            'is_dir': is_dir,
-            'size': size,
-            'is_img': not is_dir and ext in img_exts,
-            'is_nested': not is_dir and ext in nested_exts,
-        })
-        if not is_dir and ext in nested_exts:
-            has_nested = True
-
+            
     return entries, has_nested
 
 

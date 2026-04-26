@@ -255,10 +255,11 @@ class Tab1Organizer(QWidget):
             root_item.setCheckState(0, Qt.CheckState.Checked if data.get('checked', True) else Qt.CheckState.Unchecked)
             root_item.setSizeHint(0, QSize(0, 36)) 
             
-            root_item.setText(0, f"📦 {data['name']}")
+            root_item.setText(0, f"📦 {data['clean_title']}||{data['name']}") 
+            
             vol_count_text = f"{len(data['volumes'])} Items" if self.main_app.lang == 'en' else f"{len(data['volumes'])} 권/화"
             root_item.setText(2, vol_count_text) 
-            root_item.setText(3, f"{data['size_mb']:.1f} MB") 
+            root_item.setText(3, f"{data['size_mb']:.1f} MB")
             
             root_item.setTextAlignment(2, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             root_item.setTextAlignment(3, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
