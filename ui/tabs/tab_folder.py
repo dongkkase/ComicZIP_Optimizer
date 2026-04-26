@@ -1834,6 +1834,8 @@ class TabFolder(QWidget):
         self.apply_grouping_and_sorting()
 
     def on_watched_folder_changed(self, path):
+        if getattr(self, '_internal_action_lock', False): return
+        
         if self.current_watched_folder == path:
             self.refresh_list(force_update=False)
 
@@ -1969,7 +1971,7 @@ class TabFolder(QWidget):
                 QMessageBox.critical(self, _("dlg_err"), _("dlg_err_ren_folder").format(e))
 
     def delete_selected(self):
-        from PyQt6.QtCore import QFile
+        from PyQt6.QtCore import QFile, QTimer
 
         if self.table_view.hasFocus() or self.list_view.hasFocus():
             files = self.get_selected_files()
@@ -1977,12 +1979,37 @@ class TabFolder(QWidget):
             
             reply = QMessageBox.question(self, _("dlg_del_file_title"), _("dlg_del_file_msg").format(len(files)), QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             if reply == QMessageBox.StandardButton.Yes:
+                # [핵심] 삭제 작업 중 발생하는 OS 폴더 변경 이벤트를 무시하여 자동 재스캔을 방지
+                self._internal_action_lock = True  
+                
+                successfully_deleted = set()
                 for f in files:
                     try: 
                         # os.remove(f) 완전 삭제 대신 휴지통으로 이동
-                        QFile.moveToTrash(f)
+                        if QFile.moveToTrash(f) or not os.path.exists(f):
+                            successfully_deleted.add(f)
                     except Exception as e: print(f"Delete error: {e}")
-                self.refresh_list(force_update=True)
+                
+                if successfully_deleted:
+                    # 1. 메모리 캐시에서 삭제된 파일 즉각 제거
+                    self.file_data_cache = [row for row in self.file_data_cache if row.get("full_path") not in successfully_deleted]
+                    
+                    # 2. 파일 매핑 및 중복 해시 캐시에서도 제거 (재스캔/매칭 대기 시간 완전 제거)
+                    for f in successfully_deleted:
+                        if f in self.file_data_map:
+                            del self.file_data_map[f]
+                        if hasattr(self, 'dup_matches') and f in self.dup_matches:
+                            del self.dup_matches[f]
+
+                    # 3. 전체 로드 없이 그룹 및 정렬만 다시 적용하여 0.1초만에 UI 갱신
+                    self.apply_grouping_and_sorting()
+                    
+                    # 4. 폴더 감지 기준 시간 갱신 (재스캔 트리거 방어)
+                    try: self.last_folder_mtime = os.stat(self.current_watched_folder).st_mtime
+                    except: pass
+                
+                # OS 파일 이벤트 처리가 끝날 즈음(1.5초 후) 감지기 락 해제
+                QTimer.singleShot(1500, lambda: setattr(self, '_internal_action_lock', False))
                 
         elif self.tree_view.hasFocus():
             index = self.tree_view.currentIndex()
@@ -2755,6 +2782,9 @@ class TabFolder(QWidget):
             if hasattr(self.main_window.tab3, 'process_paths'): self.main_window.tab3.process_paths(files)
 
     def check_nas_folder_mtime(self):
+        # 내가 프로그램 내부에서 파일을 지웠을 때는 NAS 폴링 변화 감지 무시
+        if getattr(self, '_internal_action_lock', False): return
+        
         if not self.current_watched_folder or not os.path.exists(self.current_watched_folder):
             return
         try:

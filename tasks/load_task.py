@@ -18,61 +18,82 @@ def _subprocess_kwargs():
         return {'creationflags': CREATE_NO_WINDOW}
     return {}
 
-
-# tasks/load_task.py - _list_entries 함수 수정
-
-# 18라인 _list_entries 함수 수정
-def _list_entries(seven_z_exe, filepath):
-    # -slt 대신 일반 목록(-ba)으로 조회하고 utf-8 인코딩(-sccUTF-8) 강제
-    cmd = [seven_z_exe, 'l', '-ba', '-sccUTF-8', str(filepath)]
+# 🌟 [인코딩 복원 함수 추가]
+def decode_zip_filename(filename):
+    """Python zipfile 모듈이 CP949(한국어)를 CP437로 잘못 읽어 깨지는 현상 완벽 복원"""
     try:
-        result = subprocess.run(
-            cmd, capture_output=True,
-            **_subprocess_kwargs()
-        )
-        stdout = result.stdout.decode('utf-8', errors='ignore')
-    except Exception:
-        return [], False
+        raw_bytes = filename.encode('cp437')
+        try:
+            return raw_bytes.decode('cp949')
+        except UnicodeDecodeError:
+            return raw_bytes.decode('utf-8')
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return filename
 
+def _list_entries_fast(filepath, ext, seven_z_exe):
     entries = []
     has_nested = False
     img_exts = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'}
-    nested_exts = {'.zip', '.cbz', '.cbr', '.7z', '.rar'}
+    nested_exts = {'.zip', '.cbz', '.cbr', '.7z', '.rar', '.alz', '.egg'}
 
-    for line in stdout.splitlines():
-        line = line.strip()
-        if not line: continue
-        
-        # 7zip 기본 출력 포맷 파싱 (Date Time Attr Size Compressed Name)
-        parts = line.split(maxsplit=5)
-        if len(parts) < 6: continue
-        
-        p_str = parts[5].replace('\\', '/')
-        is_dir = 'D' in parts[2]
-        ext = os.path.splitext(p_str)[1].lower()
-        
-        entry = {
-            'path': p_str,
-            'is_dir': is_dir,
-            'size': int(parts[3]) if parts[3].isdigit() else 0,
-            'is_img': not is_dir and ext in img_exts,
-            'is_nested': not is_dir and ext in nested_exts,
-        }
-        entries.append(entry)
-        if entry['is_nested']: has_nested = True
+    if ext in ['.zip', '.cbz']:
+        try:
+            with zipfile.ZipFile(filepath, 'r') as zf:
+                for info in zf.infolist():
+                    # 🌟 [적용] 파일명 깨짐 완벽 복원
+                    correct_filename = decode_zip_filename(info.filename)
+                    p_str = correct_filename.replace('\\', '/')
+                    is_dir = info.is_dir()
+                    _ext = os.path.splitext(p_str)[1].lower()
+                    entry = {
+                        'path': p_str,
+                        'is_dir': is_dir,
+                        'size': info.file_size,
+                        'is_img': not is_dir and _ext in img_exts,
+                        'is_nested': not is_dir and _ext in nested_exts
+                    }
+                    entries.append(entry)
+                    if entry['is_nested']: has_nested = True
+            return entries, has_nested
+        except zipfile.BadZipFile:
+            pass
+
+    cmd = [seven_z_exe, 'l', '-ba', '-sccUTF-8', str(filepath)]
+    try:
+        result = subprocess.run(cmd, capture_output=True, **_subprocess_kwargs())
+        stdout = result.stdout.decode('utf-8', errors='ignore')
+        for line in stdout.splitlines():
+            line = line.strip()
+            if not line: continue
+            parts = line.split(maxsplit=5)
+            if len(parts) < 6: continue
+            p_str = parts[5].replace('\\', '/')
+            is_dir = 'D' in parts[2]
+            _ext = os.path.splitext(p_str)[1].lower()
+            entry = {
+                'path': p_str,
+                'is_dir': is_dir,
+                'size': int(parts[3]) if parts[3].isdigit() else 0,
+                'is_img': not is_dir and _ext in img_exts,
+                'is_nested': not is_dir and _ext in nested_exts,
+            }
+            entries.append(entry)
+            if entry['is_nested']: has_nested = True
+    except Exception:
+        return [], False
 
     return entries, has_nested
 
 
 def _analyze_from_entries(entries, filepath, lang):
-    """실제 압축 해제 없이 엔트리 목록으로 폴더 구조 분석."""
-    img_entries = [e for e in entries if e['is_img']]
-    if not img_entries:
-        return None, '', ''
+    if not any(e['is_img'] or e['is_nested'] for e in entries):
+        return None, '', '', None
 
     swallowed_name = ''
     top_level_folders = set()
-    for e in img_entries:
+    
+    target_entries = [e for e in entries if e['is_img'] or e['is_nested']]
+    for e in target_entries:
         parts = Path(e['path']).parts
         if len(parts) > 1:
             top_level_folders.add(parts[0])
@@ -80,25 +101,31 @@ def _analyze_from_entries(entries, filepath, lang):
     all_under_one = len(top_level_folders) == 1
     if all_under_one:
         single_top = list(top_level_folders)[0]
-        root_imgs = []
-        for e in img_entries:
+        root_files = []
+        for e in target_entries:
             parts = Path(e['path']).parts
             if len(parts) == 2:
-                root_imgs.append(e)
-        if not root_imgs and not is_garbage_folder_name(single_top):
+                root_files.append(e)
+        if not root_files and not is_garbage_folder_name(single_top):
             swallowed_name = single_top
-            img_entries = [
-                {**e, 'path': '/'.join(Path(e['path']).parts[1:])}
-                for e in img_entries
-            ]
+            for e in entries:
+                if len(Path(e['path']).parts) > 1:
+                    e['path'] = '/'.join(Path(e['path']).parts[1:])
 
     volume_groups = {}
     root_images = []
 
-    for e in img_entries:
+    for e in entries:
+        if not (e['is_img'] or e['is_nested']): continue
+        
         parts = Path(e['path']).parts
         if len(parts) == 1:
-            root_images.append(e['path'])
+            if e['is_nested']:
+                vol_name = os.path.splitext(parts[0])[0]
+                if vol_name not in volume_groups: volume_groups[vol_name] = []
+                volume_groups[vol_name].append(e['path'])
+            else:
+                root_images.append(e['path'])
         else:
             top_folder_name = parts[0]
             p0 = top_folder_name.lower()
@@ -107,20 +134,20 @@ def _analyze_from_entries(entries, filepath, lang):
                 top_folder = top_folder_name + '/' + parts[1]
             else:
                 top_folder = top_folder_name
+                
             if top_folder not in volume_groups:
                 volume_groups[top_folder] = []
             volume_groups[top_folder].append(e['path'])
 
-    if root_images and not volume_groups:
+    if root_images:
         volume_groups['Root_Files'] = root_images
 
-    # 화 단위 감지
     force_unit = None
     ch_pattern = re.compile(r'\d+(?:\.\d+)?\s*화')
     all_leaf_names = [k for k in volume_groups.keys() if k != 'Root_Files']
     found_ch = any(ch_pattern.search(leaf) for leaf in all_leaf_names)
     if not found_ch:
-        for e in img_entries:
+        for e in target_entries:
             if ch_pattern.search(e['path']):
                 found_ch = True
                 break
@@ -175,22 +202,14 @@ class OrganizerLoadTask:
                 filename = path_obj.name
 
                 if idx % max(1, total // 50) == 0 or idx == total - 1:
-                    msg = (
-                        f"[{idx+1}/{total}] 구조 분석 중: {filename}"
-                        if self.lang == 'ko'
-                        else f"[{idx+1}/{total}] Analyzing: {filename}"
-                    )
+                    msg = f"[{idx+1}/{total}] 구조 분석 중: {filename}" if self.lang == 'ko' else f"[{idx+1}/{total}] Analyzing: {filename}"
                     self.signals.progress.emit(int((idx / total) * 100), msg)
 
                 size_mb = os.path.getsize(filepath) / (1024 * 1024)
 
                 try:
-                    entries, has_nested = _list_entries(self.seven_z_exe, filepath)
-
-                    if has_nested:
-                        result = self._fallback_extract(filepath, filename)
-                    else:
-                        result = _analyze_from_entries(entries, filepath, self.lang)
+                    entries, has_nested = _list_entries_fast(filepath, path_obj.suffix.lower(), self.seven_z_exe)
+                    result = _analyze_from_entries(entries, filepath, self.lang)
 
                     if result is None or result[0] is None:
                         skipped_files.append(filename)
@@ -203,28 +222,24 @@ class OrganizerLoadTask:
                     parsed_vols = []
 
                     if len(group_names) == 1 and group_names[0] == 'Root_Files':
-                        vol_name = format_leaf_name(
-                            core_title,
-                            inner_meaningful_name or filename,
-                            0, 1, self.lang
-                        )
+                        vol_name = format_leaf_name(core_title, inner_meaningful_name or filename, 0, 1, self.lang)
                         parsed_vols.append({
-                            'original_path': '', 'new_name': vol_name,
+                            'original_path': '', 
+                            'original_basename': inner_meaningful_name or filename,
+                            'new_name': vol_name,
                             'type': 'archive', 'force_unit': force_unit
                         })
                     else:
                         for v_idx, leaf in enumerate(group_names):
                             leaf_basename = os.path.basename(leaf.replace('\\', '/'))
-                            # force_unit 적용: 화 단위면 leaf_name에 화 추가하여 format_leaf_name이 인식하게
                             parse_leaf = leaf_basename
                             if force_unit == '화' and not re.search(r'[가-힣a-zA-Z]', leaf_basename):
                                 parse_leaf = leaf_basename + '화'
-                            vol_name = format_leaf_name(
-                                core_title, parse_leaf,
-                                v_idx, len(group_names), self.lang
-                            )
+                            vol_name = format_leaf_name(core_title, parse_leaf, v_idx, len(group_names), self.lang)
                             parsed_vols.append({
-                                'original_path': leaf, 'new_name': vol_name,
+                                'original_path': leaf, 
+                                'original_basename': leaf_basename,
+                                'new_name': vol_name,
                                 'type': 'folder', 'force_unit': force_unit
                             })
 
@@ -239,131 +254,12 @@ class OrganizerLoadTask:
                 except Exception as e:
                     skipped_files.append(f"{filename} (Error: {str(e)})")
 
-            self.signals.progress.emit(
-                100,
-                "분석 완료" if self.lang == 'ko' else "Analysis Done"
-            )
+            self.signals.progress.emit(100, "분석 완료" if self.lang == 'ko' else "Analysis Done")
             self.signals.org_load_done.emit(new_data, skipped_files)
 
         except Exception as e:
             self.signals.progress.emit(100, f"Error: {e}")
             self.signals.org_load_done.emit({}, [])
-
-    def _fallback_extract(self, filepath, filename):
-        """중첩 압축이 있는 경우에만 사용하는 기존 방식 (실제 압축 해제)."""
-        safe_id = uuid.uuid4().hex[:6]
-        sys_temp = tempfile.gettempdir()
-        temp_base = os.path.join(sys_temp, f"ComicZIP_Load_{safe_id}_{filename}")
-        if os.path.exists(temp_base):
-            shutil.rmtree(temp_base, ignore_errors=True)
-        os.makedirs(temp_base, exist_ok=True)
-
-        try:
-            def extract_all(src_path, dest_dir):
-                subprocess.run(
-                    [self.seven_z_exe, 'x', src_path, f'-o{dest_dir}', '-y'],
-                    stdout=subprocess.DEVNULL,
-                    **_subprocess_kwargs(),
-                    check=False
-                )
-                while True:
-                    found = []
-                    for root_dir, _, files in os.walk(dest_dir):
-                        for f in files:
-                            if f.lower().endswith(('.zip', '.cbz', '.rar', '.7z')):
-                                found.append(os.path.join(root_dir, f))
-                    if not found:
-                        break
-                    for arch in found:
-                        arch_dir = os.path.splitext(arch)[0]
-                        os.makedirs(arch_dir, exist_ok=True)
-                        subprocess.run(
-                            [self.seven_z_exe, 'x', arch, f'-o{arch_dir}', '-y'],
-                            stdout=subprocess.DEVNULL,
-                            **_subprocess_kwargs()
-                        )
-                        os.remove(arch)
-
-            extract_all(filepath, temp_base)
-
-            def get_actual_root(curr_dir):
-                swallowed_name = ''
-                while True:
-                    items = os.listdir(curr_dir)
-                    subdirs = [i for i in items if os.path.isdir(os.path.join(curr_dir, i))]
-                    images = [i for i in items if i.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'))]
-                    if len(subdirs) == 1 and len(images) == 0:
-                        subdir_name = subdirs[0]
-                        if not is_garbage_folder_name(subdir_name):
-                            swallowed_name = subdir_name
-                        curr_dir = os.path.join(curr_dir, subdir_name)
-                    else:
-                        break
-                return curr_dir, swallowed_name
-
-            actual_root, swallowed_name = get_actual_root(temp_base)
-
-            volume_groups = {}
-            root_images = []
-            total_images = 0
-
-            for root_dir, _, files in os.walk(actual_root):
-                for f in files:
-                    if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif')):
-                        total_images += 1
-                        img_path = os.path.join(root_dir, f)
-                        rel_path = os.path.relpath(img_path, actual_root)
-                        parts = Path(rel_path).parts
-                        if len(parts) == 1:
-                            root_images.append(img_path)
-                        else:
-                            top_folder_name = parts[0]
-                            p0 = top_folder_name.lower()
-                            is_part_folder = bool(re.search(r'(\d+\s*부|제\s*\d+\s*부|시즌|season|part)', p0))
-                            if is_part_folder and len(parts) > 2:
-                                top_folder = os.path.join(top_folder_name, parts[1])
-                            else:
-                                top_folder = top_folder_name
-                            if top_folder not in volume_groups:
-                                volume_groups[top_folder] = []
-                            volume_groups[top_folder].append(img_path)
-
-            if total_images == 0:
-                return None, '', '', None
-
-            if root_images and not volume_groups:
-                volume_groups['Root_Files'] = root_images
-
-            # 화 단위 감지
-            force_unit = None
-            ch_pattern = re.compile(r'\d+(?:\.\d+)?\s*화')
-            all_leaf_names = [k for k in volume_groups.keys() if k != 'Root_Files']
-            found_ch = any(ch_pattern.search(leaf) for leaf in all_leaf_names)
-            if not found_ch:
-                for root_dir, _, files in os.walk(actual_root):
-                    rel = os.path.relpath(root_dir, actual_root)
-                    if ch_pattern.search(rel):
-                        found_ch = True
-                        break
-            if found_ch:
-                force_unit = '화'
-
-            group_names = sorted(list(volume_groups.keys()), key=natural_keys)
-            inner_meaningful_name = ''
-            for leaf in group_names:
-                if leaf and leaf != 'Root_Files':
-                    clean_p = re.sub(r'\.(zip|cbz|cbr|rar|7z)$', '', leaf, flags=re.IGNORECASE)
-                    if not is_garbage_folder_name(clean_p) and re.search(r'[가-힣a-zA-Z]', clean_p):
-                        inner_meaningful_name = clean_p
-                        break
-
-            if not inner_meaningful_name and swallowed_name:
-                inner_meaningful_name = re.sub(r'\.(zip|cbz|cbr|rar|7z)$', '', swallowed_name, flags=re.IGNORECASE)
-
-            return volume_groups, inner_meaningful_name, swallowed_name, force_unit
-
-        finally:
-            shutil.rmtree(temp_base, ignore_errors=True)
 
 
 class FileLoadTask:
@@ -374,42 +270,24 @@ class FileLoadTask:
         self.signals = signals
 
     def get_7z_entries(self, filepath):
-        cmd = [self.seven_z_exe, 'l', '-slt', '-ba', str(filepath)]
-        result = subprocess.run(
-            cmd, capture_output=True,
-            **_subprocess_kwargs()
-        )
-        raw = result.stdout
-        for enc in ('utf-8', 'cp949', 'euc-kr', 'utf-8-sig'):
-            try:
-                stdout = raw.decode(enc)
-                break
-            except (UnicodeDecodeError, LookupError):
-                continue
-        else:
-            stdout = raw.decode('utf-8', errors='ignore')
+        cmd = [self.seven_z_exe, 'l', '-ba', '-sccUTF-8', str(filepath)]
+        result = subprocess.run(cmd, capture_output=True, **_subprocess_kwargs())
+        stdout = result.stdout.decode('utf-8', errors='ignore')
 
         entries = []
-        current_entry = {}
         for line in stdout.splitlines():
             line = line.strip()
-            if not line:
-                if current_entry and 'Path' in current_entry and not current_entry.get('Attributes', '').startswith('D'):
-                    entries.append({
-                        'original_name': current_entry['Path'],
-                        'filename': current_entry['Path'].replace('\\', '/'),
-                        'file_size': int(current_entry.get('Size', '0')) if str(current_entry.get('Size', '0')).isdigit() else 0
-                    })
-                current_entry = {}
-            elif '=' in line:
-                k, v = line.split('=', 1)
-                current_entry[k.strip()] = v.strip()
-        if current_entry and 'Path' in current_entry and not current_entry.get('Attributes', '').startswith('D'):
-            entries.append({
-                'original_name': current_entry['Path'],
-                'filename': current_entry['Path'].replace('\\', '/'),
-                'file_size': int(current_entry.get('Size', '0')) if str(current_entry.get('Size', '0')).isdigit() else 0
-            })
+            if not line: continue
+            parts = line.split(maxsplit=5)
+            if len(parts) < 6: continue
+            p_str = parts[5].replace('\\', '/')
+            is_dir = 'D' in parts[2]
+            if not is_dir:
+                entries.append({
+                    'original_name': p_str,
+                    'filename': p_str,
+                    'file_size': int(parts[3]) if parts[3].isdigit() else 0
+                })
         return entries
 
     def run(self):
@@ -440,11 +318,7 @@ class FileLoadTask:
                 ext = path_obj.suffix.lower()
 
                 if idx % max(1, total // 100) == 0 or idx == total - 1:
-                    msg = (
-                        f"[{idx+1}/{total}] 파일 분석 중: {filename}"
-                        if self.lang == 'ko'
-                        else f"[{idx+1}/{total}] Analyzing: {filename}"
-                    )
+                    msg = f"[{idx+1}/{total}] 파일 분석 중: {filename}" if self.lang == 'ko' else f"[{idx+1}/{total}] Analyzing: {filename}"
                     self.signals.progress.emit(int((idx / total) * 100), msg)
 
                 if ext not in exts:
@@ -455,9 +329,10 @@ class FileLoadTask:
                     size_mb = os.path.getsize(filepath) / (1024 * 1024)
                     if ext in ['.zip', '.cbz']:
                         with zipfile.ZipFile(filepath, 'r') as zf:
+                            # 🌟 [적용] FileLoadTask에도 깨짐 복원 적용
                             entries = sorted([{
-                                'original_name': info.filename,
-                                'filename': info.filename.replace('\\', '/'),
+                                'original_name': decode_zip_filename(info.filename),
+                                'filename': decode_zip_filename(info.filename).replace('\\', '/'),
                                 'file_size': info.file_size
                             } for info in zf.infolist() if not info.is_dir()], key=lambda x: natural_keys(x['filename']))
                     else:
@@ -486,10 +361,7 @@ class FileLoadTask:
                 except Exception:
                     pass
 
-            self.signals.progress.emit(
-                100,
-                "분석 완료" if self.lang == 'ko' else "Analysis Done"
-            )
+            self.signals.progress.emit(100, "분석 완료" if self.lang == 'ko' else "Analysis Done")
             self.signals.load_done.emit(new_data, nested_files, unsupported_files)
 
         except Exception as e:

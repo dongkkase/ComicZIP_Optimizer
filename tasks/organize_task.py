@@ -134,9 +134,9 @@ class OrganizerProcessTask:
                         os.rename(file_path, target_path)
                     return True, filename, [target_path]
 
-                from tasks.load_task import _list_entries
-                entries, _ = _list_entries(self.seven_z_exe, file_path)
-                img_entries = [e for e in entries if e['is_img']]
+                from tasks.load_task import _list_entries_fast
+                entries, _ = _list_entries_fast(file_path, src_ext, self.seven_z_exe)
+                img_entries = [e for e in entries if e.get('is_img', False)]
 
                 if not img_entries:
                     use_rename_only = False
@@ -195,11 +195,10 @@ class OrganizerProcessTask:
             os.rename(file_path, original_tmp)
 
             def extract_all(src_path, dest_dir):
+                # 🌟 [복구] 압축을 '푸는(x)' 명령어로 원상 복구 및 에러 로그 차단 최적화
                 subprocess.run(
-                    [self.seven_z_exe, 'a', archive_type, temp_archive, '*', '-mx=0', '-mmt=on'],
-                    cwd=leaf, 
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
+                    [self.seven_z_exe, 'x', src_path, f'-o{dest_dir}', '-y'],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                     **_subprocess_kwargs(),
                     check=True
                 )
@@ -217,7 +216,7 @@ class OrganizerProcessTask:
                         os.makedirs(arch_dir, exist_ok=True)
                         subprocess.run(
                             [self.seven_z_exe, 'x', arch, f'-o{arch_dir}', '-y'],
-                            stdout=subprocess.DEVNULL,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                             **_subprocess_kwargs()
                         )
                         os.remove(arch)
@@ -334,9 +333,12 @@ class OrganizerProcessTask:
                 if os.path.exists(temp_archive):
                     os.remove(temp_archive)
 
+                # 🌟 [핵심 개선] 실제 압축(a)하는 위치에 멀티쓰레드(-mmt=on) 및 에러 출력 차단 적용
                 subprocess.run(
-                    [self.seven_z_exe, 'a', archive_type, temp_archive, '*', '-mx=0'],
-                    cwd=leaf, stdout=subprocess.DEVNULL,
+                    [self.seven_z_exe, 'a', archive_type, temp_archive, '*', '-mx=0', '-mmt=on'],
+                    cwd=leaf, 
+                    stdout=subprocess.DEVNULL, 
+                    stderr=subprocess.DEVNULL,
                     **_subprocess_kwargs(),
                     check=True
                 )

@@ -30,17 +30,30 @@ class RichTextDelegate(QStyledItemDelegate):
             orig_text = html.escape(parts[1]) if len(parts) > 1 else ""
             is_spinoff = len(parts) > 2 and parts[2] == "SPINOFF"
             
-            is_selected = options.state & QStyle.StateFlag.State_Selected
-            main_color = "#ffffff" if is_selected else "#706f72"
-            orig_color = "rgba(255, 255, 255, 0.7)" if is_selected else "rgba(112, 111, 114, 0.7)"
+            # 부모(루트) 아이템인지 자식 아이템인지 판별
+            is_parent = not index.parent().isValid()
             
-            # 외전일 경우 폰트어썸 느낌표 아이콘(f071) 노란색 적용
+            if is_parent:
+                main_color = "rgba(255, 255, 255, 1)"
+                orig_color = "rgba(255, 255, 255, 0.5)"
+            else:
+                main_color = "rgba(255, 255, 255, 0.8)"
+                orig_color = "rgba(255, 255, 255, 0.5)"
+            
             warning_icon = "<span style='color: #f1c40f; font-family: \"Font Awesome 5 Free Solid\", \"FontAwesome\", sans-serif;'>&#xf071;</span> " if is_spinoff else ""
             
-            html_str = f"<span style='color: {main_color}; white-space: pre;'>{main_text} </span>{warning_icon}<span style='color: {orig_color};'>({orig_text})</span>"
+            # 원본 파일명이 있을 경우 탭 2개 적용
+            spacer = "\t\t" if orig_text else ""
+            
+            html_str = f"<span style='color: {main_color}; white-space: pre;'>{main_text}</span>{warning_icon}<span style='color: {orig_color}; white-space: pre;'>{spacer}({orig_text})</span>"
             doc = QTextDocument()
             doc.setHtml(html_str)
             doc.setDefaultFont(options.font)
+            
+            # 탭 사이즈 강제 지정 (HTML 환경에서 \t가 무시되는 현상 방지)
+            option_text = doc.defaultTextOption()
+            option_text.setTabStopDistance(30.0)
+            doc.setDefaultTextOption(option_text)
             
             painter.save()
             textRect = style.subElementRect(QStyle.SubElement.SE_ItemViewItemText, options)
@@ -63,10 +76,16 @@ class RichTextDelegate(QStyledItemDelegate):
             is_spinoff = len(parts) > 2 and parts[2] == "SPINOFF"
             
             warning_icon = "<span style='font-family: \"Font Awesome 5 Free Solid\", \"FontAwesome\", sans-serif;'>&#xf071;</span> " if is_spinoff else ""
+            spacer = "\t\t" if orig_text else ""
             
             doc = QTextDocument()
-            doc.setHtml(f"<span style='white-space: pre;'>{main_text} </span>{warning_icon}<span>({orig_text})</span>")
+            doc.setHtml(f"<span style='white-space: pre;font-weight: bold;'>{main_text}</span>{warning_icon}<span style='white-space: pre;'>{spacer}({orig_text})</span>")
             doc.setDefaultFont(options.font)
+            
+            option_text = doc.defaultTextOption()
+            option_text.setTabStopDistance(30.0)
+            doc.setDefaultTextOption(option_text)
+            
             return QSize(int(doc.idealWidth()), int(doc.size().height()) + 0)
             
         return super().sizeHint(option, index)
@@ -79,6 +98,24 @@ class Tab1Organizer(QWidget):
         self.all_checked = True
         self.is_expanded = True
         self.setup_ui()
+
+    def batch_change_unit(self, fp, target_unit):
+        """특정 부모(fp) 하위의 모든 자식 아이템의 이름을 지정된 단위(권/화)로 일괄 변경합니다."""
+        if fp not in self.org_data: return
+        
+        for vol in self.org_data[fp]['volumes']:
+            old_name = vol.get('new_name', '')
+            
+            # 기존 단위(권, 화, Vol, Ch 등)가 끝에 있으면 제거
+            clean_name = re.sub(r'\s*(권|화|Vol|Ch|Volume|Chapter)\.?$', '', old_name, flags=re.IGNORECASE).strip()
+            
+            # 영문 단위일 경우 앞에 공백 추가, 한글은 붙여서 씀
+            if target_unit in ['Vol', 'Ch']:
+                vol['new_name'] = f"{clean_name} {target_unit}"
+            else:
+                vol['new_name'] = f"{clean_name}{target_unit}"
+                
+        self.refresh_list()
 
     def setup_ui(self):
         t = self.main_app.i18n[self.main_app.lang]
@@ -220,6 +257,21 @@ class Tab1Organizer(QWidget):
                 self.org_data[fp]['checked'] = (item.checkState(0) == Qt.CheckState.Checked)
 
     def refresh_list(self):
+        from PyQt6.QtWidgets import QStyledItemDelegate, QStyleOptionViewItem
+        
+        if not hasattr(self, '_no_check_delegate'):
+            class NoCheckDelegate(QStyledItemDelegate):
+                def initStyleOption(self, option, index):
+                    super().initStyleOption(option, index)
+                    option.features &= ~QStyleOptionViewItem.ViewItemFeature.HasCheckIndicator
+            
+            self._no_check_delegate = NoCheckDelegate(self.tree_org)
+            self.tree_org.setItemDelegateForColumn(1, self._no_check_delegate)
+            self.tree_org.setItemDelegateForColumn(2, self._no_check_delegate)
+            self.tree_org.setItemDelegateForColumn(3, self._no_check_delegate)
+
+        saved_scroll_pos = self.tree_org.verticalScrollBar().value()
+        
         if not self.org_data:
             self.stacked_org.setCurrentIndex(0)
             self.lbl_count.setText(self.main_app.i18n[self.main_app.lang]["total_files"].format(count=0))
@@ -229,7 +281,6 @@ class Tab1Organizer(QWidget):
         self.tree_org.setUpdatesEnabled(False)
         self.tree_org.blockSignals(True)
         
-        # 🌟 변경: 트리 초기화 전, 기존 아이템들의 펼침/접힘 상태 저장
         saved_expanded_states = {}
         for i in range(self.tree_org.topLevelItemCount()):
             item = self.tree_org.topLevelItem(i)
@@ -246,18 +297,18 @@ class Tab1Organizer(QWidget):
         target_ext = f".{self.main_app.config.get('target_format', 'zip')}" if self.main_app.config.get("target_format", "none") != "none" else ""
         items_to_add = []
         root_widgets_to_set = []
-        child_widgets_to_set = []
         
         for fp, data in self.org_data.items():
             root_item = QTreeWidgetItem()
             root_item.setData(0, Qt.ItemDataRole.UserRole, fp)
-            root_item.setFlags(root_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            
             root_item.setCheckState(0, Qt.CheckState.Checked if data.get('checked', True) else Qt.CheckState.Unchecked)
             root_item.setSizeHint(0, QSize(0, 36)) 
             
             root_item.setText(0, f"📦 {data['clean_title']}||{data['name']}") 
             
             vol_count_text = f"{len(data['volumes'])} Items" if self.main_app.lang == 'en' else f"{len(data['volumes'])} 권/화"
+            
             root_item.setText(2, vol_count_text) 
             root_item.setText(3, f"{data['size_mb']:.1f} MB")
             
@@ -284,14 +335,24 @@ class Tab1Organizer(QWidget):
             btn_tit = QPushButton("책제목" if self.main_app.lang == "ko" else "Title")
             btn_tit.clicked.connect(lambda _, key=fp, p=title_path: self.set_single_path(key, p))
             
+            # 🌟 [추가됨] 일괄: 권 / 일괄: 화 버튼
+            btn_vol = QPushButton("일괄: 권" if self.main_app.lang == "ko" else "All Vol")
+            btn_vol.clicked.connect(lambda _, key=fp: self.batch_change_unit(key, "권" if self.main_app.lang == "ko" else "Vol"))
+            btn_ch = QPushButton("일괄: 화" if self.main_app.lang == "ko" else "All Ch")
+            btn_ch.clicked.connect(lambda _, key=fp: self.batch_change_unit(key, "화" if self.main_app.lang == "ko" else "Ch"))
+            
             btn_style = "QPushButton { padding: 4px 8px; font-size: 11px; border-radius: 4px; background-color: #4a4a4a; } QPushButton:hover { background-color: #5a5a5a; }"
             btn_def.setStyleSheet(btn_style)
             btn_tit.setStyleSheet(btn_style)
+            btn_vol.setStyleSheet(btn_style)
+            btn_ch.setStyleSheet(btn_style)
             le_path.setStyleSheet("padding: 4px; font-size: 11px;")
             
             path_layout.addWidget(le_path, 1)
             path_layout.addWidget(btn_def)
             path_layout.addWidget(btn_tit)
+            path_layout.addWidget(btn_vol)  # 추가
+            path_layout.addWidget(btn_ch)   # 추가
             
             for vol in data['volumes']:
                 child = QTreeWidgetItem(root_item)
@@ -321,14 +382,12 @@ class Tab1Organizer(QWidget):
             
         self.tree_org.addTopLevelItems(items_to_add)
         for item, widget in root_widgets_to_set: self.tree_org.setItemWidget(item, 1, widget)
-        for child, widget in child_widgets_to_set: self.tree_org.setItemWidget(child, 0, widget)
             
         for i in range(self.tree_org.topLevelItemCount()):
             top_item = self.tree_org.topLevelItem(i)
             fp = top_item.data(0, Qt.ItemDataRole.UserRole)
             
-            # 🌟 변경: 항목 복원 시 저장된 이전 상태를 확인하여 유지, 새로 로드된 파일은 기본값 적용
-            should_expand = saved_expanded_states.get(fp, self.is_expanded)
+            should_expand = saved_expanded_states.get(fp, getattr(self, 'is_expanded', True))
             top_item.setExpanded(should_expand)
             
             for j in range(top_item.childCount()):
@@ -338,6 +397,8 @@ class Tab1Organizer(QWidget):
         self.tree_org.blockSignals(False)
         self.tree_org.setUpdatesEnabled(True)
         self.lbl_count.setText(self.main_app.i18n[self.main_app.lang]["total_files"].format(count=len(self.org_data)))
+
+        self.tree_org.verticalScrollBar().setValue(saved_scroll_pos)
 
     def toggle_all_checkboxes(self):
         self.all_checked = not self.all_checked
