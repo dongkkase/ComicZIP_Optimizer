@@ -134,45 +134,111 @@ def fix_encoding(text):
             
     return text
 
-def format_leaf_name(parent_core, leaf_name, index, total_items, lang='ko', prevalent_unit='권'):
+def format_leaf_name(parent_core, leaf_name, index, total_items, lang='ko'):
     pad = max(2, len(str(total_items)))
     leaf_clean = re.sub(r'\.(zip|cbz|cbr|rar|7z)$', '', str(leaf_name), flags=re.IGNORECASE).strip()
     
-    vol_match = re.search(r'(?:제|v|vol\.?\s*)?(\d+(?:\.\d+)?(?:[~-]\d+(?:\.\d+)?)?)\s*(권|화|장|편|부)?', leaf_clean, re.IGNORECASE)
+    def pad_match(val):
+        if '~' in val or '-' in val:
+            sep = '~' if '~' in val else '-'
+            parts = val.split(sep)
+            return f"{parts[0].strip().zfill(pad)}{sep}{parts[1].strip().zfill(pad)}"
+        if '.' in val:
+            return f"{val.split('.')[0].zfill(pad)}.{val.split('.')[1]}"
+        return val.zfill(pad)
+
+    is_hash = len(leaf_clean) > 25 and bool(re.match(r'^[a-fA-F0-9\-_]+$', leaf_clean))
+    if is_hash or not re.search(r'[가-힣a-zA-Z]', leaf_clean):
+        clean_for_nums = re.sub(r'[\[\(].*?[\]\)]', '', leaf_clean)
+        nums = re.findall(r'\d+(?:\.\d+)?', clean_for_nums)
+        if nums and not is_hash:
+            target_num = nums[-1]
+        else:
+            target_num = str(index + 1)
+        padded_num = pad_match(target_num)
+        
+        base = re.sub(r'^[._\-\s]+', '', parent_core)
+        return f"{base} v{padded_num}".strip() if lang == 'en' else f"{base} {padded_num}권".strip()
+
+    clean_no_brackets = re.sub(r'[\[\(].*?[\]\)]', '', leaf_clean)
+    vol_match = re.search(r'(?:제|v|vol\.?\s*)?(\d+(?:\.\d+)?(?:[~-]\d+(?:\.\d+)?)?)\s*(권|화|장|편|부)', leaf_clean, re.IGNORECASE)
     
-    target_num = vol_match.group(1) if vol_match else None
-    target_unit = vol_match.group(2) if vol_match else None
+    target_num = None
+    target_unit = None
+    if vol_match:
+        target_num = vol_match.group(1)
+        target_unit = vol_match.group(2)
+    else:
+        nums = re.findall(r'\d+(?:\.\d+)?', clean_no_brackets)
+        if nums:
+            target_num = nums[-1]
+        else:
+            all_nums = re.findall(r'\d+(?:\.\d+)?', leaf_clean)
+            if all_nums:
+                target_num = all_nums[-1]
+
+    special_suffix = ""
+    if re.search(r'프롤로그|prologue', leaf_clean, re.IGNORECASE):
+        special_suffix = " Prologue" if lang == 'en' else " 프롤로그"
+    elif re.search(r'에필로그|epilogue', leaf_clean, re.IGNORECASE):
+        special_suffix = " Epilogue" if lang == 'en' else " 에필로그"
+    elif re.search(r'특별편|special|특장판', leaf_clean, re.IGNORECASE):
+        special_suffix = " Special" if lang == 'en' else " 특별편"
+    elif re.search(r'외전|side\s*story|번외', leaf_clean, re.IGNORECASE):
+        special_suffix = " Side Story" if lang == 'en' else " 외전"
+    elif re.search(r'단편|short', leaf_clean, re.IGNORECASE):
+        special_suffix = " Short Story" if lang == 'en' else " 단편"
+    elif re.search(r'한정판|limited', leaf_clean, re.IGNORECASE):
+        special_suffix = " Limited Edition" if lang == 'en' else " 한정판"
+
+    base_name = re.sub(r'^[._\-\s]+', '', parent_core)
 
     if not target_num:
-        nums = re.findall(r'\d+(?:\.\d+)?', re.sub(r'[\[\(].*?[\]\)]', '', leaf_clean))
-        target_num = nums[-1] if nums else str(index + 1)
+        if special_suffix:
+            return f"{base_name}{special_suffix}".strip()
+        else:
+            target_num = str(index + 1)
             
-    if not target_unit:
-        target_unit = prevalent_unit if prevalent_unit else ('권' if lang == 'ko' else 'v')
-        
-    rem_num_str = str(target_num)
-    if '-' in rem_num_str and '~' not in rem_num_str:
-        parts = rem_num_str.split('-')
-        if len(parts) >= 2 and parts[1].strip():
-            # 하이픈(-)을 점(.)으로 변환하던 로직 제거, 하이픈(-) 유지
-            padded_num = f"{parts[0].strip().zfill(pad)}-{parts[1].strip()}"
-        else:
-            padded_num = parts[0].strip().zfill(pad)
-        unit_str = f"{padded_num}{target_unit}"
-    elif '~' in rem_num_str:
-        parts = rem_num_str.split('~')
-        if len(parts) >= 2:
-            unit_str = f"{parts[0].strip().zfill(pad)}{target_unit} ~ {parts[1].strip().zfill(pad)}{target_unit}"
-        else:
-            unit_str = f"{parts[0].strip().zfill(pad)}{target_unit}"
+    padded_num = pad_match(target_num)
+    
+    rem_num_str = target_num
+    if '~' in rem_num_str: rem_num_str = rem_num_str.split('~')[0]
+    if '-' in rem_num_str: rem_num_str = rem_num_str.split('-')[0]
+    
+    if '.' in rem_num_str:
+        val_str = str(float(rem_num_str))
+        val_str = val_str.rstrip('0').rstrip('.') if '.' in val_str else val_str
+    elif rem_num_str.isdigit():
+        val_str = str(int(rem_num_str))
     else:
-        if '.' in rem_num_str:
-            parts = rem_num_str.split('.')
-            padded_num = f"{parts[0].zfill(pad)}.{parts[1]}"
-        else:
-            padded_num = rem_num_str.zfill(pad)
-        unit_str = f"{padded_num}{target_unit}" if lang == 'ko' else f"v{padded_num}"
+        val_str = rem_num_str
 
-    base_name = re.sub(r'^[._\-\s]+', '', str(parent_core))
-    return f"{base_name} {unit_str}".strip()
+    # [수정] leaf가 제목+숫자 패턴인 경우 parent_core를 base_name으로 사용
+    leaf_core_check = extract_core_title(leaf_clean)
+    parent_core_check = extract_core_title(parent_core)
+    if leaf_core_check and parent_core_check and get_similarity(leaf_core_check, parent_core_check) >= 0.5:
+        base_name = re.sub(r'^[._\-\s]+', '', parent_core)
+    else:
+        pattern = r'(.*?)(?:[\s\-_]+)0*' + re.escape(val_str) + r'(?:\.0+)?$'
+        match = re.search(pattern, base_name)
+        if match:
+            base_name_candidate = match.group(1).strip()
+            if base_name_candidate:
+                base_name = base_name_candidate
+
+    if not target_unit:
+        target_unit = '권' if lang == 'ko' else 'v'
+
+    unit_str = ""
+    if lang == 'en':
+        if target_unit == '부': unit_str = f"Part {padded_num}"
+        elif target_unit == '화': unit_str = f"Ch {padded_num}"
+        else: unit_str = f"v{padded_num}"
+    else:
+        unit_str = f"{padded_num}{target_unit}" if target_unit in ['권', '화', '장', '편', '부'] else f"{padded_num}권"
+
+    if special_suffix:
+        return f"{base_name} {unit_str}{special_suffix}".strip()
+    else:
+        return f"{base_name} {unit_str}".strip()
 

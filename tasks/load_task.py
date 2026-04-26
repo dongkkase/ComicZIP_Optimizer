@@ -9,7 +9,7 @@ import uuid
 import shutil
 
 from utils import natural_keys
-from core.parser import is_garbage_folder_name, resolve_titles, format_leaf_name, extract_core_title, fix_encoding
+from core.parser import is_garbage_folder_name, resolve_titles, format_leaf_name
 
 CREATE_NO_WINDOW = 0x08000000 if sys.platform == 'win32' else 0
 
@@ -20,16 +20,15 @@ def _subprocess_kwargs():
 
 
 def _list_entries(seven_z_exe, filepath):
+    """7za l -slt 로 목록만 조회. 실제 압축 해제 없음."""
     cmd = [seven_z_exe, 'l', '-slt', '-ba', str(filepath)]
     try:
         result = subprocess.run(
             cmd, capture_output=True,
             **_subprocess_kwargs()
         )
-        # Windows에서 한글 인코딩 자동 감지
         raw = result.stdout
-        # 🌟 핵심: cp437, latin1을 탐지 목록에 추가하여 ignore로 문자가 증발하는 것을 방지
-        for enc in ('utf-8', 'cp949', 'euc-kr', 'utf-8-sig', 'cp437', 'latin1'):
+        for enc in ('utf-8', 'cp949', 'euc-kr', 'utf-8-sig'):
             try:
                 stdout = raw.decode(enc)
                 break
@@ -87,10 +86,10 @@ def _list_entries(seven_z_exe, filepath):
 
 
 def _analyze_from_entries(entries, filepath, lang):
-    img_exts = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'}
+    """실제 압축 해제 없이 엔트리 목록으로 폴더 구조 분석."""
     img_entries = [e for e in entries if e['is_img']]
     if not img_entries:
-        return None, '', '', None
+        return None, '', ''
 
     swallowed_name = ''
     top_level_folders = set()
@@ -102,14 +101,11 @@ def _analyze_from_entries(entries, filepath, lang):
     all_under_one = len(top_level_folders) == 1
     if all_under_one:
         single_top = list(top_level_folders)[0]
-        sub_folders = set()
         root_imgs = []
         for e in img_entries:
             parts = Path(e['path']).parts
             if len(parts) == 2:
                 root_imgs.append(e)
-            elif len(parts) > 2:
-                sub_folders.add(parts[1])
         if not root_imgs and not is_garbage_folder_name(single_top):
             swallowed_name = single_top
             img_entries = [
@@ -139,22 +135,16 @@ def _analyze_from_entries(entries, filepath, lang):
     if root_images and not volume_groups:
         volume_groups['Root_Files'] = root_images
 
-    # ── 화 단위 감지: 전체 경로의 모든 파트에서 검사 ──
+    # 화 단위 감지
     force_unit = None
     ch_pattern = re.compile(r'\d+(?:\.\d+)?\s*화')
-
-    # volume_groups 키 검사
     all_leaf_names = [k for k in volume_groups.keys() if k != 'Root_Files']
     found_ch = any(ch_pattern.search(leaf) for leaf in all_leaf_names)
-
-    # 못찾으면 img_entries의 전체 경로 파트 검사 (제목 포함 폴더명 커버)
     if not found_ch:
         for e in img_entries:
-            full_path_str = e['path']
-            if ch_pattern.search(full_path_str):
+            if ch_pattern.search(e['path']):
                 found_ch = True
                 break
-
     if found_ch:
         force_unit = '화'
 
@@ -216,62 +206,48 @@ class OrganizerLoadTask:
                 size_mb = os.path.getsize(filepath) / (1024 * 1024)
 
                 try:
-                    # ── 핵심 변경: 실제 압축 해제 대신 목록 조회 ──
                     entries, has_nested = _list_entries(self.seven_z_exe, filepath)
 
                     if has_nested:
-                        volume_groups, inner_meaningful_name, swallowed_name, force_unit = \
-                            self._fallback_extract(filepath, filename)
+                        result = self._fallback_extract(filepath, filename)
                     else:
-                        volume_groups, inner_meaningful_name, swallowed_name, force_unit = \
-                            _analyze_from_entries(entries, filepath, self.lang)
+                        result = _analyze_from_entries(entries, filepath, self.lang)
 
-                    if volume_groups is None:
+                    if result is None or result[0] is None:
                         skipped_files.append(filename)
                         continue
 
-                    # 🌟 누락되었던 group_names 변수 선언 추가
-                    group_names = sorted(list(volume_groups.keys()), key=natural_keys)
+                    volume_groups, inner_meaningful_name, swallowed_name, force_unit = result
 
                     display_title, core_title = resolve_titles(filepath, inner_meaningful_name)
+                    group_names = sorted(list(volume_groups.keys()), key=natural_keys)
                     parsed_vols = []
-                    
-                    # 단위 판별
-                    unit_counts = {'권': 0, '화': 0}
-                    for leaf in group_names:
-                        if '화' in leaf: unit_counts['화'] += 1
-                        if '권' in leaf: unit_counts['권'] += 1
-                    
-                    # force_unit이 감지되었다면 우선 적용
-                    prevalent_unit = force_unit if force_unit else ('화' if unit_counts['화'] > unit_counts['권'] else '권')
 
-                    def detect_spinoff(main_title, leaf_name):
-                        leaf_core = extract_core_title(leaf_name)
-                        if not leaf_core or leaf_core == main_title: return None, main_title
-                        
-                        main_clean = main_title.replace(" ", "")
-                        leaf_clean = leaf_core.replace(" ", "")
-                        
-                        # 오리지널 폴더/파일명이 메인 제목과 다르면 외전으로 판별
-                        if (main_clean in leaf_clean and len(leaf_clean) > len(main_clean)) or \
-                           re.search(r'(외전|특별편|단편|스핀오프|ss|ex)', leaf_name, re.IGNORECASE):
-                            return leaf_core, leaf_core
-                        return None, main_title
-
-                    for v_idx, leaf in enumerate(group_names):
-                        # 한글 깨짐 복구 적용
-                        leaf_basename = fix_encoding(os.path.basename(leaf.replace('\\', '/')) if leaf != 'Root_Files' else filename)
-                        spinoff_folder, effective_core = detect_spinoff(core_title, leaf_basename)
-                        
-                        vol_name = format_leaf_name(effective_core, leaf_basename, v_idx, len(group_names), self.lang, prevalent_unit)
-                        
+                    if len(group_names) == 1 and group_names[0] == 'Root_Files':
+                        vol_name = format_leaf_name(
+                            core_title,
+                            inner_meaningful_name or filename,
+                            0, 1, self.lang
+                        )
                         parsed_vols.append({
-                            'original_path': leaf if leaf != 'Root_Files' else '', 
-                            'original_basename': leaf_basename,
-                            'new_name': vol_name, 
-                            'spinoff_folder': spinoff_folder,
-                            'type': 'archive' if leaf == 'Root_Files' else 'folder'
+                            'original_path': '', 'new_name': vol_name,
+                            'type': 'archive', 'force_unit': force_unit
                         })
+                    else:
+                        for v_idx, leaf in enumerate(group_names):
+                            leaf_basename = os.path.basename(leaf.replace('\\', '/'))
+                            # force_unit 적용: 화 단위면 leaf_name에 화 추가하여 format_leaf_name이 인식하게
+                            parse_leaf = leaf_basename
+                            if force_unit == '화' and not re.search(r'[가-힣a-zA-Z]', leaf_basename):
+                                parse_leaf = leaf_basename + '화'
+                            vol_name = format_leaf_name(
+                                core_title, parse_leaf,
+                                v_idx, len(group_names), self.lang
+                            )
+                            parsed_vols.append({
+                                'original_path': leaf, 'new_name': vol_name,
+                                'type': 'folder', 'force_unit': force_unit
+                            })
 
                     new_data[filepath] = {
                         'checked': True,
@@ -295,10 +271,7 @@ class OrganizerLoadTask:
             self.signals.org_load_done.emit({}, [])
 
     def _fallback_extract(self, filepath, filename):
-        """
-        중첩 압축이 있는 경우에만 사용하는 기존 방식 (실제 압축 해제).
-        기존 OrganizerLoadTask 로직을 그대로 유지.
-        """
+        """중첩 압축이 있는 경우에만 사용하는 기존 방식 (실제 압축 해제)."""
         safe_id = uuid.uuid4().hex[:6]
         sys_temp = tempfile.gettempdir()
         temp_base = os.path.join(sys_temp, f"ComicZIP_Load_{safe_id}_{filename}")
@@ -377,10 +350,24 @@ class OrganizerLoadTask:
                             volume_groups[top_folder].append(img_path)
 
             if total_images == 0:
-                return None, '', ''
+                return None, '', '', None
 
             if root_images and not volume_groups:
                 volume_groups['Root_Files'] = root_images
+
+            # 화 단위 감지
+            force_unit = None
+            ch_pattern = re.compile(r'\d+(?:\.\d+)?\s*화')
+            all_leaf_names = [k for k in volume_groups.keys() if k != 'Root_Files']
+            found_ch = any(ch_pattern.search(leaf) for leaf in all_leaf_names)
+            if not found_ch:
+                for root_dir, _, files in os.walk(actual_root):
+                    rel = os.path.relpath(root_dir, actual_root)
+                    if ch_pattern.search(rel):
+                        found_ch = True
+                        break
+            if found_ch:
+                force_unit = '화'
 
             group_names = sorted(list(volume_groups.keys()), key=natural_keys)
             inner_meaningful_name = ''
@@ -393,18 +380,6 @@ class OrganizerLoadTask:
 
             if not inner_meaningful_name and swallowed_name:
                 inner_meaningful_name = re.sub(r'\.(zip|cbz|cbr|rar|7z)$', '', swallowed_name, flags=re.IGNORECASE)
-
-            force_unit = None
-            ch_pattern = re.compile(r'\d+(?:\.\d+)?\s*화')
-            all_leaf_names = [k for k in volume_groups.keys() if k != 'Root_Files']
-            if not any(ch_pattern.search(leaf) for leaf in all_leaf_names):
-                for root_dir, _, files in os.walk(actual_root):
-                    rel = os.path.relpath(root_dir, actual_root)
-                    if ch_pattern.search(rel):
-                        force_unit = '화'
-                        break
-            else:
-                force_unit = '화'
 
             return volume_groups, inner_meaningful_name, swallowed_name, force_unit
 
@@ -426,8 +401,7 @@ class FileLoadTask:
             **_subprocess_kwargs()
         )
         raw = result.stdout
-        # 🌟 동일하게 cp437, latin1 탐지 목록 추가
-        for enc in ('utf-8', 'cp949', 'euc-kr', 'utf-8-sig', 'cp437', 'latin1'):
+        for enc in ('utf-8', 'cp949', 'euc-kr', 'utf-8-sig'):
             try:
                 stdout = raw.decode(enc)
                 break

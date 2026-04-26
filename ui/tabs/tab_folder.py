@@ -685,30 +685,26 @@ class FolderScanThread(QThread):
                             name = entry.name
                             if name.lower().endswith(self.target_exts):
                                 full_path = entry.path
-
-                                norm_path = os.path.normcase(os.path.normpath(full_path))
-
                                 stat = entry.stat()
                                 mtime = stat.st_mtime
                                 ctime = stat.st_ctime
                                 size = stat.st_size
 
-                                cached = cache_dict.get(norm_path)
+                                cached = cache_dict.get(full_path)
                                 meta_processed = False
                                 full_meta = {}
                                 res, title, series, vol, num, writer = "", "", "", "", "", ""
 
                                 if cached and not self.force_update:
-                                    cached_mtime = cached[1]  # mtime은 index 1
+                                    cached_mtime = cached[1]
                                     if abs(float(cached_mtime) - float(mtime)) < 2.0:
                                         meta_processed = True
-                                        res       = cached[4]  if len(cached) > 4  else ""
-                                        title     = cached[5]  if len(cached) > 5  else ""
-                                        series    = cached[6]  if len(cached) > 6  else ""
-                                        vol       = cached[8]  if len(cached) > 8  else ""
-                                        num       = cached[9]  if len(cached) > 9  else ""
-                                        writer    = cached[10] if len(cached) > 10 else ""
-
+                                        res    = cached[4]  if len(cached) > 4  else ""
+                                        title  = cached[5]  if len(cached) > 5  else ""
+                                        series = cached[6]  if len(cached) > 6  else ""
+                                        vol    = cached[8]  if len(cached) > 8  else ""
+                                        num    = cached[9]  if len(cached) > 9  else ""
+                                        writer = cached[10] if len(cached) > 10 else ""
                                         full_meta = {
                                             "resolution":   cached[4]  if len(cached) > 4  else "",
                                             "title":        cached[5]  if len(cached) > 5  else "",
@@ -744,19 +740,19 @@ class FolderScanThread(QThread):
                                 has_thumb = os.path.exists(thumb_path)
 
                                 row_dict = {
-                                    "full_path":      full_path,
-                                    "hash":           file_hash,
-                                    "name":           name,
-                                    "path":           path,
-                                    "ext":            os.path.splitext(name)[1].lower(),
-                                    "raw_size":       size,
-                                    "raw_mtime":      mtime,
-                                    "raw_ctime":      ctime,
-                                    "ctime":          datetime.fromtimestamp(ctime).strftime('%Y-%m-%d %H:%M'),
-                                    "mtime":          datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M'),
+                                    "full_path":       full_path,
+                                    "hash":            file_hash,
+                                    "name":            name,
+                                    "path":            path,
+                                    "ext":             os.path.splitext(name)[1].lower(),
+                                    "raw_size":        size,
+                                    "raw_mtime":       mtime,
+                                    "raw_ctime":       ctime,
+                                    "ctime":           datetime.fromtimestamp(ctime).strftime('%Y-%m-%d %H:%M'),
+                                    "mtime":           datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M'),
                                     "thumb_processed": has_thumb,
-                                    "meta_processed": meta_processed,
-                                    "full_meta":      full_meta,
+                                    "meta_processed":  meta_processed,
+                                    "full_meta":       full_meta,
                                     "res":    res,
                                     "series": series,
                                     "title":  title,
