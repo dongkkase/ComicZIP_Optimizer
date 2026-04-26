@@ -21,14 +21,13 @@ def _subprocess_kwargs():
 
 # tasks/load_task.py - _list_entries 함수 수정
 
+# 18라인 _list_entries 함수 수정
 def _list_entries(seven_z_exe, filepath):
-    """압축 해제 없이 목록만 빠르게 조회"""
-    # -slt 대신 필요한 정보만 필터링할 수 있는 -slt 유지하되 인코딩 오류 방지 최적화
-    cmd = [seven_z_exe, 'l', '-slt', '-ba', '-sccUTF-8', str(filepath)]
+    # -slt 대신 일반 목록(-ba)으로 조회하고 utf-8 인코딩(-sccUTF-8) 강제
+    cmd = [seven_z_exe, 'l', '-ba', '-sccUTF-8', str(filepath)]
     try:
-        # shell=False와 creationflags를 통한 프로세스 생성 비용 최소화
         result = subprocess.run(
-            cmd, capture_output=True, text=False,
+            cmd, capture_output=True,
             **_subprocess_kwargs()
         )
         stdout = result.stdout.decode('utf-8', errors='ignore')
@@ -37,35 +36,31 @@ def _list_entries(seven_z_exe, filepath):
 
     entries = []
     has_nested = False
-    current = {}
-    
-    # 중첩 압축 및 이미지 확장자 세트를 함수 밖으로 빼거나 static하게 관리하여 속도 향상
-    nested_exts = {'.zip', '.cbz', '.cbr', '.7z', '.rar', '.alz', '.egg'}
     img_exts = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'}
+    nested_exts = {'.zip', '.cbz', '.cbr', '.7z', '.rar'}
 
     for line in stdout.splitlines():
-        if not line.strip():
-            if 'Path' in current:
-                p_str = current['Path'].replace('\\', '/')
-                is_dir = current.get('Attributes', '').startswith('D')
-                ext = os.path.splitext(p_str)[1].lower()
-                
-                entry = {
-                    'path': p_str,
-                    'is_dir': is_dir,
-                    'size': int(current['Size']) if current.get('Size', '').isdigit() else 0,
-                    'is_img': not is_dir and ext in img_exts,
-                    'is_nested': not is_dir and ext in nested_exts
-                }
-                entries.append(entry)
-                if entry['is_nested']: has_nested = True
-            current = {}
-            continue
+        line = line.strip()
+        if not line: continue
         
-        if '=' in line:
-            k, v = line.split('=', 1)
-            current[k.strip()] = v.strip()
-            
+        # 7zip 기본 출력 포맷 파싱 (Date Time Attr Size Compressed Name)
+        parts = line.split(maxsplit=5)
+        if len(parts) < 6: continue
+        
+        p_str = parts[5].replace('\\', '/')
+        is_dir = 'D' in parts[2]
+        ext = os.path.splitext(p_str)[1].lower()
+        
+        entry = {
+            'path': p_str,
+            'is_dir': is_dir,
+            'size': int(parts[3]) if parts[3].isdigit() else 0,
+            'is_img': not is_dir and ext in img_exts,
+            'is_nested': not is_dir and ext in nested_exts,
+        }
+        entries.append(entry)
+        if entry['is_nested']: has_nested = True
+
     return entries, has_nested
 
 

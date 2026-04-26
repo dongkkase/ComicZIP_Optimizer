@@ -195,16 +195,14 @@ class OrganizerProcessTask:
             os.rename(file_path, original_tmp)
 
             def extract_all(src_path, dest_dir):
-                res = subprocess.run(
+                subprocess.run(
                     [self.seven_z_exe, 'a', archive_type, temp_archive, '*', '-mx=0', '-mmt=on'],
                     cwd=leaf, 
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
-                    **_subprocess_kwargs()
+                    **_subprocess_kwargs(),
+                    check=True
                 )
-                
-                if res.returncode != 0:
-                    raise Exception("압축 파일 생성 중 오류가 발생했습니다.")
                 
                 while True:
                     found = []
