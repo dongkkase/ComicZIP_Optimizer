@@ -100,20 +100,41 @@ class Tab1Organizer(QWidget):
         self.setup_ui()
 
     def batch_change_unit(self, fp, target_unit):
-        """특정 부모(fp) 하위의 모든 자식 아이템의 이름을 지정된 단위(권/화)로 일괄 변경합니다."""
+        """특정 부모(fp) 하위의 모든 자식 아이템의 이름을 설정된 언어별 단위(권/화 등)로 일괄 변경합니다."""
         if fp not in self.org_data: return
+        lang = self.main_app.lang
+        
+        # 전달받은 버튼의 텍스트(target_unit)로 권/화 판별
+        is_chap = target_unit in ["화", "Ch", "話"]
         
         for vol in self.org_data[fp]['volumes']:
             old_name = vol.get('new_name', '')
             
-            # 기존 단위(권, 화, Vol, Ch 등)가 끝에 있으면 제거
-            clean_name = re.sub(r'\s*(권|화|Vol|Ch|Volume|Chapter)\.?$', '', old_name, flags=re.IGNORECASE).strip()
+            # 마지막 숫자 블록을 기준으로 (앞부분) (숫자) (뒷부분) 분리
+            pattern = r'^(.*?)\s*(?:v|c)?([\d\.\-\~]+)(?:권|화|巻|話|vol\.?|ch\.?|volume|chapter)?\s*([^0-9]*)$'
+            match = re.search(pattern, old_name, re.IGNORECASE)
             
-            # 영문 단위일 경우 앞에 공백 추가, 한글은 붙여서 씀
-            if target_unit in ['Vol', 'Ch']:
-                vol['new_name'] = f"{clean_name} {target_unit}"
+            if match:
+                base = match.group(1).strip()
+                num = match.group(2).strip()
+                tail = match.group(3).strip()
+                
+                # 외전, 특별편 등이 숫자 뒤에 있으면 베이스(제목)쪽으로 끌어옴
+                if tail:
+                    base = f"{base} {tail}".strip()
+                    
+                if lang == "en":
+                    unit = "c" if is_chap else "v"
+                    vol['new_name'] = f"{base} {unit}{num}" if base else f"{unit}{num}"
+                elif lang == "ja":
+                    unit = "話" if is_chap else "巻"
+                    vol['new_name'] = f"{base} {num}{unit}" if base else f"{num}{unit}"
+                else:
+                    unit = "화" if is_chap else "권"
+                    vol['new_name'] = f"{base} {num}{unit}" if base else f"{num}{unit}"
             else:
-                vol['new_name'] = f"{clean_name}{target_unit}"
+                # 숫자가 전혀 없는 경우 원본 텍스트 그대로 유지
+                vol['new_name'] = old_name.strip()
                 
         self.refresh_list()
 
@@ -336,10 +357,15 @@ class Tab1Organizer(QWidget):
             btn_tit.clicked.connect(lambda _, key=fp, p=title_path: self.set_single_path(key, p))
             
             # 🌟 [추가됨] 일괄: 권 / 일괄: 화 버튼
-            btn_vol = QPushButton("일괄: 권" if self.main_app.lang == "ko" else "All Vol")
-            btn_vol.clicked.connect(lambda _, key=fp: self.batch_change_unit(key, "권" if self.main_app.lang == "ko" else "Vol"))
-            btn_ch = QPushButton("일괄: 화" if self.main_app.lang == "ko" else "All Ch")
-            btn_ch.clicked.connect(lambda _, key=fp: self.batch_change_unit(key, "화" if self.main_app.lang == "ko" else "Ch"))
+            lang = self.main_app.lang
+            btn_vol_text = "일괄: 권" if lang == "ko" else ("一括: 巻" if lang == "ja" else "All: Vol")
+            btn_ch_text = "일괄: 화" if lang == "ko" else ("一括: 話" if lang == "ja" else "All: Ch")
+            
+            btn_vol = QPushButton(btn_vol_text)
+            btn_vol.clicked.connect(lambda _, key=fp: self.batch_change_unit(key, "vol"))
+            
+            btn_ch = QPushButton(btn_ch_text)
+            btn_ch.clicked.connect(lambda _, key=fp: self.batch_change_unit(key, "ch"))
             
             btn_style = "QPushButton { padding: 4px 8px; font-size: 11px; border-radius: 4px; background-color: #4a4a4a; } QPushButton:hover { background-color: #5a5a5a; }"
             btn_def.setStyleSheet(btn_style)

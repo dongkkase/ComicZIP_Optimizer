@@ -64,7 +64,7 @@ def get_i18n():
             "flatten_desc": "압축 파일 내의 폴더를 모두 무시하고 이미지를 최상단으로 꺼냅니다.",
             "webp": "모든 이미지를 WebP로 일괄 변환",
             "webp_desc": "모든 이미지를 고효율 WebP 포맷으로 변환하여 확장자 통일성을 보장합니다.",
-            "webp_quality": "WebP 품질 (Quality) :", "max_threads": "다중 스레드 (Threads) :",
+            "max_threads": "다중 스레드 (Threads) :",
             "threads_desc": f"수치가 높을수록 변환 속도가 빨라지지만 PC가 느려질 수 있습니다.\n시스템 안정을 위해 전체 {total_c}코어 중 여유분을 남긴 안전 수치({safe_c}코어)까지만 올릴 수 있습니다.",
             "btn_save": "저장", "btn_cancel": "취소", "btn_close": "닫기",
             "btn_continue_tab2": "내부 파일명 변경 (Tab 2) 이어서 하기",
@@ -297,6 +297,24 @@ def get_i18n():
             "folder_clear_cache_desc": "저장된 중복 파일 매칭 결과 캐시를 초기화합니다.",
             "folder_clear_cache_confirm": "저장된 모든 중복 매칭 결과 캐시를 삭제하시겠습니까?\n(매칭 속도가 일시적으로 느려질 수 있습니다.)",
             "folder_clear_cache_done": "중복 매칭 캐시가 초기화되었습니다.",          
+
+            "setting_update_index": "인덱스 색인 갱신",
+            "setting_update_index_msg": "대상 폴더의 변경사항을 확인하고 인덱스를 최신 상태로 갱신했습니다.",
+
+            "common_quality": "이미지 압축 품질 (Quality) :",
+            "col_cap_opt": "이미지 압축",
+            "col_exif_rem": "EXIF 제거",
+            "tt_cap_opt": "외부 도구(pngquant, jpegtran 등)를 사용하여 화질 손실을 최소화하면서 용량을 강력하게 압축합니다.",
+            "tt_exif_rem": "이미지의 메타데이터(촬영 정보, 프로파일 등) 및 시스템 더미 파일을 제거합니다.",
+
+            "btn_sel_all": "전체 선택",
+            "btn_cap_all": "이미지 압축 일괄",
+            "btn_exif_all": "EXIF 제거 일괄",
+
+            "tt_img_quality_desc": (
+                "이미지 압축 및 WebP 변환 시 적용되는 품질 설정입니다. (추천: 80~85%)\n"
+                "• 100 미만 설정 시 손실 압축을 수행하며, 이미 최적화된 파일은 원본을 유지하여 화질 저하를 방지합니다."
+            ),
         },
         "en": {
             "title": f"ComicZIP Optimizer v{CURRENT_VERSION}",
@@ -321,7 +339,7 @@ def get_i18n():
             "flatten_desc": "Extracts all images to the root, ignoring folders.",
             "webp": "Convert all images to WebP",
             "webp_desc": "Converts all images strictly to WebP format.",
-            "webp_quality": "WebP Quality :", "max_threads": "Multi-threads :",
+            "max_threads": "Multi-threads :",
             "threads_desc": f"Higher values increase speed but consume more CPU.\nFor system stability, the maximum is capped at {safe_c} cores (Total: {total_c}).",
             "btn_save": "Save", "btn_cancel": "Cancel", "btn_close": "Close",
             "btn_continue_tab2": "Continue to Inner Renamer (Tab 2)",
@@ -550,6 +568,24 @@ def get_i18n():
             "folder_clear_cache_desc": "Initialize saved duplicate file match result cache.",
             "folder_clear_cache_confirm": "Are you sure you want to clear all saved duplicate match results?\n(Matching may be temporarily slower.)",
             "folder_clear_cache_done": "Duplicate match cache has been cleared.",
+
+            "setting_update_index": "Update Index",
+            "setting_update_index_msg": "Checked for changes and updated the index to the latest state.",
+
+            "common_quality": "Image Compression Quality :",
+            "col_cap_opt": "Image Compress",
+            "col_exif_rem": "Del EXIF",
+            "tt_cap_opt": "Strongly compresses file size using external tools (pngquant, jpegtran) with minimal quality loss.",
+            "tt_exif_rem": "Removes image metadata (EXIF, profiles) and system dummy files.",
+
+            "btn_sel_all": "Select All",
+            "btn_cap_all": "Batch Compress",
+            "btn_exif_all": "Batch Del EXIF",
+
+            "tt_img_quality_desc": (
+                "Quality settings for compression and WebP conversion. (Recommended: 80-85%)\n"
+                "• Values under 100 trigger lossy compression. Original files are kept if no further reduction is possible."
+            ),
         },
         "ja": {
             "title": f"ComicZIP Optimizer v{CURRENT_VERSION}",
@@ -574,7 +610,7 @@ def get_i18n():
             "flatten_desc": "アーカイブ内のフォルダをすべて無視し、画像を最上位に移動させます。",
             "webp": "すべての画像をWebPに一括変換",
             "webp_desc": "すべての画像を高効率なWebPフォーマットに変換し、拡張子を統一します。",
-            "webp_quality": "WebP 品質 (Quality) :", "max_threads": "マルチスレッド (Threads) :",
+            "max_threads": "マルチスレッド (Threads) :",
             "threads_desc": f"数値が高いほど変換速度が速くなりますが、PCが遅くなる場合があります。\nシステム安定化のため、全 {total_c} コアのうち余裕を残した安全な数値 ({safe_c} コア) までしか設定できません。",
             "btn_save": "保存", "btn_cancel": "キャンセル", "btn_close": "閉じる",
             "btn_continue_tab2": "内部ファイル名変更 (Tab 2) を続ける",
@@ -808,5 +844,23 @@ def get_i18n():
             "folder_clear_cache_desc": "保存済みの重複ファイル一致結果キャッシュを初期化します。",
             "folder_clear_cache_confirm": "保存済みの重複一致結果をすべてクリアしてもよろしいですか？\n（マッチング処理が一時的に遅くなる場合があります。）",
             "folder_clear_cache_done": "重複一致キャッシュがクリアされました。",
+
+            "setting_update_index": "インデックス更新",
+            "setting_update_index_msg": "対象フォルダーの変更を確認し、インデックスを最新の状態に更新しました。",
+
+            "common_quality": "画像圧縮品質 (Quality) :",
+            "col_cap_opt": "画像圧縮",
+            "col_exif_rem": "EXIF削除",
+            "tt_cap_opt": "外部ツール(pngquant, jpegtran等)を使用し、画質劣化を最小限に抑えながら容量を強力に圧縮します。",
+            "tt_exif_rem": "画像のメタデータ（撮影情報など）やシステムダミーファイルを削除します。",
+
+            "btn_sel_all": "すべて選択",
+            "btn_cap_all": "画像圧縮一括",
+            "btn_exif_all": "EXIF削除一括",
+
+            "tt_img_quality_desc": (
+                "画像圧縮およびWebP変換時に適用される品質設定です。(推奨: 80~85%)\n"
+                "• 100未満に設定すると損失圧縮を実行し、最適化済みのファイルは画質保護のためオリジナルを維持します。"
+            ),
         }
     }

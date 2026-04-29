@@ -12,7 +12,7 @@ from PyQt6.QtGui import QIcon
 
 import qtawesome as qta 
 
-from config import load_config, save_config, get_resource_path, CURRENT_VERSION
+from config import load_config, save_config, get_resource_path, CURRENT_VERSION, TOOL_7Z
 from utils import play_complete_sound
 from ui.signals import WorkerSignals
 from ui.dialogs import LogDialog, SettingsDialog
@@ -54,7 +54,7 @@ class RenamerApp(QMainWindow):
         self.latest_version_found = None 
         self.latest_version_url = "https://github.com/dongkkase/ComicZIP_Optimizer/releases"
         
-        self.seven_zip_path = get_resource_path('7za.exe')
+        self.seven_zip_path = TOOL_7Z
         self.format_keys = ["none", "zip", "cbz", "cbr", "7z"]
         
         self.is_all_checked = True 
@@ -297,6 +297,7 @@ class RenamerApp(QMainWindow):
         
         QTableWidget, QTreeWidget, QTextBrowser { background-color: #2b2b2b; color: white; border: 1px solid #444; border-radius: 8px; gridline-color: #3a3a3a; outline: none; }
         QHeaderView::section { background-color: #1f1f1f; color: white; padding: 5px; border: none; font-weight: bold; }
+        QHeaderView::section:hover { background-color: #3a3a3a; cursor: pointer; }
         QTableWidget::item:selected, QTreeWidget::item:selected { background-color: #3a7ebf; }
         QTableWidget::indicator, QTreeWidget::indicator { width: 18px; height: 18px; }
         
@@ -387,7 +388,7 @@ class RenamerApp(QMainWindow):
             dup_folders_changed = new_data.get("dup_check_folders", []) != self.config.get("dup_check_folders", [])
             format_changed = new_data.get("target_format") != self.config.get("target_format")
             webp_conv_changed = new_data.get("webp_conversion") != self.config.get("webp_conversion")
-            webp_qual_changed = new_data.get("webp_quality") != self.config.get("webp_quality")
+            webp_qual_changed = new_data.get("img_quality") != self.config.get("img_quality")
             
             if format_changed or webp_conv_changed or webp_qual_changed:
                 self.tab1.clear_list()

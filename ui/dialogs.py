@@ -186,25 +186,30 @@ class SettingsDialog(QDialog):
         # --------------------------------------------------
 
         opt_layout.addSpacing(15)
-        self.chk_webp = QCheckBox(self.i18n.get("webp", "WebP"))
-        self.chk_webp.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.chk_webp.setChecked(config.get("webp_conversion", False))
-        lbl_webp_desc = QLabel(self.i18n.get("webp_desc", ""))
-        lbl_webp_desc.setWordWrap(True)
-        lbl_webp_desc.setStyleSheet("color: #aaaaaa; font-size: 11px; margin-left: 25px;") 
-        opt_layout.addWidget(self.chk_webp)
-        opt_layout.addWidget(lbl_webp_desc)
-
+        
+        # 🌟 1. 공통 이미지 압축 품질 슬라이더 (독립된 글로벌 옵션으로 위로 배치)
         self.slider_quality = QSlider(Qt.Orientation.Horizontal)
         self.slider_quality.setRange(1, 100)
-        self.slider_quality.setValue(config.get("webp_quality", 100))
+        # 내부 config 저장 키는 호환성을 위해 img_quality를 그대로 사용합니다.
+        self.slider_quality.setValue(config.get("img_quality", 100)) 
         self.slider_quality.setCursor(Qt.CursorShape.PointingHandCursor)
         self.lbl_quality_val = QLabel()
         self.lbl_quality_val.setFixedWidth(90)
         
         qual_layout = QHBoxLayout()
-        qual_layout.setContentsMargins(25, 5, 0, 0)
-        lbl_qual_title = QLabel(self.i18n.get("webp_quality", "Quality"))
+        qual_layout.setContentsMargins(0, 5, 0, 5) 
+        
+        lbl_qual_title = QLabel(self.i18n.get("common_quality", "이미지 압축 품질 (Quality) :"))
+        # ❌ 기존 툴팁 설정 삭제: lbl_qual_title.setToolTip(...)
+        
+        self.slider_quality = QSlider(Qt.Orientation.Horizontal)
+        self.slider_quality.setRange(1, 100)
+        self.slider_quality.setValue(config.get("img_quality", 85))
+        self.slider_quality.setCursor(Qt.CursorShape.PointingHandCursor)
+        
+        self.lbl_quality_val = QLabel()
+        self.lbl_quality_val.setFixedWidth(90)
+        
         qual_layout.addWidget(lbl_qual_title)
         qual_layout.addWidget(self.slider_quality)
         qual_layout.addWidget(self.lbl_quality_val)
@@ -216,14 +221,26 @@ class SettingsDialog(QDialog):
         self.slider_quality.valueChanged.connect(update_qual_label)
         update_qual_label(self.slider_quality.value())
 
-        self.chk_webp.toggled.connect(self.slider_quality.setEnabled)
-        self.chk_webp.toggled.connect(self.lbl_quality_val.setEnabled)
-        self.chk_webp.toggled.connect(lbl_qual_title.setEnabled)
-        self.slider_quality.setEnabled(self.chk_webp.isChecked())
-        self.lbl_quality_val.setEnabled(self.chk_webp.isChecked())
-        lbl_qual_title.setEnabled(self.chk_webp.isChecked())
-
         opt_layout.addLayout(qual_layout)
+
+        self.lbl_qual_desc = QLabel(self.i18n.get("tt_img_quality_desc", ""))
+        self.lbl_qual_desc.setWordWrap(True) # 줄바꿈 허용
+        self.lbl_qual_desc.setStyleSheet("color: #aaaaaa; font-size: 11px; margin-left: 25px; margin-bottom: 10px;")
+        opt_layout.addWidget(self.lbl_qual_desc)
+
+
+        # 🌟 2. WebP 포맷 일괄 변환 (단순 포맷 변경 옵션)
+        opt_layout.addSpacing(10)
+        self.chk_webp = QCheckBox(self.i18n.get("webp", "모든 이미지를 WebP로 일괄 변환"))
+        self.chk_webp.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.chk_webp.setChecked(config.get("webp_conversion", False))
+        
+        lbl_webp_desc = QLabel(self.i18n.get("webp_desc", "모든 이미지를 고효율 WebP 포맷으로 변환하여 확장자 통일성을 보장합니다."))
+        lbl_webp_desc.setWordWrap(True)
+        lbl_webp_desc.setStyleSheet("color: #aaaaaa; font-size: 11px; margin-left: 25px;") 
+        
+        opt_layout.addWidget(self.chk_webp)
+        opt_layout.addWidget(lbl_webp_desc)
 
         # --- 뷰어 프로그램 설정 추가 시작 ---
         viewer_line = QFrame()
@@ -255,54 +272,85 @@ class SettingsDialog(QDialog):
         basic_layout.addLayout(opt_layout)
         basic_layout.addStretch()
 
-        # --- [추가됨] 폴더 탭 설정 (기본 설정과 API 설정 사이) ---
+        # --- [개선됨] 폴더 탭 설정 (기본 설정과 API 설정 사이) ---
         self.tab_folder_settings = QWidget()
         folder_set_layout = QVBoxLayout(self.tab_folder_settings)
         folder_set_layout.setContentsMargins(15, 15, 15, 15)
+        folder_set_layout.setSpacing(15)
         
+        # 1. 중복 검사 대상 폴더 그룹
+        grp_dup_folders = QGroupBox(self.i18n.get("grp_dup_folders_title", "중복 검사 대상 폴더"))
+        grp_dup_layout = QVBoxLayout(grp_dup_folders)
+        grp_dup_layout.setContentsMargins(15, 20, 15, 15)
+        grp_dup_layout.setSpacing(10)
+
         lbl_dup_desc = QLabel(self.i18n.get("dup_folder_desc", "중복 파일을 검사할 대상 폴더를 추가하세요.\nNAS나 대용량 드라이브의 폴더를 지정할 수 있습니다."))
-        lbl_dup_desc.setStyleSheet("color: #aaaaaa; font-size: 12px; margin-bottom: 5px;")
-        folder_set_layout.addWidget(lbl_dup_desc)
+        lbl_dup_desc.setStyleSheet("color: #aaaaaa; font-size: 11px;")
+        grp_dup_layout.addWidget(lbl_dup_desc)
 
         self.list_dup_folders = QListWidget()
         self.list_dup_folders.setStyleSheet("background-color: #3a3a3a; color: white; border: 1px solid #555; border-radius: 4px;")
         for folder in config.get("dup_check_folders", []):
             self.list_dup_folders.addItem(folder)
-        folder_set_layout.addWidget(self.list_dup_folders)
+        grp_dup_layout.addWidget(self.list_dup_folders)
 
         dup_btn_layout = QHBoxLayout()
+        dup_btn_layout.addStretch()
         self.btn_add_dup_folder = QPushButton(self.i18n.get("btn_add", "추가"))
         self.btn_add_dup_folder.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_remove_dup_folder = QPushButton(self.i18n.get("btn_remove", "삭제"))
         self.btn_remove_dup_folder.setCursor(Qt.CursorShape.PointingHandCursor)
         
-        dup_btn_layout.addStretch()
         dup_btn_layout.addWidget(self.btn_add_dup_folder)
         dup_btn_layout.addWidget(self.btn_remove_dup_folder)
-        folder_set_layout.addLayout(dup_btn_layout)
+        grp_dup_layout.addLayout(dup_btn_layout)
 
         self.btn_add_dup_folder.clicked.connect(self.add_dup_folder)
         self.btn_remove_dup_folder.clicked.connect(self.remove_dup_folder)
-
-        cache_line = QFrame()
-        cache_line.setFrameShape(QFrame.Shape.HLine)
-        cache_line.setObjectName("divider")
-        folder_set_layout.addWidget(cache_line)
-
-        dup_cache_layout = QHBoxLayout()
-        lbl_cache_desc = QLabel(self.i18n.get("folder_clear_cache_desc", "저장된 중복 파일 매칭 결과 캐시를 초기화합니다."))
-        lbl_cache_desc.setStyleSheet("color: #aaaaaa; font-size: 11px;")
         
+        folder_set_layout.addWidget(grp_dup_folders)
+
+        # 2. 인덱스 및 캐시 관리 그룹
+        grp_cache = QGroupBox(self.i18n.get("grp_cache_title", "인덱스 및 캐시 관리"))
+        grp_cache_layout = QVBoxLayout(grp_cache)
+        grp_cache_layout.setContentsMargins(15, 20, 15, 15)
+        grp_cache_layout.setSpacing(15)
+
+        # 2-1. 인덱스 갱신 섹션
+        idx_layout = QHBoxLayout()
+        lbl_idx_desc = QLabel(self.i18n.get("setting_update_index_desc", "등록된 대상 폴더의 변경사항을 확인하여 인덱스를 동기화합니다."))
+        lbl_idx_desc.setStyleSheet("color: #aaaaaa; font-size: 11px;")
+        lbl_idx_desc.setWordWrap(True)
+        
+        self.btn_update_index = QPushButton(self.i18n.get("setting_update_index", "인덱스 색인 갱신"))
+        self.btn_update_index.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_update_index.setStyleSheet("background-color: #27AE60; color: white; padding: 6px 12px; border-radius: 4px; font-weight: bold; border: none;")
+        self.btn_update_index.setFixedWidth(160)
+        self.btn_update_index.clicked.connect(self.action_update_index)
+        
+        idx_layout.addWidget(lbl_idx_desc, 1)
+        idx_layout.addWidget(self.btn_update_index)
+        grp_cache_layout.addLayout(idx_layout)
+
+        # 2-2. 캐시 초기화 섹션
+        cache_layout = QHBoxLayout()
+        lbl_cache_desc = QLabel(self.i18n.get("folder_clear_cache_desc", "저장된 모든 중복 파일 매칭 결과 캐시를 초기화합니다."))
+        lbl_cache_desc.setStyleSheet("color: #aaaaaa; font-size: 11px;")
+        lbl_cache_desc.setWordWrap(True)
+
         self.btn_clear_dup_cache = QPushButton(self.i18n.get("folder_clear_cache", "중복 매칭 캐시 초기화"))
         self.btn_clear_dup_cache.setIcon(qta.icon('fa5s.trash-alt', color='white'))
         self.btn_clear_dup_cache.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_clear_dup_cache.setStyleSheet("background-color: #E74C3C; color: white; padding: 6px 12px; border-radius: 4px; font-weight: bold; border: none;")
+        self.btn_clear_dup_cache.setFixedWidth(160)
         self.btn_clear_dup_cache.clicked.connect(self.action_clear_dup_cache)
 
-        dup_cache_layout.addWidget(lbl_cache_desc)
-        dup_cache_layout.addStretch()
-        dup_cache_layout.addWidget(self.btn_clear_dup_cache)
-        folder_set_layout.addLayout(dup_cache_layout)
+        cache_layout.addWidget(lbl_cache_desc, 1)
+        cache_layout.addWidget(self.btn_clear_dup_cache)
+        grp_cache_layout.addLayout(cache_layout)
+        
+        folder_set_layout.addWidget(grp_cache)
+        folder_set_layout.addStretch()
         # --------------------------------------------------------
 
         self.tab_api = QWidget()
@@ -548,7 +596,7 @@ class SettingsDialog(QDialog):
             "backup_on": self.chk_backup.isChecked(),
             "flatten_folders": self.chk_flatten.isChecked(),
             "webp_conversion": self.chk_webp.isChecked(),
-            "webp_quality": self.slider_quality.value(),
+            "img_quality": self.slider_quality.value(),
             "max_threads": self.slider_threads.value(),
             "play_sound": self.chk_sound.isChecked(),
             "viewer_path": self.le_viewer_path.text().strip(),
@@ -568,3 +616,9 @@ class SettingsDialog(QDialog):
                 "tag_rules": self.te_tag_rules.toPlainText()
             }
         }
+    
+    def action_update_index(self):
+        main_win = self.parent()
+        if hasattr(main_win, 'tab_folder'):
+            main_win.tab_folder.start_index_update_task(force_rescan=True)
+            Toast.show(main_win, self.i18n.get("setting_update_index_msg", "인덱스가 갱신되었습니다."))

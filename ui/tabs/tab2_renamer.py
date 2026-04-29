@@ -184,6 +184,36 @@ class Tab2Renamer(QWidget):
         self.lbl_target.setObjectName("boldLabel")
         right_layout.addWidget(self.lbl_target)
 
+        # 🌟 1. '옵션 박스'와 동일한 디자인의 프레임(박스) 생성
+        action_frame = QFrame()
+        action_frame.setObjectName("optionsFrame") # 상단 파일명 패턴 박스와 동일한 CSS 적용
+        
+        action_layout = QHBoxLayout(action_frame)
+        action_layout.setContentsMargins(10, 8, 10, 8) # 박스 내부 여백
+        action_layout.setSpacing(8)
+        
+        self.btn_sel_all = QPushButton()
+        self.btn_sel_all.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_sel_all.clicked.connect(self.toggle_all_items)
+        
+        self.btn_cap_all = QPushButton()
+        self.btn_cap_all.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_cap_all.clicked.connect(self.toggle_all_cap)
+        
+        self.btn_exif_all = QPushButton()
+        self.btn_exif_all.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_exif_all.clicked.connect(self.toggle_all_exif)
+        
+        # 🌟 2. 정렬 배치 로직 
+        # [전체 선택(왼쪽)] --- (빈 공간 쭉 늘리기) --- [용량 최적화(오른쪽)] [EXIF 제거(오른쪽)]
+        action_layout.addWidget(self.btn_sel_all)  # 왼쪽 정렬
+        action_layout.addStretch()                 # 중간 여백 확장 (양쪽으로 밀어냄)
+        action_layout.addWidget(self.btn_cap_all)  # 오른쪽 정렬
+        action_layout.addWidget(self.btn_exif_all) # 오른쪽 정렬
+        
+        # 레이아웃에 프레임 추가
+        right_layout.addWidget(action_frame)
+
         self.stacked_archives = QStackedWidget()
         page_empty = QWidget()
         layout_empty = QVBoxLayout(page_empty)
@@ -202,26 +232,38 @@ class Tab2Renamer(QWidget):
         layout_empty.addStretch()
         self.stacked_archives.addWidget(page_empty)
 
-        self.table_archives = ArchiveTableWidget(0, 3)
+        self.table_archives = ArchiveTableWidget(0, 5) # 컬럼 수 5개 확인
         self.table_archives.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table_archives.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table_archives.verticalHeader().setVisible(False) 
         
-        # 🌟 우클릭 컨텍스트 메뉴 연결 복구 🌟
         self.table_archives.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table_archives.customContextMenuRequested.connect(self.show_context_menu)
         
         self.table_archives.itemSelectionChanged.connect(self.on_archive_select)
         self.table_archives.itemChanged.connect(self.on_table_item_changed)
         self.table_archives.delete_pressed.connect(self.remove_highlighted)
+
+        # 🌟 [추가됨] 전체 선택/해제 관리를 위한 초기값 설정 및 이벤트 연결
+        self.all_checked = True
+        self.cap_all_checked = False
+        self.exif_all_checked = True
+        
         self.stacked_archives.addWidget(self.table_archives)
         
         header_arch = self.table_archives.horizontalHeader()
         header_arch.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header_arch.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
-        self.table_archives.setColumnWidth(1, 90)
+        self.table_archives.setColumnWidth(1, 70)
         header_arch.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
-        self.table_archives.setColumnWidth(2, 90)
+        self.table_archives.setColumnWidth(2, 70)
+        
+        # 🌟 새로 추가된 3, 4번 컬럼 너비 고정
+        header_arch.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        self.table_archives.setColumnWidth(3, 90)
+        header_arch.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+        self.table_archives.setColumnWidth(4, 80)
+        
         self.table_archives.setMinimumHeight(150)
         
         right_layout.addWidget(self.stacked_archives, 1) 
@@ -376,9 +418,25 @@ class Tab2Renamer(QWidget):
         
         self.lbl_target.setText(t["target_lbl"])
         self.lbl_inner.setText(t["inner_lbl"])
-        self.table_archives.setHorizontalHeaderLabels([t["col_name"], t["col_count"], t["col_size"]])
+
+        
+        col_name = QTableWidgetItem(t["col_name"])
+        col_count = QTableWidgetItem(t["col_count"])
+        col_size = QTableWidgetItem(t["col_size"])
+        col_color = QTableWidgetItem(t.get("col_cap_opt", "용량 최적화"))
+        col_exif = QTableWidgetItem(t.get("col_exif_rem", "EXIF 제거"))
+
+        self.table_archives.setHorizontalHeaderItem(0, col_name)
+        self.table_archives.setHorizontalHeaderItem(1, col_count)
+        self.table_archives.setHorizontalHeaderItem(2, col_size)
+        self.table_archives.setHorizontalHeaderItem(3, col_color)
+        self.table_archives.setHorizontalHeaderItem(4, col_exif)
+
         self.table_inner.setHorizontalHeaderLabels([t["col_old"], t["col_new"], t["col_fsize"], t.get("col_order", "순서 변경")])   
         self.lbl_total_count.setText(t["total_files"].format(count=len(self.archive_data)))
+        
+        # 🌟 새로 추가한 버튼들 텍스트 업데이트 호출
+        self.update_action_buttons()
         
         if not self.current_archive_path:
             self.render_image("cover", None, None)
@@ -402,9 +460,10 @@ class Tab2Renamer(QWidget):
         self.update_inner_preview_list()
 
     def on_table_item_changed(self, item):
+        # 🌟 0번(작업 포함 여부) 컬럼의 체크 상태만 처리하도록 조건 설정
         if item.column() == 0:
             fp = item.data(Qt.ItemDataRole.UserRole)
-            if fp in self.archive_data:
+            if fp and fp in self.archive_data:
                 self.archive_data[fp]['checked'] = (item.checkState() == Qt.CheckState.Checked)
 
     def refresh_list(self):
@@ -448,6 +507,30 @@ class Tab2Renamer(QWidget):
             self.table_archives.setItem(row, 0, chk_item)
             self.table_archives.setItem(row, 1, c_item)
             self.table_archives.setItem(row, 2, s_item)
+
+            # 🌟 [수정됨] 체크박스 가운데 정렬 및 포인터 커서 적용을 위한 위젯 팩토리 함수
+            def create_centered_checkbox(is_checked, filepath, opt_key):
+                widget = QWidget()
+                layout = QHBoxLayout(widget)
+                layout.setContentsMargins(0, 0, 0, 0)
+                layout.setAlignment(Qt.AlignmentFlag.AlignCenter) # 가운데 정렬
+                
+                chk = QCheckBox()
+                chk.setCursor(Qt.CursorShape.PointingHandCursor) # 포인터 커서
+                chk.setChecked(is_checked)
+                
+                # 체크 상태 변경 시 데이터에 즉시 반영
+                def on_toggled(state, fp=filepath, key=opt_key):
+                    if fp in self.archive_data:
+                        self.archive_data[fp][key] = state
+                
+                chk.toggled.connect(on_toggled)
+                layout.addWidget(chk)
+                return widget
+            
+            # setItem 대신 setCellWidget을 사용하여 셀 내부에 위젯 렌더링
+            self.table_archives.setCellWidget(row, 3, create_centered_checkbox(data.get('cap_opt', False), fp, 'cap_opt'))
+            self.table_archives.setCellWidget(row, 4, create_centered_checkbox(data.get('exif_opt', True), fp, 'exif_opt'))
             
         self.table_archives.blockSignals(False)
         self.table_archives.setUpdatesEnabled(True)
@@ -741,8 +824,11 @@ class Tab2Renamer(QWidget):
 
             self.archive_data[filepath] = {
                 'checked': True,
+                'cap_opt': False,
+                'exif_opt': True,
                 'entries': img_entries, 'size_mb': size_mb, 'name': os.path.basename(filepath), 'ext': ext
             }
+
             return True
         except: return False
 
@@ -763,3 +849,55 @@ class Tab2Renamer(QWidget):
         # UI 목록 재구성 및 이동된 행 다시 선택
         self.update_inner_preview_list()
         self.table_inner.selectRow(to_idx)
+
+
+    def update_action_buttons(self):
+        """버튼 텍스트와 스타일을 갱신하고, 마우스 오버 시 표시될 툴팁을 설정합니다."""
+        t = self.main_app.i18n[self.main_app.lang]
+        qual = self.main_app.config.get("img_quality", 85)
+        
+        style_on = "background-color: #3498DB; color: white; font-weight: bold; border-radius: 4px; padding: 6px 12px; border: none;"
+        style_off = "background-color: #3a3a3a; color: white; font-weight: bold; border-radius: 4px; padding: 6px 12px; border: 1px solid #555;"
+
+        # 1. 전체 선택 버튼
+        is_all = getattr(self, 'all_checked', True)
+        self.btn_sel_all.setText(("☑ " if is_all else "☐ ") + t.get("btn_sel_all", "전체 선택"))
+        self.btn_sel_all.setStyleSheet(style_on if is_all else style_off)
+        # 전체 선택 버튼에도 툴팁이 필요하다면 아래 주석을 해제하세요.
+        # self.btn_sel_all.setToolTip(t.get("toggle_all", "전체 선택/해제"))
+        
+        # 2. 이미지 압축 일괄 버튼 (기존 용량 최적화)
+        is_cap = getattr(self, 'cap_all_checked', False)
+        # 버튼 텍스트 설정 시 명칭 변경 반영 ("이미지 압축 일괄")
+        self.btn_cap_all.setText(f"{'☑ ' if is_cap else '☐ '}{t.get('btn_cap_all', '이미지 압축 일괄')} ({qual}%)")
+        self.btn_cap_all.setStyleSheet(style_on if is_cap else style_off)
+        # 🌟 마우스 오버 시 tt_cap_opt 내용 표시
+        self.btn_cap_all.setToolTip(t.get("tt_cap_opt", "이미지 압축 설명"))
+        
+        # 3. EXIF 제거 일괄 버튼
+        is_exif = getattr(self, 'exif_all_checked', True)
+        self.btn_exif_all.setText(("☑ " if is_exif else "☐ ") + t.get("btn_exif_all", "EXIF 제거 일괄"))
+        self.btn_exif_all.setStyleSheet(style_on if is_exif else style_off)
+        # 🌟 마우스 오버 시 tt_exif_rem 내용 표시
+        self.btn_exif_all.setToolTip(t.get("tt_exif_rem", "EXIF 제거 설명"))
+
+    def toggle_all_items(self):
+        self.all_checked = not getattr(self, 'all_checked', True)
+        for fp in self.archive_data:
+            self.archive_data[fp]['checked'] = self.all_checked
+        self.update_action_buttons()
+        self.refresh_list()
+
+    def toggle_all_cap(self):
+        self.cap_all_checked = not getattr(self, 'cap_all_checked', False)
+        for fp in self.archive_data:
+            self.archive_data[fp]['cap_opt'] = self.cap_all_checked
+        self.update_action_buttons()
+        self.refresh_list()
+
+    def toggle_all_exif(self):
+        self.exif_all_checked = not getattr(self, 'exif_all_checked', True)
+        for fp in self.archive_data:
+            self.archive_data[fp]['exif_opt'] = self.exif_all_checked
+        self.update_action_buttons()
+        self.refresh_list()

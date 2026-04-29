@@ -221,8 +221,42 @@ class OrganizerLoadTask:
                     group_names = sorted(list(volume_groups.keys()), key=natural_keys)
                     parsed_vols = []
 
+                    # 🌟 [추가됨] 로드 시 언어별 권/화 포맷(정규식 변환)을 완벽하게 적용하는 내부 함수
+                    def apply_lang_format(name, lang, force_unit_val):
+                        is_chap = (force_unit_val == '화')
+                        
+                        # 문자열에서 마지막 숫자 블록을 찾아 (앞부분) (숫자) (뒷부분)으로 완벽히 분리합니다.
+                        # 정규식 에러(look-behind)가 발생하지 않는 안전한 문법을 사용합니다.
+                        pattern = r'^(.*?)\s*(?:v|c)?([\d\.\-\~]+)(?:권|화|巻|話|vol\.?|ch\.?|volume|chapter)?\s*([^0-9]*)$'
+                        match = re.search(pattern, name, re.IGNORECASE)
+                        
+                        if match:
+                            base = match.group(1).strip()
+                            num = match.group(2).strip()
+                            tail = match.group(3).strip()  # '외전', '특별편' 등이 여기에 담깁니다.
+                            
+                            # 꼬리말(외전 등)이 있다면 제목과 숫자 사이로 당겨와서 결합합니다.
+                            if tail:
+                                base = f"{base} {tail}".strip()
+                                
+                            if lang == "en":
+                                unit = "c" if is_chap else "v"
+                                return f"{base} {unit}{num}" if base else f"{unit}{num}"
+                            elif lang == "ja":
+                                unit = "話" if is_chap else "巻"
+                                return f"{base} {num}{unit}" if base else f"{num}{unit}"
+                            else:
+                                unit = "화" if is_chap else "권"
+                                return f"{base} {num}{unit}" if base else f"{num}{unit}"
+                        else:
+                            # 숫자가 전혀 없는 순수 텍스트(예: "외전" 단독)는 단위를 붙이지 않고 원래 이름 유지
+                            return name.strip()
+
+                    # 🌟 단일 파일 처리 시 언어별 포맷 덮어쓰기
                     if len(group_names) == 1 and group_names[0] == 'Root_Files':
                         vol_name = format_leaf_name(core_title, inner_meaningful_name or filename, 0, 1, self.lang)
+                        vol_name = apply_lang_format(vol_name, self.lang, force_unit)
+                        
                         parsed_vols.append({
                             'original_path': '', 
                             'original_basename': inner_meaningful_name or filename,
@@ -230,12 +264,16 @@ class OrganizerLoadTask:
                             'type': 'archive', 'force_unit': force_unit
                         })
                     else:
+                    # 🌟 다중 파일(폴더) 처리 시 언어별 포맷 덮어쓰기
                         for v_idx, leaf in enumerate(group_names):
                             leaf_basename = os.path.basename(leaf.replace('\\', '/'))
                             parse_leaf = leaf_basename
                             if force_unit == '화' and not re.search(r'[가-힣a-zA-Z]', leaf_basename):
                                 parse_leaf = leaf_basename + '화'
+                            
                             vol_name = format_leaf_name(core_title, parse_leaf, v_idx, len(group_names), self.lang)
+                            vol_name = apply_lang_format(vol_name, self.lang, force_unit)
+                            
                             parsed_vols.append({
                                 'original_path': leaf, 
                                 'original_basename': leaf_basename,

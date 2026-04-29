@@ -69,69 +69,109 @@ class DupScanThread(QThread):
             if self.is_cancelled: return
             if not os.path.exists(folder): continue
             
-            # --- [수정] files 테이블 대신 dup_target_index 테이블 활용 ---
             target_records = db.get_target_index(folder)
+            db_paths = {record["full_path"]: record for record in target_records} if target_records else {}
+            new_records = []
+            current_physical_paths = set()
 
-            if target_records:
-                # DB에 인덱싱된 정보가 있으면 스캔 생략
-                for record in target_records:
-                    if self.is_cancelled: return
-                    name = record["name"]
-                    if name.lower().endswith(self.target_exts):
-                        b_cache.append({
-                            "name": name,
-                            "path": record["path"],
-                            "full_path": record["full_path"],
-                            "size": record["size"],
-                            "name_no_ext": os.path.splitext(name)[0].lower()
-                        })
-                        match_count += 1
-                        total_scanned += 1
-                        
-                self.progress_updated.emit(match_count, total_scanned)
-
-            else:
-                # DB에 없는 경우 물리 스캔 진행 및 완료 후 DB 저장
-                new_records = []
-                def fast_scan(scan_path):
-                    nonlocal match_count, total_scanned
-                    if self.is_cancelled: return
-                    try:
-                        with os.scandir(scan_path) as it:
-                            for entry in it:
-                                if self.is_cancelled: return
+            def fast_scan(scan_path):
+                nonlocal match_count, total_scanned
+                if self.is_cancelled: return
+                try:
+                    with os.scandir(scan_path) as it:
+                        for entry in it:
+                            if self.is_cancelled: return
+                            
+                            if entry.is_dir(follow_symlinks=False):
+                                fast_scan(entry.path)
+                            elif entry.is_file(follow_symlinks=False):
+                                total_scanned += 1
+                                name = entry.name
                                 
-                                if entry.is_dir(follow_symlinks=False):
-                                    fast_scan(entry.path)
-                                elif entry.is_file(follow_symlinks=False):
-                                    total_scanned += 1
-                                    name = entry.name
+                                if name.lower().endswith(self.target_exts):
+                                    fp = entry.path
+                                    current_physical_paths.add(fp)
+                                    size = entry.stat().st_size
                                     
-                                    if name.lower().endswith(self.target_exts):
-                                        size = entry.stat().st_size
-                                        b_cache.append({
-                                            "name": name,
-                                            "path": scan_path,
-                                            "full_path": entry.path,
-                                            "size": size,
-                                            "name_no_ext": os.path.splitext(name)[0].lower()
-                                        })
-                                        # 인덱스 저장을 위한 데이터 수집 (full_path, target_folder, name, size)
-                                        new_records.append((entry.path, folder, name, size))
-                                        match_count += 1
+                                    b_cache.append({
+                                        "name": name,
+                                        "path": scan_path,
+                                        "full_path": fp,
+                                        "size": size,
+                                        "name_no_ext": os.path.splitext(name)[0].lower()
+                                    })
                                     
-                                    if total_scanned % 500 == 0:
-                                        self.progress_updated.emit(match_count, total_scanned)
-                    except Exception: pass
+                                    if fp not in db_paths:
+                                        new_records.append((fp, folder, name, size))
+                                        
+                                    match_count += 1
+                                
+                                if total_scanned % 500 == 0:
+                                    self.progress_updated.emit(match_count, total_scanned)
+                except Exception: pass
 
-                fast_scan(folder)
+            fast_scan(folder)
+            
+            if new_records:
+                db.save_target_index(new_records)
                 
-                # 스캔 완료 후 DB에 인덱스 일괄 저장
-                if new_records:
-                    db.save_target_index(new_records)
-                        
+            if len(db_paths) > len(current_physical_paths) or any(p not in current_physical_paths for p in db_paths):
+                try: db.clear_dup_cache()
+                except Exception: pass
+                    
         self.progress_updated.emit(match_count, total_scanned)
         self.scan_finished.emit(b_cache)
+
+class IndexSyncThread(QThread):
+    def __init__(self, dup_folders, target_exts):
+        super().__init__()
+        self.dup_folders = dup_folders
+        self.target_exts = tuple(target_exts)
+
+    def run(self):
+        from core.library_db import db
+        b_folder_changed = False
+
+        for folder in self.dup_folders:
+            if not os.path.exists(folder): continue
+            
+            target_records = db.get_target_index(folder)
+            db_paths = {record["full_path"] for record in target_records} if target_records else set()
+
+            new_records = []
+            current_physical_paths = set()
+
+            def fast_sync_scan(scan_path):
+                try:
+                    with os.scandir(scan_path) as it:
+                        for entry in it:
+                            if entry.is_dir(follow_symlinks=False):
+                                fast_sync_scan(entry.path)
+                            elif entry.is_file(follow_symlinks=False):
+                                name = entry.name
+                                if name.lower().endswith(self.target_exts):
+                                    fp = entry.path
+                                    current_physical_paths.add(fp)
+                                    
+                                    if fp not in db_paths:
+                                        size = entry.stat().st_size
+                                        new_records.append((fp, folder, name, size))
+                except Exception: pass
+
+            fast_sync_scan(folder)
+            
+            if new_records:
+                b_folder_changed = True
+                db.save_target_index(new_records)
+                
+            if len(db_paths) > len(current_physical_paths) or any(p not in current_physical_paths for p in db_paths):
+                b_folder_changed = True
+
+        if b_folder_changed:
+            try:
+                db.clear_dup_cache()
+                print("[LOG] 백그라운드 인덱스 동기화: 대상 폴더 변경 감지로 매칭 캐시 초기화됨.")
+            except Exception: pass
 
 class DupMatchThread(QThread):
     match_finished = pyqtSignal(dict)
@@ -338,13 +378,26 @@ class DupMatchThread(QThread):
             
             if a_full_path in all_cached_matches:
                 cached_data = all_cached_matches[a_full_path]
-                if cached_data: 
-                    matches[a_full_path] = cached_data
-                if total_a > 0 and i % max(1, total_a // 20) == 0:
-                    self.match_progress.emit(i + 1, total_a)
-                continue
+                
+                # 🌟 [버그 수정] 캐시에 있는 매칭 결과 중, 원본 B 파일이 이미 삭제된 '유령 캐시'인지 검증
+                is_stale_cache = False
+                if cached_data:
+                    for bp, matches_list in cached_data.items():
+                        for m in matches_list:
+                            b_fp = m.get("b_file", {}).get("full_path", "")
+                            if b_fp and not os.path.exists(b_fp):
+                                is_stale_cache = True
+                                break
+                        if is_stale_cache: break
+                
+                if not is_stale_cache:
+                    if cached_data: 
+                        matches[a_full_path] = cached_data
+                    if total_a > 0 and i % max(1, total_a // 20) == 0:
+                        self.match_progress.emit(i + 1, total_a)
+                    continue
 
-            if i % 10 == 0: time.sleep(0.001) 
+            if i % 10 == 0: time.sleep(0.001)
             
             file_matches = []
             a_path = os.path.normcase(os.path.normpath(a_full_path))
@@ -1173,6 +1226,62 @@ class TabFolder(QWidget):
         QTimer.singleShot(100, self.load_initial_layout)
         QTimer.singleShot(500, self.find_main_window_elements)
         QTimer.singleShot(1000, self.start_dup_scan)
+
+        # 시작 시 인덱스 감시기 설정 및 무결성 검사 예약
+        self.setup_index_watcher()
+        QTimer.singleShot(2000, self.start_index_update_task)
+
+    def setup_index_watcher(self):
+        """B 폴더 실시간 감시 설정 (디바운싱 적용)"""
+        self.index_watcher = QFileSystemWatcher(self)
+        self.index_debounce_timer = QTimer(self)
+        self.index_debounce_timer.setSingleShot(True)
+        self.index_debounce_timer.setInterval(5000) # 5초 디바운싱 (이벤트 종료 후 5초 뒤 1번 실행)
+        self.index_debounce_timer.timeout.connect(self.start_index_update_task)
+        self.index_watcher.directoryChanged.connect(self._on_index_dir_changed)
+
+    def _on_index_dir_changed(self, path):
+        # 앱 내부 삭제 작업 시엔 락이 걸려있으므로 트리거 무시
+        if getattr(self, '_internal_action_lock', False): return
+        self.index_debounce_timer.start()
+
+    def start_index_update_task(self, force_rescan=False):
+        """mtime 기반으로 변경사항이 있을 때만 하드를 읽고 인덱스를 갱신"""
+        dup_folders = self.config.get("dup_check_folders", [])
+        
+        # 감시 대상 폴더 업데이트
+        if hasattr(self, 'index_watcher'):
+            if self.index_watcher.directories():
+                self.index_watcher.removePaths(self.index_watcher.directories())
+            for f in dup_folders:
+                if os.path.exists(f): self.index_watcher.addPath(f)
+                
+        if not dup_folders: return
+
+        needs_update = False
+        last_mtimes = self.config.get("index_last_mtimes", {})
+        current_mtimes = {}
+
+        for folder in dup_folders:
+            if os.path.exists(folder):
+                mtime = os.stat(folder).st_mtime
+                current_mtimes[folder] = mtime
+                if force_rescan or mtime != last_mtimes.get(folder):
+                    needs_update = True
+
+        if needs_update:
+            self.config["index_last_mtimes"] = current_mtimes
+            save_config(self.config)
+            
+            target_exts = ('.zip', '.cbz', '.cbr', '.rar', '.7z')
+            # 무거운 UI 스캔을 방해하지 않는 백그라운드 전용 스레드 가동
+            self.index_sync_thread = IndexSyncThread(dup_folders, target_exts)
+            self.index_sync_thread.start()
+        else:
+            if force_rescan:
+                print("[LOG] 강제 갱신 요청됨")
+            else:
+                print("[LOG] 변경사항 없음. 디스크 스캔 건너뜀.")
 
     
     def eventFilter(self, obj, event):

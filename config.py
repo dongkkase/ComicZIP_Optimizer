@@ -2,7 +2,10 @@ import os
 import sys
 import json
 import locale
+import platform
+import shutil
 
+# 🌟 1. 경로를 찾는 기본 함수들을 가장 먼저 정의합니다.
 def get_executable_dir():
     if getattr(sys, 'frozen', False):
         return os.path.dirname(sys.executable)
@@ -19,6 +22,29 @@ def get_resource_path(filename):
         path = os.path.join(sys._MEIPASS, filename)
         if os.path.exists(path): return path
     return os.path.join(get_executable_dir(), filename)
+
+# 🌟 2. 위에서 정의된 get_executable_dir()를 활용하는 탐색 함수를 정의합니다.
+def get_bin_path(tool_name):
+    system = platform.system()
+    if system == "Windows":
+        base_path = get_executable_dir()
+        paths = [
+            os.path.join(base_path, "bin", "win", f"{tool_name}.exe"),
+            os.path.join(base_path, "bin", f"{tool_name}.exe"),
+            os.path.join(base_path, f"{tool_name}.exe")
+        ]
+        for p in paths:
+            if os.path.exists(p): return p
+        return None
+    else:
+        # Mac, Linux, NAS 등은 시스템 환경 변수에서 호출
+        return shutil.which(tool_name)
+
+# 🌟 3. 함수들이 모두 준비되었으므로 외부 도구 전역 변수를 안전하게 할당합니다.
+TOOL_CWEBP = get_bin_path("cwebp")
+TOOL_PNGQUANT = get_bin_path("pngquant")
+TOOL_JPEGTRAN = get_bin_path("jpegtran")
+TOOL_7Z = get_bin_path("7za")
 
 CURRENT_VERSION = "1.7.1"
 try:
@@ -52,7 +78,9 @@ def load_config():
     default_config = {
         "lang": sys_lang, "target_format": "none", "backup_on": False,
         "flatten_folders": False, "webp_conversion": False,
-        "webp_quality": 100, "max_threads": default_threads,
+        "img_quality": 100, 
+        "jpg_quality": 85,
+        "max_threads": default_threads,
         "play_sound": True,
         "viewer_path": "",
         "dup_check_folders": []
