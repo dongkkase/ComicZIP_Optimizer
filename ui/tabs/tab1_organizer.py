@@ -104,8 +104,8 @@ class Tab1Organizer(QWidget):
         if fp not in self.org_data: return
         lang = self.main_app.lang
         
-        # 전달받은 버튼의 텍스트(target_unit)로 권/화 판별
-        is_chap = target_unit in ["화", "Ch", "話"]
+        # 🌟 버그 수정: 버튼 텍스트가 아닌, 전달받은 인수("vol" 또는 "ch")로 정확히 판별
+        is_chap = (target_unit == "ch")
         
         for vol in self.org_data[fp]['volumes']:
             old_name = vol.get('new_name', '')
