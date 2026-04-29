@@ -55,15 +55,24 @@
 
 ---
 ### 사용 기술
-- Python 3
-- PyQt6 (UI 프레임워크)
-- QtAwesome (벡터 아이콘)
-- Pillow (이미지 처리)
-- 7-Zip (`7za.exe` 압축 엔진)
+- **Python 3**
+- **PyQt6** (UI 프레임워크)
+- **QtAwesome** (벡터 아이콘)
+- **Pillow** (파이썬 이미지 처리 라이브러리)
+- **7-Zip** (`7za.exe` 고속 파일 압축/해제 엔진)
+- **libjpeg-turbo** (`jpegtran.exe` JPEG 무손실/손실 최적화 엔진)
+- **pngquant** (`pngquant.exe` PNG 색상 손실 압축 엔진)
+- **WebP** (`cwebp.exe` WebP 이미지 변환 엔진)
 
 ---
 ## 라이선스 (License)
 
-이 프로젝트는  [MIT License](https://github.com/dongkkase/ComicZIP_Optimizer/blob/main/LICENSE)를 따릅니다. 
-- **7-Zip**: 본 프로그램은 파일 압축/해제를 위해 `7za.exe`를 내부적으로 사용하며, 해당 파일은 GNU LGPL 라이선스를 따릅니다. 자세한 정보는 [7-zip.org](https://www.7-zip.org/)에서 확인할 수 있습니다.
+이 프로젝트는 [MIT License](https://github.com/dongkkase/ComicZIP_Optimizer/blob/main/LICENSE)를 따릅니다. 
+
+본 프로그램은 원활한 파일 처리 및 이미지 최적화를 위해 아래의 외부 도구(바이너리)를 내부적으로 포함하여 사용하고 있으며, 각 도구는 해당 프로젝트의 라이선스 규정을 따릅니다.
+
+- **7-Zip (`7za.exe`)**: GNU LGPL 라이선스를 따릅니다. ([7-zip.org](https://www.7-zip.org/))
+- **libjpeg-turbo (`jpegtran.exe`)**: IJG License, Modified BSD, zlib License를 따릅니다. ([libjpeg-turbo.org](https://libjpeg-turbo.org/))
+- **pngquant (`pngquant.exe`)**: GPLv3 라이선스를 따릅니다. ([pngquant.org](https://pngquant.org/))
+- **WebP (`cwebp.exe`)**: Google의 WebP BSD 라이선스를 따릅니다. ([developers.google.com/speed/webp](https://developers.google.com/speed/webp/))
 
