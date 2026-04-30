@@ -46,7 +46,7 @@ TOOL_PNGQUANT = get_bin_path("pngquant")
 TOOL_JPEGTRAN = get_bin_path("jpegtran")
 TOOL_7Z = get_bin_path("7za")
 
-CURRENT_VERSION = "1.7.1"
+CURRENT_VERSION = ""
 try:
     _ver_path = get_resource_path("version.json")
     if os.path.exists(_ver_path):

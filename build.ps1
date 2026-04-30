@@ -39,7 +39,7 @@ pyinstaller -y -w -D --icon=app.ico -n "$APP_NAME" `
     --hidden-import tasks.rename_task `
     --hidden-import tasks.update_task `
     --add-data "app.ico;." `
-    --add-data "7za.exe;." `
+    --add-data "bin;bin" `
     --add-data "previewframe.png;." `
     --add-data "version.json;." `
     --add-data "sounds\complete.wav;." `
