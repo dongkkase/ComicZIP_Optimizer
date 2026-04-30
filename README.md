@@ -1,8 +1,8 @@
 # ComicZIP Optimizer
 
-**This program supports `Korean`, `English`, `Japanese`.**
+> **This program supports `Korean`, `English`, `Japanese`.**
 
-**The program description on the wiki page is only available in `Korean`. Please use Chrome's translation feature.**
+> **The program description on the wiki page is only available in `Korean`. Please use Chrome's translation feature.**
 
 **ComicZIP Optimizer**는 만화 및 코믹스 압축 파일(ZIP, CBZ, CBR, 7Z)을 가장 효율적으로 관리하고 최적화할 수 있는 **올인원 라이브러리 도구**입니다. 
 
