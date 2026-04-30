@@ -9,6 +9,14 @@
 이를 통해 **Kavita, YACReader, Komga, Panels** 등 다양한 만화 관리 서버 및 뷰어에서 가장 완벽하고 쾌적한 독서 환경을 경험해 보세요!
 
 
+<div align="center">
+
+[![Issues](https://img.shields.io/badge/Issues-질문,%20의견,%20버그%20제보-D21F3C?style=for-the-badge&logo=github)](https://github.com/dongkkase/ComicZIP_Optimizer/issues)
+[![Wiki](https://img.shields.io/badge/Wiki-상세한%20설명-1F425F?style=for-the-badge&logo=read-the-docs)](https://github.com/dongkkase/ComicZIP_Optimizer/wiki)
+[![Download](https://img.shields.io/badge/Download-최신버전%20다운로드-238636?style=for-the-badge&logo=github)](https://github.com/dongkkase/ComicZIP_Optimizer/releases)
+
+</div>
+
 <kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo1.png)</kbd>
 <kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo3.png)</kbd>
 <kbd>![image](https://raw.githubusercontent.com/dongkkase/ComicZIP_Optimizer/main/demo/demo4.png)</kbd>
