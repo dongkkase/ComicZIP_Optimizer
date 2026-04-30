@@ -1,5 +1,9 @@
 # ComicZIP Optimizer
 
+**This program supports `Korean`, `English`, `Japanese`.**
+
+**The program description on the wiki page is only available in `Korean`. Please use Chrome's translation feature.**
+
 **ComicZIP Optimizer**는 만화 및 코믹스 압축 파일(ZIP, CBZ, CBR, 7Z)을 가장 효율적으로 관리하고 최적화할 수 있는 **올인원 라이브러리 도구**입니다. 
 
 클릭 몇 번만으로 복잡한 압축 파일의 내부 구조를 정리하고, 이미지 파일명을 나만의 규칙대로 일괄 수정할 수 있습니다. 특히 리디북스, 알라딘, Google Books, AniList, Comic Vine 등 다양한 국내외 API와 연동하여 글로벌 표준인 `ComicInfo.xml` 메타데이터를 손쉽게 구축할 수 있습니다. 
