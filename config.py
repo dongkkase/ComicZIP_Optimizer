@@ -27,14 +27,24 @@ def get_resource_path(filename):
 def get_bin_path(tool_name):
     system = platform.system()
     if system == "Windows":
-        base_path = get_executable_dir()
-        paths = [
-            os.path.join(base_path, "bin", "win", f"{tool_name}.exe"),
-            os.path.join(base_path, "bin", f"{tool_name}.exe"),
-            os.path.join(base_path, f"{tool_name}.exe")
-        ]
-        for p in paths:
-            if os.path.exists(p): return p
+        paths_to_check = []
+        
+        # PyInstaller 빌드 환경인 경우 _MEIPASS 우선 탐색
+        if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+            paths_to_check.append(sys._MEIPASS)
+            
+        paths_to_check.append(get_executable_dir())
+        paths_to_check.append(os.path.dirname(os.path.abspath(__file__)))
+        
+        for base_path in paths_to_check:
+            paths = [
+                os.path.join(base_path, "bin", "win", f"{tool_name}.exe"),
+                os.path.join(base_path, "bin", f"{tool_name}.exe"),
+                os.path.join(base_path, f"{tool_name}.exe")
+            ]
+            for p in paths:
+                if os.path.exists(p): 
+                    return p
         return None
     else:
         # Mac, Linux, NAS 등은 시스템 환경 변수에서 호출
