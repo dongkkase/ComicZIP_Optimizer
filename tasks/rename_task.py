@@ -147,7 +147,15 @@ class RenameTask:
             # ---------------------------------------------------------
             if os.path.exists(actual_tmp):
                 new_size = os.path.getsize(actual_tmp)
-                if new_size >= orig_size * 0.99:
+                
+                # EXIF 제거 옵션이 켜져있다면 용량이 커지지 않는 한 무조건 적용
+                # 용량 최적화만 켜져있다면 1% 이상 줄어들었을 때만(99% 미만) 적용
+                if exif_opt:
+                    is_acceptable = new_size <= orig_size
+                else:
+                    is_acceptable = new_size < (orig_size * 0.99)
+
+                if not is_acceptable:
                     os.remove(actual_tmp)
                 else:
                     if os.path.exists(old_path): os.remove(old_path)
