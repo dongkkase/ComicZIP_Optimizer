@@ -245,7 +245,7 @@ class RenamerApp(QMainWindow):
         QFrame#panelFrame { background-color: #2b2b2b; border-radius: 10px; }
         QFrame#optionsFrame { background-color: #2b2b2b; border-radius: 8px; }
         QFrame#divider { background-color: #444444; }
-        QLabel { color: #ffffff; font-family: '맑은 고딕', 'Segoe UI Emoji'; }
+        QLabel { color: #ffffff; font-family: 'Jua', 'Segoe UI Emoji'; }
         QLabel#titleLabel { font-size: 14px; font-weight: bold; margin-bottom: 5px; }
         QLabel#boldLabel { font-size: 12px; font-weight: bold; margin-top: 5px; }
         QLabel#langLabel { font-size: 12px; font-weight: bold; }
@@ -253,10 +253,10 @@ class RenamerApp(QMainWindow):
         QLabel#infoLabel { color: #aaaaaa; font-size: 11px; }
         QLabel#imageLabel { background-color: #1a1a1a; border-radius: 8px; }
         
-        QCheckBox, QRadioButton { color: #ffffff; font-family: '맑은 고딕', 'Segoe UI Emoji'; }
+        QCheckBox, QRadioButton { color: #ffffff; font-family: 'Jua', 'Segoe UI Emoji'; }
         QCheckBox:disabled, QRadioButton:disabled { color: #777777; }
         
-        QGroupBox { color: #ffffff; font-family: '맑은 고딕', 'Segoe UI Emoji'; font-weight: bold; border: 1px solid #555555; border-radius: 6px; margin-top: 12px; padding-top: 10px; }
+        QGroupBox { color: #ffffff; font-family: 'Jua', 'Segoe UI Emoji'; font-weight: bold; border: 1px solid #555555; border-radius: 6px; margin-top: 12px; padding-top: 10px; }
         QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 10px; padding: 0 5px; color: #ffffff; }
 
         QTabWidget::pane { border: 1px solid #444; border-radius: 5px; top: -1px; background: #1e1e1e; }
@@ -267,7 +267,7 @@ class RenamerApp(QMainWindow):
         QProgressBar { background-color: #3a3a3a; border: none; border-radius: 5px; }
         QProgressBar::chunk { background-color: #3498DB; border-radius: 5px; }
         
-        QPushButton { background-color: #3a3a3a; color: white; border-radius: 6px; padding: 8px 12px; font-family: '맑은 고딕', 'Segoe UI Emoji'; font-weight: bold; }
+        QPushButton { background-color: #3a3a3a; color: white; border-radius: 6px; padding: 8px 12px; font-family: 'Jua', 'Segoe UI Emoji'; font-weight: bold; }
         QPushButton:hover { background-color: #4a4a4a; }
         
         QPushButton#versionBtn { background-color: #2b2b2b; color: #cccccc; border: 1px solid #555; }

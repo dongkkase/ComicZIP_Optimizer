@@ -23,6 +23,24 @@ def get_resource_path(filename):
         if os.path.exists(path): return path
     return os.path.join(get_executable_dir(), filename)
 
+def get_font_path(font_filename):
+    """fonts/ 폴더에서 폰트 파일 경로를 반환 (Windows/Mac 크로스플랫폼)"""
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    candidates = []
+    
+    # PyInstaller 빌드 환경
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        candidates.append(os.path.join(sys._MEIPASS, 'fonts', font_filename))
+    
+    candidates.append(os.path.join(base_dir, 'fonts', font_filename))
+    candidates.append(os.path.join(get_executable_dir(), 'fonts', font_filename))
+    
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    return None
+
 # 🌟 2. 위에서 정의된 get_executable_dir()를 활용하는 탐색 함수를 정의합니다.
 def get_bin_path(tool_name):
     system = platform.system()

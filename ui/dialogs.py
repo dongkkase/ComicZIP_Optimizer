@@ -16,7 +16,7 @@ class LogDialog(QDialog):
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
         
         self.setStyleSheet("""
-            QDialog { background-color: #1e1e1e; color: #ffffff; font-family: '맑은 고딕', 'Segoe UI Emoji'; }
+            QDialog { background-color: #1e1e1e; color: #ffffff; font-family: 'Segoe UI Emoji'; }
             QLabel { color: #ffffff; }
         """)
         
@@ -67,7 +67,7 @@ class SettingsDialog(QDialog):
 
         # 🌟 탭 내부 영역까지 모두 하얀색 글자와 어두운 배경이 적용되도록 강력한 CSS 주입
         self.setStyleSheet("""
-            QDialog, QWidget { background-color: #1e1e1e; color: #ffffff; font-family: '맑은 고딕', 'Segoe UI Emoji'; }
+            QDialog, QWidget { background-color: #1e1e1e; color: #ffffff; font-family: 'Jua', 'Segoe UI Emoji'; }
             QLabel, QCheckBox { background-color: transparent; color: #ffffff; color:pointer}
             
             QTabWidget::pane { border: 1px solid #444; border-radius: 5px; background: #1e1e1e; }

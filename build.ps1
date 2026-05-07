@@ -43,6 +43,7 @@ pyinstaller -y -w -D --icon=app.ico -n "$APP_NAME" `
     --add-data "previewframe.png;." `
     --add-data "version.json;." `
     --add-data "sounds\complete.wav;." `
+    --add-data "fonts;fonts" `
     --exclude-module PyQt6.QtSql `
     --exclude-module PyQt6.QtWebEngine `
     --exclude-module PyQt6.QtWebEngineCore `

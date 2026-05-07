@@ -6,8 +6,11 @@ import re
 import urllib.parse
 from pathlib import Path
 from datetime import datetime
+import cloudscraper
 
 DB_PATH = ".api_cache.db"
+
+scraper = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False})
 
 def init_db():
     with sqlite3.connect(DB_PATH, timeout=10) as conn:
@@ -72,7 +75,7 @@ class MetaApiFetcher:
         try:
             url = "https://translate.googleapis.com/translate_a/single"
             params = {"client": "gtx", "sl": "ko", "tl": "en", "dt": "t", "q": text}
-            resp = requests.get(url, params=params, timeout=5)
+            resp = scraper.get(url, params=params, timeout=5)
             if resp.status_code == 200: return resp.json()[0][0][0]
         except: pass
         return text
@@ -103,7 +106,7 @@ class MetaApiFetcher:
         url = f"https://ridibooks.com/books/{b_id}"
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         try:
-            resp = requests.get(url, headers=headers, timeout=5)
+            resp = scraper.get(url, headers=headers, timeout=5)
             if resp.status_code == 200:
                 match = re.search(r'(\d{4})\s*[./-]\s*(\d{1,2})\s*[./-]\s*(\d{1,2})(?:<[^>]+>|\s|&nbsp;|)*출간', resp.text)
                 if match:
@@ -210,7 +213,7 @@ class MetaApiFetcher:
         params = {"q": query, "key": api_key, "startIndex": str((page - 1) * 20), "maxResults": "20"}
         results = []
         try:
-            resp = requests.get(url, params=params, timeout=10)
+            resp = scraper.get(url, params=params, timeout=10)
             if resp.status_code == 200:
                 for item in resp.json().get("items", []):
                     v_info = item.get("volumeInfo", {})
@@ -238,7 +241,7 @@ class MetaApiFetcher:
         params = {"api_key": api_key, "format": "json", "resources": "volume", "query": query, "limit": "20", "page": str(page)}
         results = []
         try:
-            response = requests.get(url, params=params, headers={"User-Agent": "ComicZIP_Optimizer_App/1.0"}, timeout=15)
+            response = scraper.get(url, params=params, headers={"User-Agent": "ComicZIP_Optimizer_App/1.0"}, timeout=15)
             if response.status_code == 429: return [], True 
             if response.status_code == 200:
                 for item in response.json().get("results", []):
@@ -268,7 +271,7 @@ class MetaApiFetcher:
         }
         results = []
         try:
-            response = requests.get(url, params=params, timeout=10)
+            response = scraper.get(url, params=params, timeout=10)
             if response.status_code == 200:
                 for item in response.json().get("item", []):
                     author_raw = item.get("author", "")
@@ -318,9 +321,13 @@ class MetaApiFetcher:
     def _search_ridibooks(query, page=1):
         url = "https://ridibooks.com/apps/search/search"
         params = [
-            ("keyword", query), ("adult_exclude", "n"), ("where", "book"), 
-            ("where", "author"), ("what", "instant"), 
-            ("size", "200"), ("site", "ridi-store")
+            ("keyword", query), 
+            ("adult_exclude", "n"), 
+            ("where", "book"), 
+            ("where", "author"), 
+            ("what", "instant"), 
+            ("size", "200"), 
+            ("site", "ridi-store")
         ]
         
         encoded_query = urllib.parse.quote_plus(query)
@@ -333,10 +340,22 @@ class MetaApiFetcher:
         }
         
         results = []
+        
+        # [터미널 출력] 통신 시작 로그
+        print(f"\n[RidiBooks API] --------------------------------------------------")
+        print(f"[RidiBooks API] 통신 시작 - Query: '{query}', Page: {page}")
+        
         try:
-            response = requests.get(url, params=params, headers=headers, timeout=10)
+            response = scraper.get(url, params=params, headers=headers, timeout=10)
+            
+            # [터미널 출력] 상태 코드 로그
+            print(f"[RidiBooks API] 통신 상태 코드: {response.status_code}")
+            
             if response.status_code == 200:
                 all_books = response.json().get("book", {}).get("books", [])
+                
+                # [터미널 출력] 전체 도서 개수 로그
+                print(f"[RidiBooks API] 응답 데이터 내 전체 책 개수: {len(all_books)}개")
                 
                 start_idx = (page - 1) * 20
                 end_idx = page * 20
@@ -353,7 +372,6 @@ class MetaApiFetcher:
                     synopsis = re.sub(r'<[^>]+>', '', str(b.get("desc", b.get("synopsis", "")))).strip() if b.get("desc") or b.get("synopsis") else ""
                     
                     cover_obj = b.get("cover", {})
-                    cover = cover_obj.get("xxlarge", "") if isinstance(cover_obj, dict) else str(cover_obj)
                     cover = cover_obj.get("xxlarge", "") if isinstance(cover_obj, dict) else str(cover_obj)
 
                     tags_info = b.get("tags_info", [])
@@ -380,5 +398,19 @@ class MetaApiFetcher:
                         "PubDate": pub_date, "Year": year, "Month": month, "Day": day, 
                         "Volume": "", "Number": "", "Characters": ""
                     })
-        except: pass
+                
+                # [터미널 출력] 최종 파싱 결과 요약
+                print(f"[RidiBooks API] 현재 페이지({page}) 파싱된 결과 수: {len(results)}개")
+                for idx, res in enumerate(results):
+                    print(f"  └ [{idx+1}] 제목: {res['Title'][:20]}... | 작가: {res['Writer'][:15]} | 출간일: {res['PubDate']}")
+            else:
+                # [터미널 출력] 통신 실패 시 로그
+                print(f"[RidiBooks API] ⚠️ 통신 실패! 응답 데이터: {response.text}")
+                
+        except Exception as e: 
+            # [터미널 출력] 예외 발생 시 (네트워크 오류, 타임아웃 등) 로그
+            print(f"[RidiBooks API] ❌ 통신 중 오류 발생: {e}")
+            pass
+        
+        print(f"[RidiBooks API] --------------------------------------------------\n")
         return results

@@ -640,7 +640,7 @@ class CustomTableView(QTableView):
                 from PyQt6.QtGui import QFont, QFontMetrics
                 
                 text = f"📁 {row_data.get('path', '')} - ~{int(row_data.get('max_ratio', 0))}%"
-                font = QFont("맑은 고딕", 10, QFont.Weight.Bold)
+                font = QFont("Jua", 10, QFont.Weight.Bold)
                 fm = QFontMetrics(font)
                 text_width = fm.horizontalAdvance(text)
                 
@@ -850,7 +850,7 @@ class ThumbnailDelegate(QStyledItemDelegate):
         if row_data.get("is_group"):
             painter.fillRect(option.rect, QColor("#2b2b2b"))
             painter.setPen(QColor("#3498DB"))
-            font = QFont("맑은 고딕", 11, QFont.Weight.Bold)
+            font = QFont("Jua", 11, QFont.Weight.Bold)
             painter.setFont(font)
             text = _("group_header").format(row_data['name'], row_data['count'])
             flags = Qt.AlignmentFlag.AlignLeft.value | Qt.AlignmentFlag.AlignVCenter.value
@@ -865,7 +865,7 @@ class ThumbnailDelegate(QStyledItemDelegate):
         if row_data.get("is_dup_folder"):
             painter.fillRect(option.rect, QColor("#1e1e1e"))
             painter.setPen(QColor("#e67e22"))
-            font = QFont("맑은 고딕", 10, QFont.Weight.Bold)
+            font = QFont("Jua", 10, QFont.Weight.Bold)
             painter.setFont(font)
             text = f"📁 {row_data['path']} - ~{int(row_data['max_ratio'])}%"
             
@@ -889,7 +889,7 @@ class ThumbnailDelegate(QStyledItemDelegate):
         if row_data.get("is_dup_child"):
             painter.fillRect(option.rect, QColor("#1e1e1e"))
             painter.setPen(QColor("#aaaaaa"))
-            font = QFont("맑은 고딕", 9)
+            font = QFont("Jua", 9)
             painter.setFont(font)
             text = f"      └ 📦 {row_data['name']} ({row_data['size_str']}) - {int(row_data['ratio'])}%"
             flags = Qt.AlignmentFlag.AlignLeft.value | Qt.AlignmentFlag.AlignVCenter.value
@@ -971,7 +971,7 @@ class ThumbnailDelegate(QStyledItemDelegate):
                     painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
                     painter.drawPixmap(x, y, nw, nh, pixmap)
             
-            font = QFont("맑은 고딕", 9)
+            font = QFont("Jua", 9)
             painter.setFont(font)
             text_rect = rect.adjusted(5, img_size + 10, -5, -5)
             flags = Qt.AlignmentFlag.AlignHCenter.value | Qt.TextFlag.TextWordWrap.value
@@ -989,7 +989,7 @@ class ThumbnailDelegate(QStyledItemDelegate):
                     painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
                     painter.drawPixmap(x, y, nw, nh, pixmap)
             
-            font = QFont("맑은 고딕", 10, QFont.Weight.Bold)
+            font = QFont("Jua", 10, QFont.Weight.Bold)
             painter.setFont(font)
             text_rect = rect.adjusted(img_size + 15, 10, -5, -5)
             flags = Qt.AlignmentFlag.AlignLeft.value | Qt.AlignmentFlag.AlignTop.value | Qt.TextFlag.TextWordWrap.value
@@ -2755,7 +2755,7 @@ class TabFolder(QWidget):
         link_html = f'<a href="{link}" style="color: #3498DB; text-decoration: none;">{link}</a>' if link != "-" else "-"
 
         info_html = f"""
-        <div style="font-family: '맑은 고딕', sans-serif;">
+        <div style="font-family: 'Jua', sans-serif;">
             <h2 style="margin: 0px 0px 5px 0px; color: #ffffff; font-size: 18pt;">{title}</h2>
             <h4 style="margin: 0px 0px 20px 0px; color: #cccccc; font-size: 12pt; font-weight: normal;">{series_info}</h4>
             
