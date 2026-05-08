@@ -1014,36 +1014,56 @@ class Tab3Metadata(QWidget):
                 if fp == saved_selection:
                     target_item_to_select = child_item
                     
-                item_widget = QWidget(); item_widget.setStyleSheet("background: transparent;")
-                item_layout = QVBoxLayout(item_widget); item_layout.setContentsMargins(4, 2, 4, 2); item_layout.setSpacing(1)
-                
+                # 1. 최상위 위젯 (트리 아이템 전체 영역)
+                item_widget = QWidget()
+                item_widget.setStyleSheet("background: transparent;")
+                outer_layout = QVBoxLayout(item_widget)
+                outer_layout.setContentsMargins(4, 4, 4, 4)
+                # 내부 요소를 통째로 수직 중앙 정렬! (이것이 핵심입니다)
+                outer_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter) 
+
+                # 2. 제목과 날짜를 꽉 묶어줄 내부 컨테이너 위젯
+                inner_widget = QWidget()
+                inner_layout = QVBoxLayout(inner_widget)
+                inner_layout.setContentsMargins(0, 0, 0, 0) # 내부 마진 완전히 0
+                inner_layout.setSpacing(2) # 제목과 날짜 사이의 숨막힘을 방지할 2px 간격
+
+                # 3. 제목 영역 조립
                 title_layout = QHBoxLayout()
                 title_layout.setContentsMargins(0, 0, 0, 0)
                 icon_lbl = QLabel()
                 icon_lbl.setPixmap(qta.icon('fa5s.file-alt', color='#bdc3c7').pixmap(12, 12))
                 lbl_title = QLabel(title)
-                lbl_title.setStyleSheet("font-size: 13px; margin-bottom:0;")
+                lbl_title.setStyleSheet("font-size: 13px; color:rgba(255,255,255,0.7);")
                 lbl_title.setWordWrap(True) 
-                title_layout.addWidget(icon_lbl)
-                title_layout.addWidget(lbl_title, 1)
                 
+                title_layout.addWidget(icon_lbl, 0, Qt.AlignmentFlag.AlignTop) # 텍스트가 길어질 경우 아이콘은 위에 고정
+                title_layout.addWidget(lbl_title, 1, Qt.AlignmentFlag.AlignVCenter)
+                
+                # 4. 날짜 영역 조립
                 date_str = mod_date if mod_date else t.get("t3_no_data", "")
-                
                 date_layout = QHBoxLayout()
                 date_layout.setContentsMargins(0, 0, 0, 0)
                 clock_lbl = QLabel()
                 clock_lbl.setPixmap(qta.icon('fa5s.clock', color='#7f8c8d').pixmap(10, 10))
                 lbl_date = QLabel(date_str)
-                lbl_date.setStyleSheet("color: #aaaaaa; font-size: 10px; margin-top:0;") 
+                lbl_date.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 10px;") 
                 
-                date_layout.addSpacing(18)
-                date_layout.addWidget(clock_lbl)
-                date_layout.addWidget(lbl_date, 1)
+                date_layout.addSpacing(18) # 들여쓰기
+                date_layout.addWidget(clock_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
+                date_layout.addWidget(lbl_date, 1, Qt.AlignmentFlag.AlignVCenter)
                 
-                item_layout.addLayout(title_layout)
-                item_layout.addLayout(date_layout)
+                # 5. 내부 상자에 제목과 날짜를 차례로 넣음 (서로 밀착됨)
+                inner_layout.addLayout(title_layout)
+                inner_layout.addLayout(date_layout)
                 
-                child_item.setSizeHint(0, QSize(200, 48)); self.tree_meta_files.setItemWidget(child_item, 0, item_widget)
+                # 6. 최상위 영역에 조립된 내부 상자를 넣음 (통째로 가운데 정렬됨)
+                outer_layout.addWidget(inner_widget)
+
+                # 최소 높이를 46px 정도로 주어 가운데 정렬이 시각적으로 예쁘게 보이도록 보장
+                optimal_height = item_widget.sizeHint().height()
+                child_item.setSizeHint(0, QSize(200, max(40, optimal_height)))
+                self.tree_meta_files.setItemWidget(child_item, 0, item_widget)
             
             # 기억해둔 이전 상태대로 복원
             if folder_name in expanded_states:

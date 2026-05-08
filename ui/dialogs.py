@@ -1,12 +1,461 @@
+import re
+import os
+import json
 import sqlite3
 import qtawesome as qta
+from datetime import datetime
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QAbstractTableModel, QModelIndex, QTimer
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit, QPushButton, 
     QFormLayout, QComboBox, QSlider, QFrame, QCheckBox, QDialogButtonBox,
-    QTabWidget, QWidget, QLineEdit, QMessageBox, QGroupBox, QListWidget
+    QTabWidget, QWidget, QLineEdit, QMessageBox, QGroupBox, QListWidget,
+    QGridLayout, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
+    QTableView, QSpinBox, QStackedWidget, QProgressBar
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor
 from ui.widgets import Toast
+
+class PreviewTableModel(QAbstractTableModel):
+    def __init__(self, data=None, headers=None):
+        super().__init__()
+        self._data = data or []
+        self._headers = headers or ["Old Name", "New Name", "Status", "Path"]
+
+    def rowCount(self, parent=QModelIndex()): return len(self._data)
+    def columnCount(self, parent=QModelIndex()): return len(self._headers)
+    
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        if not index.isValid(): return None
+        row = self._data[index.row()]
+        
+        if role == Qt.ItemDataRole.DisplayRole:
+            return str(row[index.column()])
+            
+        elif role == Qt.ItemDataRole.ForegroundRole:
+            if index.column() == 1: # New Name
+                return QColor("#3498DB") if row[0] != row[1] else QColor("white")
+            elif index.column() == 2: # Status
+                if row[2] == "OK" or row[2] == "정상" or row[2] == "正常": return QColor("#2ECC71")
+                else: return QColor("#E74C3C") # Conflict / Invalid
+        return None
+
+    def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
+        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
+            return self._headers[section]
+        return None
+
+    def update_data(self, new_data):
+        self.beginResetModel()
+        self._data = new_data
+        self.endResetModel()
+
+# --- [수정됨] 여러 규칙을 동시에 순차적으로 적용하도록 개편된 Worker ---
+class PreviewWorker(QThread):
+    preview_ready = pyqtSignal(list)
+
+    def __init__(self, file_paths, rule_data, i18n):
+        super().__init__()
+        self.file_paths = file_paths
+        self.rule_data = rule_data
+        self.i18n = i18n
+        self.is_cancelled = False
+
+    def run(self):
+        result_data = []
+        seen_new_paths = set()
+        invalid_chars = re.compile(r'[\\/:*?"<>|]')
+        
+        status_ok = self.i18n.get("tf_status_ok", "정상")
+        status_conflict = self.i18n.get("tf_status_conflict", "중복")
+        status_invalid = self.i18n.get("tf_status_invalid", "불가")
+
+        old_str = self.rule_data.get("old_str", "")
+        new_str = self.rule_data.get("new_str", "")
+        use_regex = self.rule_data.get("use_regex", False)
+        case_sens = self.rule_data.get("case_sens", False)
+        
+        use_num = self.rule_data.get("use_num", False)
+        num_start = self.rule_data.get("num_start", 1)
+        num_digits = self.rule_data.get("num_digits", 3)
+        num_pos = self.rule_data.get("num_pos", 0)
+
+        for i, old_path in enumerate(self.file_paths):
+            if self.is_cancelled: return
+            
+            dir_name = os.path.dirname(old_path)
+            old_name = os.path.basename(old_path)
+            name_no_ext, ext = os.path.splitext(old_name)
+            
+            curr_name = name_no_ext
+            
+            try:
+                flags = 0 if case_sens else re.IGNORECASE
+                
+                if old_str:
+                    if use_regex:
+                        curr_name = re.sub(old_str, new_str, curr_name, flags=flags)
+                    else:
+                        # --- [핵심 개선] 직관적인 %1, %2 매핑 엔진 ---
+                        # 1. 특수문자 이스케이프 
+                        escaped_old = re.escape(old_str).replace(r'\%', '%')
+                        
+                        # 2. %n 과 와일드카드(*, ?)를 분석하여 정규식 그룹으로 치환
+                        pattern_parts = []
+                        var_map = {} # 정규식 그룹 순서 -> 사용자가 입력한 %n 숫자
+                        group_idx = 1
+                        
+                        tokens = re.split(r'(%\d+|\\\*|\\\?)', escaped_old)
+                        for token in tokens:
+                            if not token: continue
+                            if re.match(r'%\d+', token):
+                                var_id = int(token[1:]) # '%2' -> 2
+                                var_map[group_idx] = var_id
+                                pattern_parts.append(r'(.*?)')
+                                group_idx += 1
+                            elif token == r'\*':
+                                pattern_parts.append(r'(.*?)')
+                                group_idx += 1
+                            elif token == r'\?':
+                                pattern_parts.append(r'(.)')
+                                group_idx += 1
+                            else:
+                                pattern_parts.append(token)
+                                
+                        regex_pattern = f"^{''.join(pattern_parts)}$"
+                        
+                        # 3. 매칭 수행
+                        match = re.match(regex_pattern, curr_name, flags=flags)
+                        if match:
+                            # %n 변수에 해당하는 값만 추출 (예: %2에 해당하는 값은 '12')
+                            extracted_vars = {}
+                            for g_idx, v_id in var_map.items():
+                                extracted_vars[v_id] = match.group(g_idx)
+                                
+                            # 4. 새 형식(new_str)에 추출된 값 대입
+                            def build_new_str(m):
+                                var_id = int(m.group(1))
+                                return extracted_vars.get(var_id, m.group(0)) # 못 찾으면 원래 %n 텍스트 유지
+                                
+                            curr_name = re.sub(r'%(\d+)', build_new_str, new_str)
+
+                # 순번 적용
+                if use_num:
+                    num_str = f"{num_start + i:0{num_digits}d}"
+                    if num_pos == 0: curr_name = f"{num_str}_{curr_name}"
+                    else: curr_name = f"{curr_name}_{num_str}"
+
+            except Exception:
+                pass 
+
+            # 확장자 결합 및 충돌 검사
+            new_name = f"{curr_name}{ext}"
+            new_path = os.path.join(dir_name, new_name)
+            status = status_ok
+            
+            if invalid_chars.search(new_name):
+                status = status_invalid
+            elif new_path != old_path:
+                if new_path.lower() in seen_new_paths or os.path.exists(new_path):
+                    status = status_conflict
+            
+            seen_new_paths.add(new_path.lower())
+            result_data.append((old_name, new_name, status, old_path))
+            
+        self.preview_ready.emit(result_data)
+
+class RenameWorker(QThread):
+    progress = pyqtSignal(int, int)
+    finished_batch = pyqtSignal(dict, list)
+
+    def __init__(self, rename_tasks):
+        super().__init__()
+        self.rename_tasks = rename_tasks
+
+    def run(self):
+        success_map = {}
+        errors = []
+        total = len(self.rename_tasks)
+        
+        for i, (old_path, new_path) in enumerate(self.rename_tasks):
+            if old_path != new_path:
+                try:
+                    os.rename(old_path, new_path)
+                    success_map[new_path] = old_path 
+                except Exception as e:
+                    errors.append(f"{os.path.basename(old_path)}: {str(e)}")
+            self.progress.emit(i + 1, total)
+            
+        self.finished_batch.emit(success_map, errors)
+
+
+# --- [추가됨] 한글 조합 중에도 실시간으로 이벤트를 발생시키는 커스텀 입력창 ---
+class IMELineEdit(QLineEdit):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._preedit_text = ""
+
+    def inputMethodEvent(self, event):
+        super().inputMethodEvent(event)
+        # 현재 한글 조합 중인(밑줄 친) 글자를 실시간으로 저장합니다.
+        self._preedit_text = event.preeditString()
+        # 조합 중인 텍스트가 바뀔 때마다 실시간으로 이벤트를 발생시킵니다.
+        self.textChanged.emit(self.text())
+
+    def text(self):
+        # 1. 이미 조합이 완료된 기존 텍스트를 가져옵니다.
+        base_text = super().text()
+        
+        # 2. 조합 중인 글자가 있다면, 현재 커서 위치에 해당 글자를 끼워 넣어서 반환합니다.
+        if self._preedit_text:
+            cursor = self.cursorPosition()
+            return base_text[:cursor] + self._preedit_text + base_text[cursor:]
+            
+        return base_text
+
+# --- [수정됨] Everything 스타일 복합 다이얼로그 UI ---
+class MultiRenameDialog(QDialog):
+    def __init__(self, file_paths, i18n, parent=None):
+        super().__init__(parent)
+        self.file_paths = file_paths
+        self.i18n = i18n
+        self.setWindowTitle(i18n.get("tf_rename_title", "여러 파일 이름 바꾸기"))
+        self.resize(1000, 650)
+        
+        self.preview_thread = None
+        self.debounce_timer = QTimer()
+        self.debounce_timer.setSingleShot(True)
+        self.debounce_timer.timeout.connect(self._run_preview_worker)
+        
+        self.setup_ui()
+        self.auto_infer_patterns() # 자동 패턴 추론
+        self.schedule_preview()
+
+    def setup_ui(self):
+        main_layout = QVBoxLayout(self)
+        
+        opt_group = QGroupBox(self.i18n.get("tf_rename_mode", "이름 바꾸기 규칙"))
+        opt_group.setStyleSheet("QGroupBox { font-weight: bold; border: 1px solid #555; margin-top: 10px; padding-top: 15px; }")
+        grid = QGridLayout(opt_group)
+        
+        # [핵심 변경] QLineEdit 대신 직접 만든 IMELineEdit을 사용합니다.
+        grid.addWidget(QLabel(self.i18n.get("tf_old_format", "기존 형식:")), 0, 0)
+        self.le_old = IMELineEdit() 
+        grid.addWidget(self.le_old, 0, 1)
+
+        grid.addWidget(QLabel(self.i18n.get("tf_new_format", "새 형식:")), 1, 0)
+        self.le_new = IMELineEdit()
+        grid.addWidget(self.le_new, 1, 1)
+
+        checkbox_layout = QHBoxLayout()
+        self.chk_case = QCheckBox(self.i18n.get("tf_case_sensitive", "대소문자 구분"))
+        self.chk_regex = QCheckBox(self.i18n.get("tf_use_regex", "정규식(Regex) 모드"))
+        checkbox_layout.addWidget(self.chk_case)
+        checkbox_layout.addWidget(self.chk_regex)
+        checkbox_layout.addStretch()
+        grid.addLayout(checkbox_layout, 2, 1)
+
+        num_layout = QHBoxLayout()
+        self.chk_num = QCheckBox(self.i18n.get("tf_rule_numbering", "순번 추가"))
+        self.sp_start = QSpinBox(); self.sp_start.setRange(0, 99999); self.sp_start.setValue(1)
+        self.sp_digits = QSpinBox(); self.sp_digits.setRange(1, 10); self.sp_digits.setValue(3)
+        self.cb_pos = QComboBox()
+        self.cb_pos.addItems([self.i18n.get("tf_pos_front", "앞(Front)"), self.i18n.get("tf_pos_back", "뒤(Back)")])
+        
+        self.num_widgets = [self.sp_start, self.sp_digits, self.cb_pos]
+        for w in self.num_widgets: w.setEnabled(False)
+        self.chk_num.stateChanged.connect(lambda state: [w.setEnabled(state == Qt.CheckState.Checked.value) for w in self.num_widgets])
+        
+        num_layout.addWidget(self.chk_num)
+        num_layout.addWidget(QLabel(self.i18n.get("tf_num_start", "시작:")))
+        num_layout.addWidget(self.sp_start)
+        num_layout.addWidget(QLabel(self.i18n.get("tf_num_digits", "자리수:")))
+        num_layout.addWidget(self.sp_digits)
+        num_layout.addWidget(QLabel(self.i18n.get("tf_num_pos", "위치:")))
+        num_layout.addWidget(self.cb_pos)
+        num_layout.addStretch()
+        grid.addLayout(num_layout, 3, 0, 1, 2)
+
+        main_layout.addWidget(opt_group)
+        
+        # 이벤트 연결
+        for widget in [self.le_old, self.le_new]:
+            widget.textChanged.connect(self.schedule_preview)
+        for widget in [self.chk_case, self.chk_num]:
+            widget.stateChanged.connect(self.schedule_preview)
+            
+        self.chk_regex.stateChanged.connect(self.toggle_regex_mode)
+        
+        for widget in [self.sp_start, self.sp_digits]:
+            widget.valueChanged.connect(self.schedule_preview)
+        self.cb_pos.currentIndexChanged.connect(self.schedule_preview)
+
+        headers = [self.i18n.get("tf_col_old_name", "이전 파일 이름"), 
+                   self.i18n.get("tf_col_new_name", "새 파일 이름"), 
+                   self.i18n.get("tf_col_status", "상태"), 
+                   self.i18n.get("tf_col_path", "경로")]
+        
+        self.table_model = PreviewTableModel([], headers)
+        self.table_view = QTableView()
+        self.table_view.setModel(self.table_model)
+        self.table_view.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.table_view.horizontalHeader().setStretchLastSection(True)
+        self.table_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table_view.verticalHeader().hide()
+        main_layout.addWidget(self.table_view)
+        
+        bottom_layout = QHBoxLayout()
+        self.progress_bar = QProgressBar(); self.progress_bar.hide()
+        bottom_layout.addWidget(self.progress_bar)
+        
+        self.btn_ok = QPushButton(self.i18n.get("btn_ok", "확인"))
+        self.btn_cancel = QPushButton(self.i18n.get("btn_cancel", "취소"))
+        self.btn_ok.clicked.connect(self.execute_rename)
+        self.btn_cancel.clicked.connect(self.reject)
+        bottom_layout.addWidget(self.btn_ok); bottom_layout.addWidget(self.btn_cancel)
+        main_layout.addLayout(bottom_layout)
+        
+        self.table_view.setColumnWidth(0, 300); self.table_view.setColumnWidth(1, 300); self.table_view.setColumnWidth(2, 80)
+
+    def toggle_regex_mode(self, state):
+        import re
+        old_text = self.le_old.text()
+        new_text = self.le_new.text()
+        
+        self.le_old.blockSignals(True)
+        self.le_new.blockSignals(True)
+        
+        if state == Qt.CheckState.Checked.value:
+            new_old = re.sub(r'%\d+', r'(\\d+)', old_text)
+            new_new = re.sub(r'%(\d+)', r'\\\1', new_text)
+        else:
+            counter = [1]
+            def replace_group(match):
+                val = f"%{counter[0]}"
+                counter[0] += 1
+                return val
+            new_old = re.sub(r'\(\.\*\?\)|\(\\d\+\)', replace_group, old_text)
+            new_new = re.sub(r'\\(\d+)', r'%\1', new_text)
+            
+        self.le_old.setText(new_old)
+        self.le_new.setText(new_new)
+        
+        self.le_old.blockSignals(False)
+        self.le_new.blockSignals(False)
+        self.schedule_preview()
+
+    def auto_infer_patterns(self):
+        if not self.file_paths: return
+        
+        names = [os.path.basename(p) for p in self.file_paths]
+        if len(names) < 1: return
+
+        import re
+        basenames = [os.path.splitext(n)[0] for n in names]
+        split_names = [re.split(r'(\d+)', b) for b in basenames]
+        
+        base_structure = split_names[0]
+        
+        is_uniform = True
+        if len(names) > 1:
+            for sn in split_names[1:]:
+                if len(sn) != len(base_structure):
+                    is_uniform = False
+                    break
+                for i in range(0, len(sn), 2): 
+                    if sn[i] != base_structure[i]:
+                        is_uniform = False
+                        break
+                        
+        if is_uniform and len(base_structure) > 1:
+            old_pattern = ""
+            new_pattern = ""
+            var_idx = 1
+            for i, part in enumerate(base_structure):
+                if i % 2 == 0: 
+                    old_pattern += part
+                    new_pattern += part
+                else:         
+                    old_pattern += f"%{var_idx}"
+                    new_pattern += f"%{var_idx}"
+                    var_idx += 1
+                    
+            self.le_old.setText(old_pattern)
+            self.le_new.setText(new_pattern)
+            return
+            
+        def get_common_prefix(strs):
+            if not strs: return ""
+            s1, s2 = min(strs), max(strs)
+            for i, c in enumerate(s1):
+                if c != s2[i]: return s1[:i]
+            return s1
+
+        prefix = get_common_prefix(basenames)
+        suffix = ""
+        if prefix:
+            rev = [b[len(prefix):][::-1] for b in basenames]
+            suf = get_common_prefix(rev)
+            suffix = suf[::-1]
+            
+        if prefix or suffix:
+            self.le_old.setText(f"{prefix}%1{suffix}")
+            self.le_new.setText(f"{prefix}%1{suffix}")
+        else:
+            self.le_old.setText("%1")
+            self.le_new.setText("%1")
+
+    def schedule_preview(self):
+        self.debounce_timer.start(100)
+
+    def _run_preview_worker(self):
+        if self.preview_thread and self.preview_thread.isRunning():
+            self.preview_thread.is_cancelled = True
+            self.preview_thread.wait()
+
+        rule_data = {
+            "old_str": self.le_old.text(),
+            "new_str": self.le_new.text(),
+            "use_regex": self.chk_regex.isChecked(),
+            "case_sens": self.chk_case.isChecked(),
+            "use_num": self.chk_num.isChecked(),
+            "num_start": self.sp_start.value(),
+            "num_digits": self.sp_digits.value(),
+            "num_pos": self.cb_pos.currentIndex()
+        }
+
+        self.preview_thread = PreviewWorker(self.file_paths, rule_data, self.i18n)
+        self.preview_thread.preview_ready.connect(self.table_model.update_data)
+        self.preview_thread.start()
+
+    def execute_rename(self):
+        tasks = []
+        for row in self.table_model._data:
+            old_name, new_name, status, path = row
+            if (status == self.i18n.get("tf_status_ok", "정상") or status == "OK") and old_name != new_name:
+                tasks.append((path, os.path.join(os.path.dirname(path), new_name)))
+        if not tasks: self.accept(); return
+        self.btn_ok.setEnabled(False); self.progress_bar.show(); self.progress_bar.setMaximum(len(tasks))
+        self.rename_thread = RenameWorker(tasks)
+        self.rename_thread.progress.connect(self.progress_bar.setValue)
+        self.rename_thread.finished_batch.connect(self.on_rename_finished)
+        self.rename_thread.start()
+
+    def on_rename_finished(self, success_map, errors):
+        if success_map:
+            try:
+                import json; from datetime import datetime
+                history_file = os.path.join(os.getcwd(), "rename_history.json")
+                history = []
+                if os.path.exists(history_file):
+                    with open(history_file, "r", encoding="utf-8") as f: history = json.load(f)
+                history.append({"timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "mapping": success_map})
+                if len(history) > 10: history = history[-10:]
+                with open(history_file, "w", encoding="utf-8") as f: json.dump(history, f, ensure_ascii=False, indent=2)
+            except: pass
+        if errors: QMessageBox.warning(self, self.i18n.get("msg_notice", "알림"), f"{len(success_map)}개 성공\n오류:\n" + "\n".join(errors[:10]))
+        else: from ui.widgets import Toast; Toast.show(self.parent(), f"{len(success_map)}개의 파일 이름을 변경했습니다.")
+        self.accept()
 
 class LogDialog(QDialog):
     def __init__(self, parent, stats, i18n, show_continue_btn=False, continue_key="btn_continue_tab2"):

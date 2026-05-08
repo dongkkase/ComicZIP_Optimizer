@@ -2043,6 +2043,8 @@ class TabFolder(QWidget):
         QShortcut(QKeySequence("F2"), self).activated.connect(self.send_to_tab2)
         QShortcut(QKeySequence("F3"), self).activated.connect(self.hotkey_f3)
         QShortcut(QKeySequence("Del"), self).activated.connect(self.delete_selected)
+        QShortcut(QKeySequence("Shift+R"), self).activated.connect(self.action_multi_rename)
+        QShortcut(QKeySequence("Ctrl+Z"), self).activated.connect(self.action_undo_rename)
 
     def hotkey_f3(self): # F2였던 메서드명을 논리에 맞게 변경
         if self.tree_view.hasFocus():
@@ -2824,21 +2826,118 @@ class TabFolder(QWidget):
         if not self.get_selected_files(): return
         
         menu = QMenu()
-        menu.addAction(_("action_view"), self.open_viewer)
         
-        menu.addAction(_("action_flatten_structure") + " (F1)", self.send_to_tab1)
-        menu.addAction(_("action_inner_ren") + " (F2)", self.send_to_tab2)
-        menu.addAction(_("action_meta_edit") + " (F3)", self.send_to_tab3)
+        # 단축키를 우측에 깔끔하게 정렬해주는 헬퍼 함수
+        def add_menu_action(text, shortcut, slot):
+            action = QAction(text, self)
+            if shortcut:
+                action.setShortcut(shortcut)
+            action.triggered.connect(slot)
+            menu.addAction(action)
+            return action
+
+        add_menu_action(_("action_view"), None, self.open_viewer)
         
-        menu.addAction(_("action_update_files"), self.force_update_selected_files)
+        # 사용자가 i18n에서 "(F1)" 등의 텍스트를 제거하면 원문만 깔끔하게 나오고 우측에 단축키가 정렬됩니다.
+        add_menu_action(_("action_flatten_structure"), "F1", self.send_to_tab1)
+        add_menu_action(_("action_inner_ren"), "F2", self.send_to_tab2)
+        add_menu_action(_("action_meta_edit"), "F3", self.send_to_tab3)
+        
+        add_menu_action(_("action_update_files"), None, self.force_update_selected_files)
         menu.addSeparator()
-        menu.addAction(_("action_del_files"), self.delete_selected)
-        menu.addAction(_("action_open_exp"), self.open_selected_in_explorer)
+        add_menu_action(_("action_del_files"), "Del", self.delete_selected)
+        
+        # [수정] 여러 파일 이름 바꾸기 (Shift+R)
+        add_menu_action(_("tf_menu_rename_multi"), "Shift+R", self.action_multi_rename)
+        
+        # [수정] 실행 취소 (Undo)
+        history_file = os.path.join(os.getcwd(), "rename_history.json")
+        if os.path.exists(history_file):
+            add_menu_action(_("tf_undo_rename"), "Ctrl+Z", self.action_undo_rename)
+        
+        add_menu_action(_("action_open_exp"), None, self.open_selected_in_explorer)
         menu.addSeparator()
-        menu.addAction(_("action_sel_all"), self.select_all_files)
-        menu.addAction(_("action_inv_sel"), self.invert_selection)
-        menu.addAction(_("action_refresh"), self.refresh_list)
+        add_menu_action(_("action_sel_all"), "Ctrl+A", self.select_all_files)
+        add_menu_action(_("action_inv_sel"), None, self.invert_selection)
+        add_menu_action(_("action_refresh"), "F5", self.refresh_list)
+        
         menu.exec(view.viewport().mapToGlobal(position))
+
+    # [신규] 최근 이름 변경을 복구하는 Undo 로직
+    def action_undo_rename(self):
+        import json
+        history_file = os.path.join(os.getcwd(), "rename_history.json")
+        if not os.path.exists(history_file): return
+        
+        try:
+            with open(history_file, "r", encoding="utf-8") as f:
+                history = json.load(f)
+                
+            if not history: 
+                QMessageBox.warning(self, "Undo", _("tf_undo_fail"))
+                return
+                
+            last_record = history.pop() # 가장 최근 기록 꺼내기
+            mapping = last_record.get("mapping", {})
+            success_count = 0
+            
+            for current_path, old_path in mapping.items():
+                if os.path.exists(current_path) and not os.path.exists(old_path):
+                    try:
+                        os.rename(current_path, old_path)
+                        success_count += 1
+                    except Exception as e: print(e)
+                    
+            # 남은 기록 다시 저장
+            with open(history_file, "w", encoding="utf-8") as f:
+                json.dump(history, f, ensure_ascii=False, indent=2)
+                
+            from ui.widgets import Toast
+            Toast.show(self.main_window, _("tf_undo_success") + f" ({success_count} files)")
+            self.refresh_list()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Undo Error", str(e))
+
+    def action_multi_rename(self):
+        """일괄 이름 바꾸기 실행 로직"""
+        selected_files = self.get_selected_files()
+        if not selected_files: return
+        
+        from ui.dialogs import MultiRenameDialog
+        from core.i18n import get_i18n
+        
+        # 현재 활성화된 언어 사전 가져오기
+        current_i18n = get_i18n().get(_CURRENT_LANG, get_i18n()["ko"])
+        
+        dialog = MultiRenameDialog(selected_files, current_i18n, self)
+        if dialog.exec():
+            self.refresh_list()
+            
+            rename_map = dialog.get_rename_map()
+            if not rename_map: return
+            
+            success_count = 0
+            errors = []
+            
+            for old_path, new_path in rename_map.items():
+                try:
+                    if os.path.exists(new_path) and old_path.lower() != new_path.lower():
+                        errors.append(f"중복 발생: {os.path.basename(new_path)}")
+                        continue
+                        
+                    os.rename(old_path, new_path)
+                    success_count += 1
+                except Exception as e:
+                    errors.append(f"{os.path.basename(old_path)}: {str(e)}")
+            
+            self.refresh_list() 
+            
+            if errors:
+                QMessageBox.warning(self, current_i18n.get("msg_notice", "알림"), f"{success_count}개 변경 성공\n오류:\n" + "\n".join(errors))
+            else:
+                from ui.widgets import Toast
+                Toast.show(self.main_window, f"{success_count}개의 파일 이름을 변경했습니다.")
 
     def select_all_files(self):
         self.get_active_view().selectAll()

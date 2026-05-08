@@ -379,11 +379,16 @@ class RenamerApp(QMainWindow):
                 self.tab2.on_pattern_change(self.tab2.cb_pattern.currentText())
 
     def open_settings(self):
+        # 1. 설정 창을 열기 전 기존 언어 값을 저장해 둡니다.
+        old_lang = self.config.get("lang", "ko")
+        
         dlg = SettingsDialog(self, self.config, self.format_keys, self.i18n)
         dlg.setStyleSheet(self.styleSheet()) 
         from PyQt6.QtWidgets import QDialog
+        
         if dlg.exec() == int(QDialog.DialogCode.Accepted):
             new_data = dlg.get_data()
+            new_lang = new_data.get("lang", "ko")
             
             dup_folders_changed = new_data.get("dup_check_folders", []) != self.config.get("dup_check_folders", [])
             format_changed = new_data.get("target_format") != self.config.get("target_format")
@@ -404,6 +409,29 @@ class RenamerApp(QMainWindow):
             self.config.update(new_data)
             self.lang = self.config["lang"]
             save_config(self.config)
+            
+            # 2. 언어 변경 여부 확인 및 프로그램 재시작 로직
+            if old_lang != new_lang:
+                if new_lang == "ko":
+                    restart_msg = "언어 설정이 변경되었습니다. 적용을 위해 프로그램을 재시작합니다."
+                    restart_title = "프로그램 재시작"
+                elif new_lang == "ja":
+                    restart_msg = "言語設定が変更されました。適用するためにプログラムを再起動します。"
+                    restart_title = "プログラムの再起動"
+                else:
+                    restart_msg = "Language settings have changed. The program will restart to apply."
+                    restart_title = "Program Restart"
+                    
+                QMessageBox.information(self, restart_title, restart_msg)
+                
+                # 재시작 명령어 실행 (현재 앱 종료 후 파이썬 인터프리터 재실행)
+                from PyQt6.QtCore import QCoreApplication
+                import sys, os
+                QCoreApplication.quit()
+                os.execl(sys.executable, sys.executable, *sys.argv)
+                return # 재시작이 실행되므로 이후 코드는 중단합니다.
+
+            # 언어가 변경되지 않았을 때만 아래 기존 UI 업데이트 코드들이 실행됩니다.
             self.apply_language()
 
             # [추가됨] B폴더가 변경되었으면 재인덱싱 트리거
@@ -411,7 +439,7 @@ class RenamerApp(QMainWindow):
                 self.tab_folder.start_dup_scan()
 
             if hasattr(self.tab2, 'update_inner_preview_list'):
-                self.tab2.update_inner_preview_list() 
+                self.tab2.update_inner_preview_list()
 
     def dragEnterEvent(self, event):
         # 변수명 변경 및 인덱스 4(릴리즈 노트)에서 드롭 무시
