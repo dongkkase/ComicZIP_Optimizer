@@ -218,6 +218,9 @@ class MultiRenameDialog(QDialog):
         super().__init__(parent)
         self.file_paths = file_paths
         self.i18n = i18n
+        # 부모로부터 config 로드하여 폰트 배율 가져오기
+        self.config = parent.config if parent and hasattr(parent, 'config') else {}
+        
         self.setWindowTitle(i18n.get("tf_rename_title", "여러 파일 이름 바꾸기"))
         self.resize(1000, 650)
         
@@ -237,7 +240,6 @@ class MultiRenameDialog(QDialog):
         opt_group.setStyleSheet("QGroupBox { font-weight: bold; border: 1px solid #555; margin-top: 10px; padding-top: 15px; }")
         grid = QGridLayout(opt_group)
         
-        # [핵심 변경] QLineEdit 대신 직접 만든 IMELineEdit을 사용합니다.
         grid.addWidget(QLabel(self.i18n.get("tf_old_format", "기존 형식:")), 0, 0)
         self.le_old = IMELineEdit() 
         grid.addWidget(self.le_old, 0, 1)
@@ -277,7 +279,6 @@ class MultiRenameDialog(QDialog):
 
         main_layout.addWidget(opt_group)
         
-        # 이벤트 연결
         for widget in [self.le_old, self.le_new]:
             widget.textChanged.connect(self.schedule_preview)
         for widget in [self.chk_case, self.chk_num]:
@@ -316,6 +317,12 @@ class MultiRenameDialog(QDialog):
         main_layout.addLayout(bottom_layout)
         
         self.table_view.setColumnWidth(0, 300); self.table_view.setColumnWidth(1, 300); self.table_view.setColumnWidth(2, 80)
+        
+        # --- 배율에 따른 폰트 크기 강제 적용 ---
+        scale = self.config.get("font_scale", 100) / 100.0 if self.config else 1.0
+        s11 = int(11 * scale)
+        self.table_view.setStyleSheet(f"font-size: {s11}px;")
+        self.table_view.horizontalHeader().setStyleSheet(f"font-size: {s11}px;")
 
     def toggle_regex_mode(self, state):
         import re
@@ -460,6 +467,12 @@ class MultiRenameDialog(QDialog):
 class LogDialog(QDialog):
     def __init__(self, parent, stats, i18n, show_continue_btn=False, continue_key="btn_continue_tab2"):
         super().__init__(parent)
+        
+        # 배율 계산
+        scale = parent.config.get("font_scale", 100) / 100.0 if hasattr(parent, 'config') else 1.0
+        s14 = int(14 * scale)
+        s11 = int(11 * scale)
+        
         self.setWindowTitle(i18n["log_title"])
         self.resize(550, 400)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
@@ -471,12 +484,14 @@ class LogDialog(QDialog):
         
         layout = QVBoxLayout(self)
         lbl_summary = QLabel(f"Success: {len(stats['success'])}  |  Skip: {len(stats['skip'])}  |  Error: {len(stats['error'])}")
-        lbl_summary.setStyleSheet("font-weight: bold; font-size: 14px; margin-bottom: 10px; color: #ffffff;")
+        # 하드코딩된 font-size를 배율이 적용된 s14로 변경
+        lbl_summary.setStyleSheet(f"font-weight: bold; font-size: {s14}px; margin-bottom: 10px; color: #ffffff;")
         layout.addWidget(lbl_summary)
         
         self.text_edit = QTextEdit()
         self.text_edit.setReadOnly(True)
-        self.text_edit.setStyleSheet("background-color: #1a1a1a; color: #e0e0e0; font-family: Consolas, monospace; padding: 10px; border: 1px solid #444; border-radius: 4px;")
+        # 폰트 크기 s11 적용
+        self.text_edit.setStyleSheet(f"background-color: #1a1a1a; color: #e0e0e0; font-family: Consolas, monospace; font-size: {s11}px; padding: 10px; border: 1px solid #444; border-radius: 4px;")
         
         log_content = ""
         if stats['error']: log_content += "[ERRORS]\n" + "\n".join(stats['error']) + "\n\n"
@@ -514,32 +529,37 @@ class SettingsDialog(QDialog):
         self.chk_pass_skip_meta.setToolTip(self.i18n.get("opt_pass_skip_meta_tip", ""))
         self.chk_pass_skip_meta.setChecked(self.config.get("pass_skip_meta", False))
 
-        # 🌟 탭 내부 영역까지 모두 하얀색 글자와 어두운 배경이 적용되도록 강력한 CSS 주입
-        self.setStyleSheet("""
-            QDialog, QWidget { background-color: #1e1e1e; color: #ffffff; font-family: 'Jua', 'Segoe UI Emoji'; }
-            QLabel, QCheckBox { background-color: transparent; color: #ffffff; color:pointer}
+        # 폰트 패밀리 및 스케일 비례 적용을 위한 변수 계산
+        scale = self.config.get("font_scale", 100) / 100.0
+        ff = self.config.get("font_family", "Default")
+        font_family_str = "'Jua', 'Noto Sans KR', 'Segoe UI Emoji'" if ff == "Default" else f"'{ff}', 'Segoe UI Emoji'"
+        s11 = int(11 * scale)
+
+        # 🌟 CSS에 동적 폰트 패밀리 적용 (오류 수정됨)
+        self.setStyleSheet(f"""
+            QDialog, QWidget {{ background-color: #1e1e1e; color: #ffffff; font-family: {font_family_str}; }}
+            QLabel, QCheckBox {{ background-color: transparent; color: #ffffff; }}
             
-            QTabWidget::pane { border: 1px solid #444; border-radius: 5px; background: #1e1e1e; }
+            QTabWidget::pane {{ border: 1px solid #444; border-radius: 5px; background: #1e1e1e; }}
             
-            QTabBar::tab { background: #2b2b2b; color: #888; border: 1px solid #444; padding: 8px 20px; font-weight: bold; }
-            QTabBar::tab:selected { background: #3a7ebf; color: #ffffff; }
+            QTabBar::tab {{ background: #2b2b2b; color: #888; border: 1px solid #444; padding: 8px 20px; font-weight: bold; }}
+            QTabBar::tab:selected {{ background: #3a7ebf; color: #ffffff; }}
             
-            QGroupBox { border: 1px solid #555; border-radius: 6px; margin-top: 15px; padding-top: 15px; font-weight: bold; color: #ffffff; background-color: transparent; }
-            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; color: #3498DB; }
+            QGroupBox {{ border: 1px solid #555; border-radius: 6px; margin-top: 15px; padding-top: 15px; font-weight: bold; color: #ffffff; background-color: transparent; }}
+            QGroupBox::title {{ subcontrol-origin: margin; left: 10px; padding: 0 5px; color: #3498DB; }}
             
-            QComboBox, QLineEdit, QTextEdit { background-color: #3a3a3a; color: #ffffff; border: 1px solid #555; border-radius: 4px; padding: 5px; }
-            QPushButton { background-color: #3a3a3a; color: white; border-radius: 4px; padding: 6px 12px; font-weight: bold; border: 1px solid #555; }
-            QPushButton:hover { background-color: #4a4a4a; }
+            QComboBox, QLineEdit, QTextEdit {{ background-color: #3a3a3a; color: #ffffff; border: 1px solid #555; border-radius: 4px; padding: 5px; }}
+            QPushButton {{ background-color: #3a3a3a; color: white; border-radius: 4px; padding: 6px 12px; font-weight: bold; border: 1px solid #555; }}
+            QPushButton:hover {{ background-color: #4a4a4a; }}
             
-            QSlider::groove:horizontal { border-radius: 4px; height: 8px; background: #3a3a3a; }
-            QSlider::handle:horizontal { background: #3498DB; width: 16px; height: 16px; margin: -4px 0; border-radius: 8px; }
+            QSlider::groove:horizontal {{ border-radius: 4px; height: 8px; background: #3a3a3a; }}
+            QSlider::handle:horizontal {{ background: #3498DB; width: 16px; height: 16px; margin: -4px 0; border-radius: 8px; }}
         """)
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(15, 15, 15, 15)
         
         self.tabs = QTabWidget()
-        
         self.tab_basic = QWidget()
         basic_layout = QVBoxLayout(self.tab_basic)
         basic_layout.setContentsMargins(15, 15, 15, 15)
@@ -547,6 +567,32 @@ class SettingsDialog(QDialog):
         
         form_layout = QFormLayout()
         form_layout.setSpacing(15)
+
+        # ---------------- 폰트 설정 항목 추가 (수정됨) ----------------
+        from PyQt6.QtGui import QFontDatabase
+        
+        self.cb_font_family = QComboBox()
+        self.cb_font_family.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.cb_font_family.addItem("Default")
+        
+        # PyQt6 방식 적용
+        for family in QFontDatabase.families():
+            self.cb_font_family.addItem(family)
+            
+        self.cb_font_family.setCurrentText(ff)
+        form_layout.addRow(self.i18n.get("font_family_lbl", "글꼴:"), self.cb_font_family)
+        
+        self.cb_font_scale = QComboBox()
+        self.cb_font_scale.setCursor(Qt.CursorShape.PointingHandCursor)
+        for val in range(80, 155, 5):
+            self.cb_font_scale.addItem(f"{val}%", val)
+            
+        curr_scale = self.config.get("font_scale", 100)
+        idx = self.cb_font_scale.findData(curr_scale)
+        if idx >= 0:
+            self.cb_font_scale.setCurrentIndex(idx)
+        form_layout.addRow(self.i18n.get("font_size_lbl", "크기:"), self.cb_font_scale)
+        # ---------------------------------------------------
 
         self.cb_lang = QComboBox()
         self.cb_lang.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -595,7 +641,7 @@ class SettingsDialog(QDialog):
         
         lbl_threads_desc = QLabel(self.i18n.get("threads_desc", ""))
         lbl_threads_desc.setWordWrap(True)
-        lbl_threads_desc.setStyleSheet("color: #E74C3C; font-size: 11px; margin-top: 5px;")
+        lbl_threads_desc.setStyleSheet(f"color: #E74C3C; font-size: {s11}px; margin-top: 5px;")
         form_layout.addRow(self.i18n.get("max_threads", "스레드:"), th_layout)
         form_layout.addRow("", lbl_threads_desc)
         basic_layout.addLayout(form_layout)
@@ -621,25 +667,21 @@ class SettingsDialog(QDialog):
         self.chk_flatten.setChecked(config.get("flatten_folders", False))
         lbl_flatten_desc = QLabel(self.i18n.get("flatten_desc", ""))
         lbl_flatten_desc.setWordWrap(True)
-        lbl_flatten_desc.setStyleSheet("color: #aaaaaa; font-size: 11px; margin-left: 25px;")
+        lbl_flatten_desc.setStyleSheet(f"color: #aaaaaa; font-size: {s11}px; margin-left: 25px;")
         opt_layout.addWidget(self.chk_flatten)
         opt_layout.addWidget(lbl_flatten_desc)
 
-        # --- [여기에 추가] 스킵된 파일 탭 3 전달 체크박스 ---
         opt_layout.addSpacing(15)
         self.chk_pass_skip_meta = QCheckBox(self.i18n.get("opt_pass_skip_meta", "스킵된 파일도 메타데이터 관리로 넘기기"))
         self.chk_pass_skip_meta.setCursor(Qt.CursorShape.PointingHandCursor)
         self.chk_pass_skip_meta.setChecked(config.get("pass_skip_meta", False))
         self.chk_pass_skip_meta.setToolTip(self.i18n.get("opt_pass_skip_meta_tip", ""))
         opt_layout.addWidget(self.chk_pass_skip_meta)
-        # --------------------------------------------------
 
         opt_layout.addSpacing(15)
         
-        # 🌟 1. 공통 이미지 압축 품질 슬라이더 (독립된 글로벌 옵션으로 위로 배치)
         self.slider_quality = QSlider(Qt.Orientation.Horizontal)
         self.slider_quality.setRange(1, 100)
-        # 내부 config 저장 키는 호환성을 위해 img_quality를 그대로 사용합니다.
         self.slider_quality.setValue(config.get("img_quality", 100)) 
         self.slider_quality.setCursor(Qt.CursorShape.PointingHandCursor)
         self.lbl_quality_val = QLabel()
@@ -649,7 +691,6 @@ class SettingsDialog(QDialog):
         qual_layout.setContentsMargins(0, 5, 0, 5) 
         
         lbl_qual_title = QLabel(self.i18n.get("common_quality", "이미지 압축 품질 (Quality) :"))
-        # ❌ 기존 툴팁 설정 삭제: lbl_qual_title.setToolTip(...)
         
         self.slider_quality = QSlider(Qt.Orientation.Horizontal)
         self.slider_quality.setRange(1, 100)
@@ -673,12 +714,10 @@ class SettingsDialog(QDialog):
         opt_layout.addLayout(qual_layout)
 
         self.lbl_qual_desc = QLabel(self.i18n.get("tt_img_quality_desc", ""))
-        self.lbl_qual_desc.setWordWrap(True) # 줄바꿈 허용
-        self.lbl_qual_desc.setStyleSheet("color: #aaaaaa; font-size: 11px; margin-left: 25px; margin-bottom: 10px;")
+        self.lbl_qual_desc.setWordWrap(True)
+        self.lbl_qual_desc.setStyleSheet(f"color: #aaaaaa; font-size: {s11}px; margin-left: 25px; margin-bottom: 10px;")
         opt_layout.addWidget(self.lbl_qual_desc)
 
-
-        # 🌟 2. WebP 포맷 일괄 변환 (단순 포맷 변경 옵션)
         opt_layout.addSpacing(10)
         self.chk_webp = QCheckBox(self.i18n.get("webp", "모든 이미지를 WebP로 일괄 변환"))
         self.chk_webp.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -686,12 +725,11 @@ class SettingsDialog(QDialog):
         
         lbl_webp_desc = QLabel(self.i18n.get("webp_desc", "모든 이미지를 고효율 WebP 포맷으로 변환하여 확장자 통일성을 보장합니다."))
         lbl_webp_desc.setWordWrap(True)
-        lbl_webp_desc.setStyleSheet("color: #aaaaaa; font-size: 11px; margin-left: 25px;") 
+        lbl_webp_desc.setStyleSheet(f"color: #aaaaaa; font-size: {s11}px; margin-left: 25px;") 
         
         opt_layout.addWidget(self.chk_webp)
         opt_layout.addWidget(lbl_webp_desc)
 
-        # --- 뷰어 프로그램 설정 추가 시작 ---
         viewer_line = QFrame()
         viewer_line.setFrameShape(QFrame.Shape.HLine)
         viewer_line.setObjectName("divider")
@@ -716,25 +754,22 @@ class SettingsDialog(QDialog):
         
         viewer_layout.addRow(self.i18n.get("viewer_lbl", "뷰어 프로그램:"), viewer_path_layout)
         opt_layout.addLayout(viewer_layout)
-        # --- 뷰어 프로그램 설정 추가 끝 ---
 
         basic_layout.addLayout(opt_layout)
         basic_layout.addStretch()
 
-        # --- [개선됨] 폴더 탭 설정 (기본 설정과 API 설정 사이) ---
         self.tab_folder_settings = QWidget()
         folder_set_layout = QVBoxLayout(self.tab_folder_settings)
         folder_set_layout.setContentsMargins(15, 15, 15, 15)
         folder_set_layout.setSpacing(15)
         
-        # 1. 중복 검사 대상 폴더 그룹
         grp_dup_folders = QGroupBox(self.i18n.get("grp_dup_folders_title", "중복 검사 대상 폴더"))
         grp_dup_layout = QVBoxLayout(grp_dup_folders)
         grp_dup_layout.setContentsMargins(15, 20, 15, 15)
         grp_dup_layout.setSpacing(10)
 
         lbl_dup_desc = QLabel(self.i18n.get("dup_folder_desc", "중복 파일을 검사할 대상 폴더를 추가하세요.\nNAS나 대용량 드라이브의 폴더를 지정할 수 있습니다."))
-        lbl_dup_desc.setStyleSheet("color: #aaaaaa; font-size: 11px;")
+        lbl_dup_desc.setStyleSheet(f"color: #aaaaaa; font-size: {s11}px;")
         grp_dup_layout.addWidget(lbl_dup_desc)
 
         self.list_dup_folders = QListWidget()
@@ -759,16 +794,14 @@ class SettingsDialog(QDialog):
         
         folder_set_layout.addWidget(grp_dup_folders)
 
-        # 2. 인덱스 및 캐시 관리 그룹
         grp_cache = QGroupBox(self.i18n.get("grp_cache_title", "인덱스 및 캐시 관리"))
         grp_cache_layout = QVBoxLayout(grp_cache)
         grp_cache_layout.setContentsMargins(15, 20, 15, 15)
         grp_cache_layout.setSpacing(15)
 
-        # 2-1. 인덱스 갱신 섹션
         idx_layout = QHBoxLayout()
         lbl_idx_desc = QLabel(self.i18n.get("setting_update_index_desc", "등록된 대상 폴더의 변경사항을 확인하여 인덱스를 동기화합니다."))
-        lbl_idx_desc.setStyleSheet("color: #aaaaaa; font-size: 11px;")
+        lbl_idx_desc.setStyleSheet(f"color: #aaaaaa; font-size: {s11}px;")
         lbl_idx_desc.setWordWrap(True)
         
         self.btn_update_index = QPushButton(self.i18n.get("setting_update_index", "인덱스 색인 갱신"))
@@ -781,13 +814,13 @@ class SettingsDialog(QDialog):
         idx_layout.addWidget(self.btn_update_index)
         grp_cache_layout.addLayout(idx_layout)
 
-        # 2-2. 캐시 초기화 섹션
         cache_layout = QHBoxLayout()
         lbl_cache_desc = QLabel(self.i18n.get("folder_clear_cache_desc", "저장된 모든 중복 파일 매칭 결과 캐시를 초기화합니다."))
-        lbl_cache_desc.setStyleSheet("color: #aaaaaa; font-size: 11px;")
+        lbl_cache_desc.setStyleSheet(f"color: #aaaaaa; font-size: {s11}px;")
         lbl_cache_desc.setWordWrap(True)
 
         self.btn_clear_dup_cache = QPushButton(self.i18n.get("folder_clear_cache", "중복 매칭 캐시 초기화"))
+        import qtawesome as qta
         self.btn_clear_dup_cache.setIcon(qta.icon('fa5s.trash-alt', color='white'))
         self.btn_clear_dup_cache.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_clear_dup_cache.setStyleSheet("background-color: #E74C3C; color: white; padding: 6px 12px; border-radius: 4px; font-weight: bold; border: none;")
@@ -800,7 +833,6 @@ class SettingsDialog(QDialog):
         
         folder_set_layout.addWidget(grp_cache)
         folder_set_layout.addStretch()
-        # --------------------------------------------------------
 
         self.tab_api = QWidget()
         api_layout = QFormLayout(self.tab_api)
@@ -859,7 +891,7 @@ class SettingsDialog(QDialog):
         ai_group_layout.addRow(self.i18n.get("ai_api_key", "API Key:"), self.ai_key_widget)
 
         lbl_ai_notice = QLabel(self.i18n.get("ai_notice", "해외 DB 검색 시 정확도를 대폭 높입니다."))
-        lbl_ai_notice.setStyleSheet("color: #aaaaaa; font-size: 11px;")
+        lbl_ai_notice.setStyleSheet(f"color: #aaaaaa; font-size: {s11}px;")
         lbl_ai_notice.setWordWrap(True)
         ai_group_layout.addRow(lbl_ai_notice)
 
@@ -897,7 +929,7 @@ class SettingsDialog(QDialog):
         tag_group_layout.setContentsMargins(10, 15, 10, 10)
         
         lbl_tag_notice = QLabel(self.i18n.get("tag_rules_desc", "치환할 태그를 '기존태그 -> 새태그' 형식으로 입력하세요."))
-        lbl_tag_notice.setStyleSheet("color: #aaaaaa; font-size: 11px;")
+        lbl_tag_notice.setStyleSheet(f"color: #aaaaaa; font-size: {s11}px;")
         lbl_tag_notice.setWordWrap(True)
         tag_group_layout.addWidget(lbl_tag_notice)
         
@@ -935,7 +967,7 @@ class SettingsDialog(QDialog):
         btn_box.accepted.connect(self.accept)
         btn_box.rejected.connect(self.reject)
         main_layout.addWidget(btn_box)
-
+    
     def action_clear_cache(self):
         try:
             with sqlite3.connect(".api_cache.db", timeout=10) as conn:
@@ -1063,7 +1095,9 @@ class SettingsDialog(QDialog):
                 "ai_key": self.le_ai_key.text().strip(),
                 
                 "tag_rules": self.te_tag_rules.toPlainText()
-            }
+            },
+            "font_family": self.cb_font_family.currentText(),
+            "font_scale": self.cb_font_scale.currentData(),
         }
     
     def action_update_index(self):

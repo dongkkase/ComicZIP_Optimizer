@@ -25,6 +25,15 @@ sys.excepthook = exception_hook
 
 def register_custom_fonts(app):
     """fonts/ 폴더의 TTF를 Qt에 등록하고 앱 기본 폰트를 설정 (Windows/Mac 크로스플랫폼)"""
+    from PyQt6.QtGui import QFontDatabase, QFont
+    from config import get_font_path, load_config
+    
+    config = load_config()
+    # 설정된 배율(scale) 가져오기
+    scale = config.get("font_scale", 100) / 100.0
+    # 기본 10pt에 배율 적용
+    base_size = int(10 * scale)
+
     font_files = {
         "Jua":        "Jua-Regular.ttf",
         "NotoSansKR": "NotoSansKR-Regular.ttf",
@@ -41,12 +50,15 @@ def register_custom_fonts(app):
         else:
             print(f"[Font] 파일 없음: {filename}")
 
-    # 기본 폰트 선택 — NotoSansKR 우선, 없으면 Jua
-    # family = "Noto Sans KR" if "NotoSansKR" in loaded else "Jua" if "Jua" in loaded else None
-    family = "Jua" if "Jua" in loaded else "Noto Sans KR" if "NotoSansKR" in loaded else None
+    # 환경 설정의 글꼴 가져오기
+    ff = config.get("font_family", "Default")
+    if ff == "Default":
+        family = "Jua" if "Jua" in loaded else "Noto Sans KR" if "NotoSansKR" in loaded else None
+    else:
+        family = ff
 
     if family:
-        font = QFont(family, 10)
+        font = QFont(family, base_size) # 계산된 base_size 적용
         # 부드러운 렌더링 핵심 설정
         font.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
         font.setStyleStrategy(

@@ -240,73 +240,88 @@ class RenamerApp(QMainWindow):
 
     def apply_dark_theme(self):
         self.is_dark_mode = True 
-        style = """
-        QMainWindow, QDialog { background-color: #1e1e1e; }
-        QFrame#panelFrame { background-color: #2b2b2b; border-radius: 10px; }
-        QFrame#optionsFrame { background-color: #2b2b2b; border-radius: 8px; }
-        QFrame#divider { background-color: #444444; }
-        QLabel { color: #ffffff; font-family: 'Jua', 'Segoe UI Emoji'; }
-        QLabel#titleLabel { font-size: 14px; font-weight: bold; margin-bottom: 5px; }
-        QLabel#boldLabel { font-size: 12px; font-weight: bold; margin-top: 5px; }
-        QLabel#langLabel { font-size: 12px; font-weight: bold; }
-        QLabel#statusLabel { color: #3498DB; font-weight: bold; font-size: 12px; }
-        QLabel#infoLabel { color: #aaaaaa; font-size: 11px; }
-        QLabel#imageLabel { background-color: #1a1a1a; border-radius: 8px; }
         
-        QCheckBox, QRadioButton { color: #ffffff; font-family: 'Jua', 'Segoe UI Emoji'; }
-        QCheckBox:disabled, QRadioButton:disabled { color: #777777; }
+        # 폰트 비율(Scale) 및 패밀리 계산
+        scale = self.config.get("font_scale", 100) / 100.0
+        ff = self.config.get("font_family", "Default")
+        font_family_str = "'Jua', 'Noto Sans KR', 'Segoe UI Emoji'" if ff == "Default" else f"'{ff}', 'Segoe UI Emoji'"
         
-        QGroupBox { color: #ffffff; font-family: 'Jua', 'Segoe UI Emoji'; font-weight: bold; border: 1px solid #555555; border-radius: 6px; margin-top: 12px; padding-top: 10px; }
-        QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 10px; padding: 0 5px; color: #ffffff; }
+        # 비례 적용을 위한 각 베이스 크기를 동적 계산
+        s15 = int(15 * scale)
+        s14 = int(14 * scale)
+        s12 = int(12 * scale)
+        s11 = int(11 * scale)
+        
+        style = f"""
+        QMainWindow, QDialog {{ background-color: #1e1e1e; font-size: {s12}px; }}
+        QFrame#panelFrame {{ background-color: #2b2b2b; border-radius: 10px; }}
+        QFrame#optionsFrame {{ background-color: #2b2b2b; border-radius: 8px; }}
+        QFrame#divider {{ background-color: #444444; }}
+        
+        QLabel {{ color: #ffffff; font-family: {font_family_str}; font-size: {s12}px; }}
+        QLabel#titleLabel {{ font-size: {s15}px; font-weight: bold; margin-bottom: 5px; }}
+        QLabel#boldLabel {{ font-size: {s12}px; font-weight: bold; margin-top: 5px; }}
+        QLabel#langLabel {{ font-size: {s12}px; font-weight: bold; }}
+        QLabel#statusLabel {{ color: #3498DB; font-weight: bold; font-size: {s12}px; }}
+        QLabel#infoLabel {{ color: #aaaaaa; font-size: {s11}px; }}
+        QLabel#imageLabel {{ background-color: #1a1a1a; border-radius: 8px; }}
+        
+        QCheckBox, QRadioButton {{ color: #ffffff; font-family: {font_family_str}; font-size: {s12}px; }}
+        QCheckBox:disabled, QRadioButton:disabled {{ color: #777777; }}
+        
+        QGroupBox {{ color: #ffffff; font-family: {font_family_str}; font-size: {s12}px; font-weight: bold; border: 1px solid #555555; border-radius: 6px; margin-top: 12px; padding-top: 10px; }}
+        QGroupBox::title {{ subcontrol-origin: margin; subcontrol-position: top left; left: 10px; padding: 0 5px; color: #ffffff; }}
 
-        QTabWidget::pane { border: 1px solid #444; border-radius: 5px; top: -1px; background: #1e1e1e; }
-        QTabBar::tab { background: #2b2b2b; color: #888; border: 1px solid #444; padding: 10px 20px; margin-right: 2px; border-top-left-radius: 5px; border-top-right-radius: 5px; font-weight: bold; }
-        QTabBar::tab:selected { background: #3a7ebf; color: #fff; }
-        QTabBar::tab:hover:!selected { background: #3a3a3a; color: #fff; }
+        QTabWidget::pane {{ border: 1px solid #444; border-radius: 5px; top: -1px; background: #1e1e1e; }}
+        QTabBar::tab {{ background: #2b2b2b; color: #888; border: 1px solid #444; padding: 10px 20px; margin-right: 2px; border-top-left-radius: 5px; border-top-right-radius: 5px; font-weight: bold; font-size: {s12}px; }}
+        QTabBar::tab:selected {{ background: #3a7ebf; color: #fff; }}
+        QTabBar::tab:hover:!selected {{ background: #3a3a3a; color: #fff; }}
 
-        QProgressBar { background-color: #3a3a3a; border: none; border-radius: 5px; }
-        QProgressBar::chunk { background-color: #3498DB; border-radius: 5px; }
+        QProgressBar {{ background-color: #3a3a3a; border: none; border-radius: 5px; }}
+        QProgressBar::chunk {{ background-color: #3498DB; border-radius: 5px; }}
         
-        QPushButton { background-color: #3a3a3a; color: white; border-radius: 6px; padding: 8px 12px; font-family: 'Jua', 'Segoe UI Emoji'; font-weight: bold; }
-        QPushButton:hover { background-color: #4a4a4a; }
+        QPushButton {{ background-color: #3a3a3a; color: white; border-radius: 6px; padding: 8px 12px; font-family: {font_family_str}; font-weight: bold; font-size: {s12}px; }}
+        QPushButton:hover {{ background-color: #4a4a4a; }}
         
-        QPushButton#versionBtn { background-color: #2b2b2b; color: #cccccc; border: 1px solid #555; }
-        QPushButton#versionBtn:hover { background-color: #3a3a3a; color: #ffffff; border: 1px solid #777; }
-        QPushButton#versionBtnUpdate { background-color: #27AE60; color: #ffffff; font-weight: bold; border: 1px solid #2ECC71; }
-        QPushButton#versionBtnUpdate:hover { background-color: #2ECC71; border: 1px solid #27AE60; }
+        QPushButton#versionBtn {{ background-color: #2b2b2b; color: #cccccc; border: 1px solid #555; }}
+        QPushButton#versionBtn:hover {{ background-color: #3a3a3a; color: #ffffff; border: 1px solid #777; }}
+        QPushButton#versionBtnUpdate {{ background-color: #27AE60; color: #ffffff; font-weight: bold; border: 1px solid #2ECC71; }}
+        QPushButton#versionBtnUpdate:hover {{ background-color: #2ECC71; border: 1px solid #27AE60; }}
         
-        QPushButton#settingsBtn { background-color: #2b2b2b; border: 1px solid #555; }
-        QPushButton#settingsBtn:hover { background-color: #3a3a3a; }
+        QPushButton#settingsBtn {{ background-color: #2b2b2b; border: 1px solid #555; }}
+        QPushButton#settingsBtn:hover {{ background-color: #3a3a3a; }}
         
-        QPushButton#dangerBtn:enabled { background-color: #D32F2F; color: #FFFFFF; border: none; }
-        QPushButton#dangerBtn:hover:enabled { background-color: #B71C1C; }
+        QPushButton#dangerBtn:enabled {{ background-color: #D32F2F; color: #FFFFFF; border: none; }}
+        QPushButton#dangerBtn:hover:enabled {{ background-color: #B71C1C; }}
         
-        QPushButton#actionBtn { background-color: #0078D7; font-size: 14px; padding: 10px 20px; border: none; }
-        QPushButton#actionBtn:hover { background-color: #005A9E; }
+        QPushButton#actionBtn {{ background-color: #0078D7; font-size: {s14}px; padding: 10px 20px; border: none; }}
+        QPushButton#actionBtn:hover {{ background-color: #005A9E; }}
         
-        QPushButton#actionBtnGreen { background-color: #27AE60; font-size: 14px; padding: 10px 20px; border: none; color: white; border-radius: 6px; font-weight: bold; }
-        QPushButton#actionBtnGreen:hover { background-color: #2ECC71; }
+        QPushButton#actionBtnGreen {{ background-color: #27AE60; font-size: {s14}px; padding: 10px 20px; border: none; color: white; border-radius: 6px; font-weight: bold; }}
+        QPushButton#actionBtnGreen:hover {{ background-color: #2ECC71; }}
         
-        QPushButton#actionBtnOrange { background-color: #E67E22; font-size: 14px; padding: 10px 20px; border: none; color: white; border-radius: 6px; font-weight: bold; }
-        QPushButton#actionBtnOrange:hover { background-color: #F39C12; }
+        QPushButton#actionBtnOrange {{ background-color: #E67E22; font-size: {s14}px; padding: 10px 20px; border: none; color: white; border-radius: 6px; font-weight: bold; }}
+        QPushButton#actionBtnOrange:hover {{ background-color: #F39C12; }}
         
-        QPushButton#actionBtnCancel { background-color: #E74C3C; font-size: 14px; padding: 10px 20px; border: none; }
-        QPushButton#actionBtnCancel:hover { background-color: #C0392B; }
+        QPushButton#actionBtnCancel {{ background-color: #E74C3C; font-size: {s14}px; padding: 10px 20px; border: none; }}
+        QPushButton#actionBtnCancel:hover {{ background-color: #C0392B; }}
         
-        QPushButton:disabled { background-color: #555555; color: #888888; border: 1px solid #444; }
+        QPushButton:disabled {{ background-color: #555555; color: #888888; border: 1px solid #444; }}
         
-        QTableWidget, QTreeWidget, QTextBrowser { background-color: #2b2b2b; color: white; border: 1px solid #444; border-radius: 8px; gridline-color: #3a3a3a; outline: none; }
-        QHeaderView::section { background-color: #1f1f1f; color: white; padding: 5px; border: none; font-weight: bold; }
-        QHeaderView::section:hover { background-color: #3a3a3a; cursor: pointer; }
-        QTableWidget::item:selected, QTreeWidget::item:selected { background-color: #3a7ebf; }
-        QTableWidget::indicator, QTreeWidget::indicator { width: 18px; height: 18px; }
+        /* 테이블 및 트리 폰트 크기 강제 적용 */
+        QTableWidget, QTreeWidget, QTextBrowser {{ background-color: #2b2b2b; color: white; border: 1px solid #444; border-radius: 8px; gridline-color: #3a3a3a; outline: none; font-family: {font_family_str}; font-size: {s11}px; }}
+        QHeaderView::section {{ background-color: #1f1f1f; color: white; padding: 5px; border: none; font-weight: bold; font-family: {font_family_str}; font-size: {s11}px; }}
+        QHeaderView::section:hover {{ background-color: #3a3a3a; cursor: pointer; }}
+        QTableWidget::item:selected, QTreeWidget::item:selected {{ background-color: #3a7ebf; }}
+        QTableWidget::item, QTreeWidget::item {{ padding: 4px; font-size: {s11}px; }}
+        QTableWidget::indicator, QTreeWidget::indicator {{ width: 18px; height: 18px; }}
         
-        QScrollArea { background-color: transparent; border: none; }
-        QSlider::groove:horizontal { border-radius: 4px; height: 8px; background: #3a3a3a; }
-        QSlider::handle:horizontal { background: #3498DB; width: 16px; height: 16px; margin: -4px 0; border-radius: 8px; }
-        QSlider::handle:horizontal:hover { background: #5DADE2; }
+        QScrollArea {{ background-color: transparent; border: none; }}
+        QSlider::groove:horizontal {{ border-radius: 4px; height: 8px; background: #3a3a3a; }}
+        QSlider::handle:horizontal {{ background: #3498DB; width: 16px; height: 16px; margin: -4px 0; border-radius: 8px; }}
+        QSlider::handle:horizontal:hover {{ background: #5DADE2; }}
         
-        QComboBox, QLineEdit, QTextEdit { background-color: #3a3a3a; color: white; border: 1px solid #555; border-radius: 4px; padding: 4px; }
+        QComboBox, QLineEdit, QTextEdit {{ background-color: #3a3a3a; color: white; border: 1px solid #555; border-radius: 4px; padding: 4px; font-family: {font_family_str}; font-size: {s12}px; }}
         """
         self.setStyleSheet(style)
         
@@ -379,8 +394,9 @@ class RenamerApp(QMainWindow):
                 self.tab2.on_pattern_change(self.tab2.cb_pattern.currentText())
 
     def open_settings(self):
-        # 1. 설정 창을 열기 전 기존 언어 값을 저장해 둡니다.
         old_lang = self.config.get("lang", "ko")
+        old_font = self.config.get("font_family", "Default")
+        old_scale = self.config.get("font_scale", 100)
         
         dlg = SettingsDialog(self, self.config, self.format_keys, self.i18n)
         dlg.setStyleSheet(self.styleSheet()) 
@@ -389,6 +405,8 @@ class RenamerApp(QMainWindow):
         if dlg.exec() == int(QDialog.DialogCode.Accepted):
             new_data = dlg.get_data()
             new_lang = new_data.get("lang", "ko")
+            new_font = new_data.get("font_family", "Default")
+            new_scale = new_data.get("font_scale", 100)
             
             dup_folders_changed = new_data.get("dup_check_folders", []) != self.config.get("dup_check_folders", [])
             format_changed = new_data.get("target_format") != self.config.get("target_format")
@@ -410,28 +428,26 @@ class RenamerApp(QMainWindow):
             self.lang = self.config["lang"]
             save_config(self.config)
             
-            # 2. 언어 변경 여부 확인 및 프로그램 재시작 로직
-            if old_lang != new_lang:
+            # 언어나 폰트 설정이 변경된 경우 재시작 유도
+            if old_lang != new_lang or old_font != new_font or old_scale != new_scale:
                 if new_lang == "ko":
-                    restart_msg = "언어 설정이 변경되었습니다. 적용을 위해 프로그램을 재시작합니다."
+                    restart_msg = "언어 또는 폰트 설정이 변경되었습니다. 적용을 위해 프로그램을 재시작합니다."
                     restart_title = "프로그램 재시작"
                 elif new_lang == "ja":
-                    restart_msg = "言語設定が変更されました。適用するためにプログラムを再起動します。"
+                    restart_msg = "言語やフォントの設定が変更されました。適用するためにプログラムを再起動します。"
                     restart_title = "プログラムの再起動"
                 else:
-                    restart_msg = "Language settings have changed. The program will restart to apply."
+                    restart_msg = "Language or Font settings have changed. The program will restart to apply."
                     restart_title = "Program Restart"
                     
                 QMessageBox.information(self, restart_title, restart_msg)
                 
-                # 재시작 명령어 실행 (현재 앱 종료 후 파이썬 인터프리터 재실행)
                 from PyQt6.QtCore import QCoreApplication
                 import sys, os
                 QCoreApplication.quit()
                 os.execl(sys.executable, sys.executable, *sys.argv)
-                return # 재시작이 실행되므로 이후 코드는 중단합니다.
+                return 
 
-            # 언어가 변경되지 않았을 때만 아래 기존 UI 업데이트 코드들이 실행됩니다.
             self.apply_language()
 
             # [추가됨] B폴더가 변경되었으면 재인덱싱 트리거

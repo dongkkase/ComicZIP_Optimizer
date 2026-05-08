@@ -111,7 +111,9 @@ def load_config():
         "max_threads": default_threads,
         "play_sound": True,
         "viewer_path": "",
-        "dup_check_folders": []
+        "dup_check_folders": [],
+        "font_family": "Default",
+        "font_scale": 100,
     }
     try:
         if os.path.exists(CONFIG_FILE):
