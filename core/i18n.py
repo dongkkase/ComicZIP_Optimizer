@@ -349,6 +349,7 @@ def get_i18n():
             "tf_pos_front": "앞(Front)",
             "tf_pos_back": "뒤(Back)",
             "btn_ok": "확인",
+
         },
         "en": {
             "title": f"ComicZIP Optimizer v{CURRENT_VERSION}",
@@ -654,6 +655,7 @@ def get_i18n():
             "tf_pos_front": "Front",
             "tf_pos_back": "Back",
             "btn_ok": "OK",
+
         },
         "ja": {
             "title": f"ComicZIP Optimizer v{CURRENT_VERSION}",
@@ -964,5 +966,6 @@ def get_i18n():
             "tf_pos_front": "前 (Front)",
             "tf_pos_back": "後 (Back)",
             "btn_ok": "確認",
+
         }
     }
