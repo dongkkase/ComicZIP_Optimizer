@@ -21,20 +21,21 @@ class ArchiveTableWidget(QTableWidget):
 class _ToastWidget(QLabel):
     def __init__(self, parent, message):
         super().__init__(parent)
+        self.config = parent.config if hasattr(parent, 'config') else {}
         self.setText(message)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         # 🌟 [수정] 오렌지색 배경 적용 및 폰트 사이즈(15px) 2포인트 증가
-        self.setStyleSheet("""
-            QLabel {
+        self.setStyleSheet(f"""
+            QLabel {{
                 background-color: rgba(187, 121, 15, 240);
                 color: #ffffff;
                 padding: 12px 24px;
                 border-radius: 8px;
                 font-weight: bold;
-                font-size: 15px; 
+                font-size: {self.config['s15']}px;
                 border: 1px solid #E67E22;
-            }
+            }}
         """)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.adjustSize()

@@ -114,6 +114,7 @@ def load_config():
         "dup_check_folders": [],
         "font_family": "Default",
         "font_scale": 100,
+        "btn_primary": "#0078d7"
     }
     try:
         if os.path.exists(CONFIG_FILE):
@@ -121,6 +122,16 @@ def load_config():
                 default_config.update(json.load(f))
                 default_config["max_threads"] = min(default_config.get("max_threads", default_threads), safe_max)
     except: pass
+    
+    # 🌟 추가된 부분: 불러온 설정을 바탕으로 폰트 크기를 딕셔너리에 캐싱
+    scale = default_config["font_scale"] / 100.0
+    ff = default_config["font_family"]
+    default_config["font_family_str"] = "'Jua', 'Noto Sans KR', 'Segoe UI Emoji'" if ff == "Default" else f"'{ff}', 'Segoe UI Emoji'"
+    
+    # 공통 사이즈 동적 생성 (s10, s11, s12, s14, s15)
+    for size in [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]:
+        default_config[f"s{size}"] = int(size * scale)
+        
     return default_config
 
 def save_config(config_data):

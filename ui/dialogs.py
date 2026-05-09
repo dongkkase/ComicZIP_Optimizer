@@ -310,7 +310,10 @@ class MultiRenameDialog(QDialog):
         bottom_layout.addWidget(self.progress_bar)
         
         self.btn_ok = QPushButton(self.i18n.get("btn_ok", "확인"))
+        self.btn_ok.setStyleSheet(f"background-color: {self.config['btn_primary']};")
+        self.btn_ok.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_cancel = QPushButton(self.i18n.get("btn_cancel", "취소"))
+        self.btn_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_ok.clicked.connect(self.execute_rename)
         self.btn_cancel.clicked.connect(self.reject)
         bottom_layout.addWidget(self.btn_ok); bottom_layout.addWidget(self.btn_cancel)
@@ -319,10 +322,8 @@ class MultiRenameDialog(QDialog):
         self.table_view.setColumnWidth(0, 300); self.table_view.setColumnWidth(1, 300); self.table_view.setColumnWidth(2, 80)
         
         # --- 배율에 따른 폰트 크기 강제 적용 ---
-        scale = self.config.get("font_scale", 100) / 100.0 if self.config else 1.0
-        s11 = int(11 * scale)
-        self.table_view.setStyleSheet(f"font-size: {s11}px;")
-        self.table_view.horizontalHeader().setStyleSheet(f"font-size: {s11}px;")
+        self.table_view.setStyleSheet(f"font-size: {self.config['s11']}px;")
+        self.table_view.horizontalHeader().setStyleSheet(f"font-size: {self.config['s11']}px;")
 
     def toggle_regex_mode(self, state):
         import re
@@ -468,10 +469,9 @@ class LogDialog(QDialog):
     def __init__(self, parent, stats, i18n, show_continue_btn=False, continue_key="btn_continue_tab2"):
         super().__init__(parent)
         
-        # 배율 계산
-        scale = parent.config.get("font_scale", 100) / 100.0 if hasattr(parent, 'config') else 1.0
-        s14 = int(14 * scale)
-        s11 = int(11 * scale)
+        parent_config = parent.config if hasattr(parent, 'config') else {}
+        s14 = parent_config.get("s14", 14)
+        s11 = parent_config.get("s11", 11)
         
         self.setWindowTitle(i18n["log_title"])
         self.resize(550, 400)
@@ -529,15 +529,9 @@ class SettingsDialog(QDialog):
         self.chk_pass_skip_meta.setToolTip(self.i18n.get("opt_pass_skip_meta_tip", ""))
         self.chk_pass_skip_meta.setChecked(self.config.get("pass_skip_meta", False))
 
-        # 폰트 패밀리 및 스케일 비례 적용을 위한 변수 계산
-        scale = self.config.get("font_scale", 100) / 100.0
-        ff = self.config.get("font_family", "Default")
-        font_family_str = "'Jua', 'Noto Sans KR', 'Segoe UI Emoji'" if ff == "Default" else f"'{ff}', 'Segoe UI Emoji'"
-        s11 = int(11 * scale)
-
-        # 🌟 CSS에 동적 폰트 패밀리 적용 (오류 수정됨)
+        # 🌟 CSS에 동적 폰트 패밀리 적용
         self.setStyleSheet(f"""
-            QDialog, QWidget {{ background-color: #1e1e1e; color: #ffffff; font-family: {font_family_str}; }}
+            QDialog, QWidget {{ background-color: #1e1e1e; color: #ffffff; font-family: {self.config['font_family_str']}; }}
             QLabel, QCheckBox {{ background-color: transparent; color: #ffffff; }}
             
             QTabWidget::pane {{ border: 1px solid #444; border-radius: 5px; background: #1e1e1e; }}
@@ -568,6 +562,19 @@ class SettingsDialog(QDialog):
         form_layout = QFormLayout()
         form_layout.setSpacing(15)
 
+
+        self.cb_lang = QComboBox()
+        self.cb_lang.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.cb_lang.addItems(["한국어", "English", "日本語"])
+        
+        if config["lang"] == "ko": lang_text = "한국어"
+        elif config["lang"] == "ja": lang_text = "日本語"
+        else: lang_text = "English"
+        self.cb_lang.setCurrentText(lang_text)
+        
+        form_layout.addRow(self.i18n.get("lang_lbl", "언어:"), self.cb_lang)
+
+
         # ---------------- 폰트 설정 항목 추가 (수정됨) ----------------
         from PyQt6.QtGui import QFontDatabase
         
@@ -579,7 +586,7 @@ class SettingsDialog(QDialog):
         for family in QFontDatabase.families():
             self.cb_font_family.addItem(family)
             
-        self.cb_font_family.setCurrentText(ff)
+        self.cb_font_family.setCurrentText(self.config.get("font_family", "Default"))
         form_layout.addRow(self.i18n.get("font_family_lbl", "글꼴:"), self.cb_font_family)
         
         self.cb_font_scale = QComboBox()
@@ -594,16 +601,6 @@ class SettingsDialog(QDialog):
         form_layout.addRow(self.i18n.get("font_size_lbl", "크기:"), self.cb_font_scale)
         # ---------------------------------------------------
 
-        self.cb_lang = QComboBox()
-        self.cb_lang.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.cb_lang.addItems(["한국어", "English", "日本語"])
-        
-        if config["lang"] == "ko": lang_text = "한국어"
-        elif config["lang"] == "ja": lang_text = "日本語"
-        else: lang_text = "English"
-        self.cb_lang.setCurrentText(lang_text)
-        
-        form_layout.addRow(self.i18n.get("lang_lbl", "언어:"), self.cb_lang)
 
         self.cb_format = QComboBox()
         self.cb_format.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -641,7 +638,7 @@ class SettingsDialog(QDialog):
         
         lbl_threads_desc = QLabel(self.i18n.get("threads_desc", ""))
         lbl_threads_desc.setWordWrap(True)
-        lbl_threads_desc.setStyleSheet(f"color: #E74C3C; font-size: {s11}px; margin-top: 5px;")
+        lbl_threads_desc.setStyleSheet(f"color: #E74C3C; font-size: {{self.config['s11']}}px; margin-top: 5px;")
         form_layout.addRow(self.i18n.get("max_threads", "스레드:"), th_layout)
         form_layout.addRow("", lbl_threads_desc)
         basic_layout.addLayout(form_layout)
@@ -667,7 +664,7 @@ class SettingsDialog(QDialog):
         self.chk_flatten.setChecked(config.get("flatten_folders", False))
         lbl_flatten_desc = QLabel(self.i18n.get("flatten_desc", ""))
         lbl_flatten_desc.setWordWrap(True)
-        lbl_flatten_desc.setStyleSheet(f"color: #aaaaaa; font-size: {s11}px; margin-left: 25px;")
+        lbl_flatten_desc.setStyleSheet(f"color: #aaaaaa; font-size: {self.config['s11']}px; margin-left: 25px;")
         opt_layout.addWidget(self.chk_flatten)
         opt_layout.addWidget(lbl_flatten_desc)
 
@@ -715,7 +712,7 @@ class SettingsDialog(QDialog):
 
         self.lbl_qual_desc = QLabel(self.i18n.get("tt_img_quality_desc", ""))
         self.lbl_qual_desc.setWordWrap(True)
-        self.lbl_qual_desc.setStyleSheet(f"color: #aaaaaa; font-size: {s11}px; margin-left: 25px; margin-bottom: 10px;")
+        self.lbl_qual_desc.setStyleSheet(f"color: #aaaaaa; font-size: {self.config['s11']}px; margin-left: 25px; margin-bottom: 10px;")
         opt_layout.addWidget(self.lbl_qual_desc)
 
         opt_layout.addSpacing(10)
@@ -725,7 +722,7 @@ class SettingsDialog(QDialog):
         
         lbl_webp_desc = QLabel(self.i18n.get("webp_desc", "모든 이미지를 고효율 WebP 포맷으로 변환하여 확장자 통일성을 보장합니다."))
         lbl_webp_desc.setWordWrap(True)
-        lbl_webp_desc.setStyleSheet(f"color: #aaaaaa; font-size: {s11}px; margin-left: 25px;") 
+        lbl_webp_desc.setStyleSheet(f"color: #aaaaaa; font-size: {self.config['s11']}px; margin-left: 25px;") 
         
         opt_layout.addWidget(self.chk_webp)
         opt_layout.addWidget(lbl_webp_desc)
@@ -769,7 +766,7 @@ class SettingsDialog(QDialog):
         grp_dup_layout.setSpacing(10)
 
         lbl_dup_desc = QLabel(self.i18n.get("dup_folder_desc", "중복 파일을 검사할 대상 폴더를 추가하세요.\nNAS나 대용량 드라이브의 폴더를 지정할 수 있습니다."))
-        lbl_dup_desc.setStyleSheet(f"color: #aaaaaa; font-size: {s11}px;")
+        lbl_dup_desc.setStyleSheet(f"color: #aaaaaa; font-size: {self.config['s11']}px;")
         grp_dup_layout.addWidget(lbl_dup_desc)
 
         self.list_dup_folders = QListWidget()
@@ -801,7 +798,7 @@ class SettingsDialog(QDialog):
 
         idx_layout = QHBoxLayout()
         lbl_idx_desc = QLabel(self.i18n.get("setting_update_index_desc", "등록된 대상 폴더의 변경사항을 확인하여 인덱스를 동기화합니다."))
-        lbl_idx_desc.setStyleSheet(f"color: #aaaaaa; font-size: {s11}px;")
+        lbl_idx_desc.setStyleSheet(f"color: #aaaaaa; font-size: {self.config['s11']}px;")
         lbl_idx_desc.setWordWrap(True)
         
         self.btn_update_index = QPushButton(self.i18n.get("setting_update_index", "인덱스 색인 갱신"))
@@ -816,7 +813,7 @@ class SettingsDialog(QDialog):
 
         cache_layout = QHBoxLayout()
         lbl_cache_desc = QLabel(self.i18n.get("folder_clear_cache_desc", "저장된 모든 중복 파일 매칭 결과 캐시를 초기화합니다."))
-        lbl_cache_desc.setStyleSheet(f"color: #aaaaaa; font-size: {s11}px;")
+        lbl_cache_desc.setStyleSheet(f"color: #aaaaaa; font-size: {self.config['s11']}px;")
         lbl_cache_desc.setWordWrap(True)
 
         self.btn_clear_dup_cache = QPushButton(self.i18n.get("folder_clear_cache", "중복 매칭 캐시 초기화"))
@@ -891,7 +888,7 @@ class SettingsDialog(QDialog):
         ai_group_layout.addRow(self.i18n.get("ai_api_key", "API Key:"), self.ai_key_widget)
 
         lbl_ai_notice = QLabel(self.i18n.get("ai_notice", "해외 DB 검색 시 정확도를 대폭 높입니다."))
-        lbl_ai_notice.setStyleSheet(f"color: #aaaaaa; font-size: {s11}px;")
+        lbl_ai_notice.setStyleSheet(f"color: #aaaaaa; font-size: {self.config['s11']}px;")
         lbl_ai_notice.setWordWrap(True)
         ai_group_layout.addRow(lbl_ai_notice)
 
@@ -929,7 +926,7 @@ class SettingsDialog(QDialog):
         tag_group_layout.setContentsMargins(10, 15, 10, 10)
         
         lbl_tag_notice = QLabel(self.i18n.get("tag_rules_desc", "치환할 태그를 '기존태그 -> 새태그' 형식으로 입력하세요."))
-        lbl_tag_notice.setStyleSheet(f"color: #aaaaaa; font-size: {s11}px;")
+        lbl_tag_notice.setStyleSheet(f"color: #aaaaaa; font-size: {self.config['s11']}px;")
         lbl_tag_notice.setWordWrap(True)
         tag_group_layout.addWidget(lbl_tag_notice)
         

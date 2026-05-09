@@ -226,7 +226,7 @@ def get_i18n():
             "folder_layouts": "레이아웃 관리 ▼",
             "folder_export_csv": "CSV 내보내기",
             "folder_search_ph": "검색 (제목, 작가, 파일명 등)...",
-            "folder_refresh_list": "새로고침",
+            "folder_refresh_list": "새로고침 (F5)",
             "folder_ready": "대기 중...",
             "folder_item_size": "항목 크기:",
             "folder_scan_prep": "📁 폴더 스캔 준비 중...",
@@ -261,8 +261,8 @@ def get_i18n():
             "action_fav_add": "즐겨찾기 추가", "action_fav_rem": "즐겨찾기 제거", "action_open_exp": "탐색기에서 열기",
             "action_ren_folder": "폴더 이름 변경", "action_del_folder": "폴더 삭제 (Del)", "action_refresh": "새로고침",
             "action_view": "뷰어로 보기", "action_flatten_structure": "압축 파일 구조 정리(평탄화)", "action_meta_edit": "메타데이터 관리", "action_inner_ren": "내부 파일명 변경",
-            "action_update_files": "파일 강제 업데이트", "action_del_files": "파일 삭제 (Del)", 
-            "action_sel_all": "전체 선택 (Ctrl+A)", "action_inv_sel": "선택 반전",
+            "action_update_files": "파일 강제 업데이트", "action_del_files": "파일 삭제", 
+            "action_sel_all": "전체 선택", "action_inv_sel": "선택 반전",
             
             "dlg_ren_folder_title": "폴더 이름 변경", "dlg_ren_folder_msg": "새 폴더 이름을 입력하세요:",
             "dlg_err": "오류", "dlg_err_ren_folder": "폴더 이름을 변경할 수 없습니다:\n{0}",
@@ -316,7 +316,7 @@ def get_i18n():
                 "• 100 미만 설정 시 손실 압축을 수행하며, 이미 최적화된 파일은 원본을 유지하여 화질 저하를 방지합니다."
             ),
 
-            "tf_menu_rename_multi": "이름 바꾸기(&M)",
+            "tf_menu_rename_multi": "이름 바꾸기",
             "tf_rename_title": "여러 파일 이름 바꾸기",
             "tf_old_format": "기존 형식:",
             "tf_new_format": "새 형식:",
@@ -338,7 +338,7 @@ def get_i18n():
             "tf_status_ok": "정상",
             "tf_status_conflict": "이름 중복",
             "tf_status_invalid": "사용 불가",
-            "tf_undo_rename": "최근 이름 변경 취소(Undo)",
+            "tf_undo_rename": "최근 이름 변경 취소",
             "tf_undo_success": "이름 변경이 취소되었습니다.",
             "tf_undo_fail": "취소할 이력이 없거나 실패했습니다.",
             "tf_use_wildcard": "와일드카드(*, ?)",
@@ -535,7 +535,7 @@ def get_i18n():
             "folder_layouts": "Manage Layouts ▼",
             "folder_export_csv": "Export CSV",
             "folder_search_ph": "Search (Title, Writer, Name...)",
-            "folder_refresh_list": "Refresh",
+            "folder_refresh_list": "Refresh (F5)",
             "folder_ready": "Ready",
             "folder_item_size": "Item Size:",
             "folder_scan_prep": "📁 Preparing folder scan...",
@@ -570,8 +570,8 @@ def get_i18n():
             "action_fav_add": "Add to Favorites", "action_fav_rem": "Remove from Favorites", "action_open_exp": "Open in Explorer",
             "action_ren_folder": "Rename Folder", "action_del_folder": "Delete Folder (Del)", "action_refresh": "Refresh",
             "action_view": "View", "action_flatten_structure": "Archive Organizer", "action_meta_edit": "Metadata Management", "action_inner_ren": "Inner Renamer",
-            "action_update_files": "Update files", "action_del_files": "Delete Files (Del)", 
-            "action_sel_all": "Select All (Ctrl+A)", "action_inv_sel": "Invert Selection",
+            "action_update_files": "Update files", "action_del_files": "Delete Files", 
+            "action_sel_all": "Select All", "action_inv_sel": "Invert Selection",
             
             "dlg_ren_folder_title": "Rename Folder", "dlg_ren_folder_msg": "Enter new folder name:",
             "dlg_err": "Error", "dlg_err_ren_folder": "Cannot rename folder:\n{0}",
@@ -625,7 +625,7 @@ def get_i18n():
                 "• Values under 100 trigger lossy compression. Original files are kept if no further reduction is possible."
             ),
 
-            "tf_menu_rename_multi": "Rename (&M)",
+            "tf_menu_rename_multi": "Rename",
             "tf_rename_title": "Rename Multiple Files",
             "tf_old_format": "Old format:",
             "tf_new_format": "New format:",
@@ -849,7 +849,7 @@ def get_i18n():
             "folder_layouts": "レイアウト管理 ▼",
             "folder_export_csv": "CSV エクスポート",
             "folder_search_ph": "検索 (タイトル、作家、ファイル名など)...",
-            "folder_refresh_list": "更新",
+            "folder_refresh_list": "更新 (F5)",
             "folder_ready": "待機中...",
             "folder_item_size": "項目サイズ:",
             "folder_scan_prep": "📁 フォルダーのスキャン準備中...",
@@ -884,8 +884,8 @@ def get_i18n():
             "action_fav_add": "お気に入りに追加", "action_fav_rem": "お気に入りから削除", "action_open_exp": "エクスプローラーで開く",
             "action_ren_folder": "フォルダー名を変更", "action_del_folder": "フォルダーを削除 (Del)", "action_refresh": "更新",
             "action_view": "ビューアで開く", "action_flatten_structure": "アーカイブ構成整理 (フラット化)", "action_meta_edit": "メタデータ管理", "action_inner_ren": "内部ファイル名変更",
-            "action_update_files": "ファイルを強制更新", "action_del_files": "ファイルを削除 (Del)", 
-            "action_sel_all": "すべて選択 (Ctrl+A)", "action_inv_sel": "選択を反転",
+            "action_update_files": "ファイルを強制更新", "action_del_files": "ファイルを削除", 
+            "action_sel_all": "すべて選択", "action_inv_sel": "選択を反転",
             
             "dlg_ren_folder_title": "フォルダー名を変更", "dlg_ren_folder_msg": "新しいフォルダー名を入力してください:",
             "dlg_err": "エラー", "dlg_err_ren_folder": "フォルダー名を変更できません:\n{0}",
@@ -939,7 +939,7 @@ def get_i18n():
                 "• 100未満に設定すると損失圧縮を実行し、最適化済みのファイルは画質保護のためオリジナルを維持します。"
             ),
 
-            "tf_menu_rename_multi": "Rename (&M)",
+            "tf_menu_rename_multi": "Rename",
             "tf_rename_title": "Rename Multiple Files",
             "tf_old_format": "Old format:",
             "tf_new_format": "New format:",

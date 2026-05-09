@@ -63,6 +63,8 @@ class Tab2Renamer(QWidget):
         self.inner_timer.setSingleShot(True)
         self.inner_timer.timeout.connect(self._process_inner_select)
         
+        self.config = main_app.config
+        
         self.setup_ui()
 
     def update_icons(self, is_dark):
@@ -224,7 +226,7 @@ class Tab2Renamer(QWidget):
         
         self.lbl_empty_arch = QLabel(t.get("drag_drop", ""))
         self.lbl_empty_arch.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_empty_arch.setStyleSheet("color: #aaaaaa; font-size: 16px; font-weight: bold;")
+        self.lbl_empty_arch.setStyleSheet(f"color: #aaaaaa; font-size: {self.config['s16']}px; font-weight: bold;")
         
         layout_empty.addStretch()
         layout_empty.addWidget(self.icon_empty_arch)
@@ -501,7 +503,7 @@ class Tab2Renamer(QWidget):
             
             c_item = QTableWidgetItem(str(len(data['entries'])))
             c_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            s_item = QTableWidgetItem(f"{data['size_mb']:.1f}")
+            s_item = QTableWidgetItem(f"{data['size_mb']:.1f} MB")
             s_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             
             self.table_archives.setItem(row, 0, chk_item)

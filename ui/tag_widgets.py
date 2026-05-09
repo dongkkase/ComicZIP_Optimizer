@@ -45,10 +45,11 @@ class FlowLayout(QLayout):
         return y + lineHeight - rect.y() + margins.bottom()
 
 class TagWidget(QFrame):
-    def __init__(self, text, remove_cb):
+    def __init__(self, text, remove_cb, config):
         super().__init__()
         self.text_val = text
-        self.setStyleSheet("QFrame { background-color: #3a7ebf; border-radius: 4px; } QLabel { color: white; padding: 4px 2px 4px 6px; border: none; background: transparent; font-weight: bold; font-size: 11px; } QPushButton { border: none; background: transparent; color: white; padding: 4px 6px 4px 2px; font-weight: bold; } QPushButton:hover { color: #ffcccc; }")
+        self.config = config
+        self.setStyleSheet(f"QFrame {{ background-color: #3a7ebf; border-radius: 4px; }} QLabel {{ color: white; padding: 4px 2px 4px 6px; border: none; background: transparent; font-weight: bold; font-size: {self.config['s11']}px; }} QPushButton {{ border: none; background: transparent; color: white; padding: 4px 6px 4px 2px; font-weight: bold; }} QPushButton:hover {{ color: #ffcccc; }}")
         layout = QHBoxLayout(self); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(2)
         lbl = QLabel(text); btn = QPushButton("×"); btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.clicked.connect(lambda: remove_cb(self)); layout.addWidget(lbl); layout.addWidget(btn)
@@ -66,9 +67,10 @@ class TagLineEdit(QLineEdit):
         super().keyPressEvent(event)
 
 class TagInputArea(QFrame):
-    def __init__(self, i18n_dict, on_change_cb=None):
+    def __init__(self, i18n_dict, config, on_change_cb=None):
         super().__init__()
         self.i18n = i18n_dict
+        self.config = config
         self.tags = []
         self.on_change_cb = on_change_cb
         
@@ -99,7 +101,7 @@ class TagInputArea(QFrame):
         
     def _add_tag_ui(self, text):
         if text in self.tags: return
-        self.tags.append(text); tag_widget = TagWidget(text, self.remove_tag)
+        self.tags.append(text); tag_widget = TagWidget(text, self.remove_tag, self.config)
         self.flow_layout.removeWidget(self.line_edit); self.flow_layout.addWidget(tag_widget); self.flow_layout.addWidget(self.line_edit)
         if self.on_change_cb: self.on_change_cb()
         

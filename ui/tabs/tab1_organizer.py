@@ -14,6 +14,7 @@ from PyQt6.QtGui import QColor,QTextDocument, QAbstractTextDocumentLayout
 from ui.widgets import OrgTreeWidget
 
 class RichTextDelegate(QStyledItemDelegate):
+    
     def paint(self, painter, option, index):
         text = index.data(Qt.ItemDataRole.DisplayRole)
         
@@ -57,13 +58,22 @@ class RichTextDelegate(QStyledItemDelegate):
             
             painter.save()
             textRect = style.subElementRect(QStyle.SubElement.SE_ItemViewItemText, options)
-            painter.translate(textRect.left(), textRect.top() + 2)
+            
+            # 🌟 수정됨: 수직 중앙 정렬을 위한 Y축 오프셋 동적 계산
+            y_offset = (textRect.height() - doc.size().height()) / 2
+            painter.translate(textRect.left(), textRect.top() + y_offset)
+            
             ctx = QAbstractTextDocumentLayout.PaintContext()
             doc.documentLayout().draw(painter, ctx)
             painter.restore()
+            if is_parent:
+                painter.save()
+                painter.setPen(QColor("#444444"))
+                painter.drawLine(options.rect.topLeft(), options.rect.topRight())
+                painter.restore()
         else:
             super().paint(painter, option, index)
-
+            
     def sizeHint(self, option, index):
         text = index.data(Qt.ItemDataRole.DisplayRole)
         
@@ -86,7 +96,14 @@ class RichTextDelegate(QStyledItemDelegate):
             option_text.setTabStopDistance(30.0)
             doc.setDefaultTextOption(option_text)
             
-            return QSize(int(doc.idealWidth()), int(doc.size().height()) + 0)
+            # 🌟 FIX: 아이템에 명시적으로 설정된 sizeHint가 있다면 그 높이를 존중하도록 수정
+            base_hint = super().sizeHint(option, index)
+            doc_height = int(doc.size().height())
+            
+            # 지정된 행 높이가 텍스트보다 크면 큰 값을 사용 (버튼 잘림 방지)
+            final_height = max(doc_height, base_hint.height()) if base_hint.isValid() else doc_height
+            
+            return QSize(int(doc.idealWidth()), final_height)
             
         return super().sizeHint(option, index)
 
@@ -97,6 +114,9 @@ class Tab1Organizer(QWidget):
         self.org_data = {}
         self.all_checked = True
         self.is_expanded = True
+        
+        self.config = main_app.config
+
         self.setup_ui()
 
     def batch_change_unit(self, fp, target_unit):
@@ -170,7 +190,7 @@ class Tab1Organizer(QWidget):
         
         self.lbl_empty_org = QLabel(t.get("drag_drop", ""))
         self.lbl_empty_org.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_empty_org.setStyleSheet("color: #aaaaaa; font-size: 16px; font-weight: bold;")
+        self.lbl_empty_org.setStyleSheet(f"color: #aaaaaa; font-size: {self.config['s16']}px; font-weight: bold;")
         
         layout_empty.addStretch()
         layout_empty.addWidget(self.icon_empty_org)
@@ -279,13 +299,22 @@ class Tab1Organizer(QWidget):
 
     def refresh_list(self):
         from PyQt6.QtWidgets import QStyledItemDelegate, QStyleOptionViewItem
+        from PyQt6.QtGui import QColor
         
         if not hasattr(self, '_no_check_delegate'):
             class NoCheckDelegate(QStyledItemDelegate):
                 def initStyleOption(self, option, index):
                     super().initStyleOption(option, index)
                     option.features &= ~QStyleOptionViewItem.ViewItemFeature.HasCheckIndicator
-            
+                
+                def paint(self, painter, option, index):
+                    super().paint(painter, option, index)
+                    if not index.parent().isValid():
+                        painter.save()
+                        painter.setPen(QColor("#444444"))
+                        painter.drawLine(option.rect.topLeft(), option.rect.topRight())
+                        painter.restore()
+                        
             self._no_check_delegate = NoCheckDelegate(self.tree_org)
             self.tree_org.setItemDelegateForColumn(1, self._no_check_delegate)
             self.tree_org.setItemDelegateForColumn(2, self._no_check_delegate)
@@ -319,12 +348,27 @@ class Tab1Organizer(QWidget):
         items_to_add = []
         root_widgets_to_set = []
         
+        # 🌟 폰트 비율에 따른 동적 높이 사전 계산
+        s11 = getattr(self, 'config', {}).get("s11", 11)
+        font_family = getattr(self, 'config', {}).get("font_family", "Default")
+        
+        from PyQt6.QtGui import QFontMetrics, QFont
+        temp_font = QFont(font_family, s11)
+        fm = QFontMetrics(temp_font)
+        
+        # 위젯(입력창/버튼) 최소 높이 = 글꼴 높이 + 상하 패딩(10) + 보더 및 여유분(4)
+        widget_height = fm.lineSpacing() + 4 
+        # 트리 행(Row) 전체 높이 = 위젯 높이 + 레이아웃 마진(위아래 10) + 트리 셀 여유분(6)
+        row_height = widget_height + 16
+        
         for fp, data in self.org_data.items():
             root_item = QTreeWidgetItem()
             root_item.setData(0, Qt.ItemDataRole.UserRole, fp)
             
             root_item.setCheckState(0, Qt.CheckState.Checked if data.get('checked', True) else Qt.CheckState.Unchecked)
-            root_item.setSizeHint(0, QSize(0, 36)) 
+            
+            # 🌟 동적 계산된 높이를 트리의 Row Height로 지정 (수정된 Delegate가 이 값을 존중함)
+            root_item.setSizeHint(0, QSize(0, row_height)) 
             
             root_item.setText(0, f"📦 {data['clean_title']}||{data['name']}") 
             
@@ -338,7 +382,7 @@ class Tab1Organizer(QWidget):
             
             path_widget = QWidget()
             path_layout = QHBoxLayout(path_widget)
-            path_layout.setContentsMargins(5, 2, 5, 2)
+            path_layout.setContentsMargins(5, 5, 5, 5) # 상하 여백 확보
             path_layout.setSpacing(5)
             
             le_path = QLineEdit()
@@ -356,7 +400,6 @@ class Tab1Organizer(QWidget):
             btn_tit = QPushButton("책제목" if self.main_app.lang == "ko" else "Title")
             btn_tit.clicked.connect(lambda _, key=fp, p=title_path: self.set_single_path(key, p))
             
-            # 🌟 [추가됨] 일괄: 권 / 일괄: 화 버튼
             lang = self.main_app.lang
             btn_vol_text = "일괄: 권" if lang == "ko" else ("一括: 巻" if lang == "ja" else "All: Vol")
             btn_ch_text = "일괄: 화" if lang == "ko" else ("一括: 話" if lang == "ja" else "All: Ch")
@@ -367,18 +410,20 @@ class Tab1Organizer(QWidget):
             btn_ch = QPushButton(btn_ch_text)
             btn_ch.clicked.connect(lambda _, key=fp: self.batch_change_unit(key, "ch"))
             
-            btn_style = "QPushButton { padding: 4px 8px; font-size: 11px; border-radius: 4px; background-color: #4a4a4a; } QPushButton:hover { background-color: #5a5a5a; }"
-            btn_def.setStyleSheet(btn_style)
-            btn_tit.setStyleSheet(btn_style)
-            btn_vol.setStyleSheet(btn_style)
-            btn_ch.setStyleSheet(btn_style)
-            le_path.setStyleSheet("padding: 4px; font-size: 11px;")
+            # 🌟 테두리와 높이를 명확히 지정
+            le_path.setStyleSheet(f"padding: 5px; font-size: {s11}px; border: 1px solid #555; border-radius: 4px; background-color: #3a3a3a; color: white;")
+            le_path.setMinimumHeight(widget_height)
+            
+            btn_style = f"QPushButton {{ padding: 5px 10px; font-size: {s11}px; border-radius: 4px; background-color: #4a4a4a; }} QPushButton:hover {{ background-color: #5a5a5a; }}"
+            for btn in [btn_def, btn_tit, btn_vol, btn_ch]:
+                btn.setStyleSheet(btn_style)
+                btn.setMinimumHeight(widget_height)
             
             path_layout.addWidget(le_path, 1)
             path_layout.addWidget(btn_def)
             path_layout.addWidget(btn_tit)
-            path_layout.addWidget(btn_vol)  # 추가
-            path_layout.addWidget(btn_ch)   # 추가
+            path_layout.addWidget(btn_vol) 
+            path_layout.addWidget(btn_ch)  
             
             for vol in data['volumes']:
                 child = QTreeWidgetItem(root_item)
@@ -425,7 +470,7 @@ class Tab1Organizer(QWidget):
         self.lbl_count.setText(self.main_app.i18n[self.main_app.lang]["total_files"].format(count=len(self.org_data)))
 
         self.tree_org.verticalScrollBar().setValue(saved_scroll_pos)
-
+    
     def toggle_all_checkboxes(self):
         self.all_checked = not self.all_checked
         for fp in self.org_data:

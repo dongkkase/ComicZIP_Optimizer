@@ -42,6 +42,8 @@ class Tab3Metadata(QWidget):
         self.cover_timer.setSingleShot(True)
         self.cover_timer.timeout.connect(self._process_cover_load)
         
+        self.config = main_app.config
+
         self.setup_ui()
 
     def update_icons(self, is_dark):
@@ -90,7 +92,7 @@ class Tab3Metadata(QWidget):
         self.icon_empty_meta.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_empty = QLabel(t.get("t3_empty", "폴더 및 파일을 이 화면으로 드래그 앤 드롭하세요"))
         self.lbl_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_empty.setStyleSheet("font-size: 16px; font-weight: bold;")
+        self.lbl_empty.setStyleSheet(f"font-size: {self.config['s16']}px; font-weight: bold;")
         layout_empty.addStretch()
         layout_empty.addWidget(self.icon_empty_meta)
         layout_empty.addWidget(self.lbl_empty)
@@ -232,7 +234,7 @@ class Tab3Metadata(QWidget):
                 text_color = "#ffffff" if (is_primary or is_active) else "#374151"
                 
             radius = "5px"
-            style = f"QPushButton {{ background-color: {bg}; color: {text_color}; border: 1px solid {border}; padding: 5px 8px; font-size: 11px; border-radius: 0px; margin-top: 10px; {'font-weight: bold;' if (is_primary or is_active) else ''} }} QPushButton:hover {{ background-color: {hover_bg}; }}"
+            style = f"QPushButton {{ background-color: {bg}; color: {text_color}; border: 1px solid {border}; padding: 5px 8px; font-size: {self.config['s11']}px; border-radius: 0px; margin-top: 10px; {'font-weight: bold;' if (is_primary or is_active) else ''} }} QPushButton:hover {{ background-color: {hover_bg}; }}"
             if pos == "left_end": style += f"QPushButton {{ border-top-left-radius: {radius}; border-bottom-left-radius: {radius}; }}"
             elif pos == "right_end": style += f"QPushButton {{ border-top-right-radius: {radius}; border-bottom-right-radius: {radius}; }}"
             elif pos == "middle": style += "QPushButton { border-left: none; }"
@@ -439,7 +441,7 @@ class Tab3Metadata(QWidget):
             if c >= 5: c = 0; r += 1
         layout.addWidget(cb_container, start_row, 1, 1, 3); start_row += 1
         
-        le_my = TagInputArea(t_dict)
+        le_my = TagInputArea(t_dict, self.config)
         
         is_dark = getattr(self.main_app, 'is_dark_mode', True)
         icon_c = 'white' if is_dark else '#1F2937'
@@ -540,8 +542,8 @@ class Tab3Metadata(QWidget):
         r = self._add_checkbox_group(gl_genre_tags, r, 'Tags', 't3_f_tags_lbl', t.get("meta_tags", {}), t)
         lbl_char = QLabel(t.get('t3_f_char', '')); lbl_char.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop); gl_genre_tags.addWidget(lbl_char, r, 0)
         
-        le_char_my = TagInputArea(t); le_char_res = QTextEdit(); le_char_res.setMaximumHeight(80)
-        btn_char_map = QPushButton("<"); btn_char_map.setFixedWidth(35); gl_genre_tags.addWidget(le_char_my, r, 1); gl_genre_tags.addWidget(btn_char_map, r, 2, alignment=Qt.AlignmentFlag.AlignCenter); gl_genre_tags.addWidget(le_char_res, r, 3)
+        le_char_my = TagInputArea(t, self.config); le_char_res = QTextEdit(); le_char_res.setMaximumHeight(80)
+        btn_char_map = QPushButton("<"); btn_char_map.setFixedWidth(35); btn_char_map.setCursor(Qt.CursorShape.PointingHandCursor); gl_genre_tags.addWidget(le_char_my, r, 1); gl_genre_tags.addWidget(btn_char_map, r, 2, alignment=Qt.AlignmentFlag.AlignCenter); gl_genre_tags.addWidget(le_char_res, r, 3)
         r += 1
         btn_char_series = QPushButton(t.get("t3_btn_apply_series_tag", ""))
         btn_char_series.setCursor(Qt.CursorShape.PointingHandCursor); gl_genre_tags.addWidget(btn_char_series, r, 1); self.dynamic_series_btns.append(btn_char_series)
@@ -594,7 +596,7 @@ class Tab3Metadata(QWidget):
         self.btn_auto_match.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_auto_match.setObjectName("actionBtnOrange")
         self.btn_auto_match.clicked.connect(self.action_auto_match_series)
-        self.btn_auto_match.setStyleSheet('font-size:11px; padding: 5px 8px;')
+        self.btn_auto_match.setStyleSheet(f"font-size:{self.config['s11']}px; padding: 5px 8px;")
         
         # 🌟 [개선] 텍스트에서 단축키를 빼고 툴팁에만 추가
         self.btn_meta_save = QPushButton(t.get('t3_save', ''))
@@ -609,11 +611,11 @@ class Tab3Metadata(QWidget):
         
         for btn in [self.btn_auto_title, self.btn_auto_vol, self.btn_auto_chap, self.btn_auto_pages]:
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setStyleSheet("font-size: 11px; padding: 5px 8px;")
+            btn.setStyleSheet(f"font-size: {self.config['s11']}px; padding: 5px 8px;")
             
         self.btn_meta_save_all.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_meta_save_all.setObjectName("actionBtn") 
-        self.btn_meta_save_all.setStyleSheet("background-color: #0078d7;")
+        self.btn_meta_save_all.setStyleSheet(f"background-color: {self.config['btn_primary']};")
         self.btn_meta_save.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_meta_save.setObjectName("actionBtnGreen")
         self.btn_meta_save.setStyleSheet("background-color: #27ae60;")
@@ -1034,7 +1036,7 @@ class Tab3Metadata(QWidget):
                 icon_lbl = QLabel()
                 icon_lbl.setPixmap(qta.icon('fa5s.file-alt', color='#bdc3c7').pixmap(12, 12))
                 lbl_title = QLabel(title)
-                lbl_title.setStyleSheet("font-size: 13px; color:rgba(255,255,255,0.7);")
+                lbl_title.setStyleSheet(f"font-size: {self.config['s13']}px; color:rgba(255,255,255,0.7);")
                 lbl_title.setWordWrap(True) 
                 
                 title_layout.addWidget(icon_lbl, 0, Qt.AlignmentFlag.AlignTop) # 텍스트가 길어질 경우 아이콘은 위에 고정
@@ -1047,7 +1049,7 @@ class Tab3Metadata(QWidget):
                 clock_lbl = QLabel()
                 clock_lbl.setPixmap(qta.icon('fa5s.clock', color='#7f8c8d').pixmap(10, 10))
                 lbl_date = QLabel(date_str)
-                lbl_date.setStyleSheet("color: rgba(255,255,255,0.5); font-size: 10px;") 
+                lbl_date.setStyleSheet(f"color: rgba(255,255,255,0.5); font-size: {self.config['s10']}px;") 
                 
                 date_layout.addSpacing(18) # 들여쓰기
                 date_layout.addWidget(clock_lbl, 0, Qt.AlignmentFlag.AlignVCenter)

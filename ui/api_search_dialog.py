@@ -16,8 +16,9 @@ from tasks.api_workers import SearchWorker, TranslateWorker, ImageLoadThread
 def similar(a, b): return difflib.SequenceMatcher(None, a, b).ratio()
 
 class SearchResultWidget(QWidget):
-    def __init__(self, data, parent=None):
+    def __init__(self, data, config, parent=None):
         super().__init__(parent)
+        self.config = config
         self.cover_url = data.get("CoverUrl", "")
         
         self.setStyleSheet("SearchResultWidget { background-color: transparent; }")
@@ -61,7 +62,7 @@ class SearchResultWidget(QWidget):
         self.lbl_title = QLabel(parse_val(data.get("Title", "")))
         self.lbl_title.setWordWrap(True)
         self.lbl_title.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-        self.lbl_title.setStyleSheet("QLabel { font-weight: bold; font-size: 14px; color: #EAEAEA; background-color: transparent; border: none; outline: none; }")
+        self.lbl_title.setStyleSheet(f"QLabel {{ font-weight: bold; font-size: {self.config['s14']}px; color: #EAEAEA; background-color: transparent; border: none; outline: none; }}")
         info_layout.addWidget(self.lbl_title)
         
         raw_summary = parse_val(data.get("Summary", ""))
@@ -73,7 +74,7 @@ class SearchResultWidget(QWidget):
         self.lbl_summary = QLabel(clean_summary)
         self.lbl_summary.setWordWrap(False) 
         self.lbl_summary.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-        self.lbl_summary.setStyleSheet("QLabel { color: #999999; font-size: 12px; background-color: transparent; border: none; outline: none; }")
+        self.lbl_summary.setStyleSheet(f"QLabel {{ color: #999999; font-size: {self.config['s12']}px; background-color: transparent; border: none; outline: none; }}")
         
         if clean_summary:
             info_layout.addWidget(self.lbl_summary)
@@ -88,12 +89,12 @@ class SearchResultWidget(QWidget):
         
         def add_meta_item(text, color):
             lbl = QLabel(text)
-            lbl.setStyleSheet(f"QLabel {{ color: {color}; font-size: 11px; background-color: transparent; border: none; outline: none; }}")
+            lbl.setStyleSheet(f"QLabel {{ color: {color}; font-size: {self.config['s11']}px; background-color: transparent; border: none; outline: none; }}")
             meta_layout.addWidget(lbl)
             
         def add_divider():
             lbl = QLabel("|")
-            lbl.setStyleSheet("QLabel { color: rgba(255, 255, 255, 0.3); font-size: 9px; background-color: transparent; border: none; outline: none; }")
+            lbl.setStyleSheet(f"QLabel {{ color: rgba(255, 255, 255, 0.3); font-size: {self.config['s9']}px; background-color: transparent; border: none; outline: none; }}")
             meta_layout.addWidget(lbl)
 
         items_added = 0
@@ -114,10 +115,10 @@ class SearchResultWidget(QWidget):
             
             star_icon = QLabel()
             star_icon.setPixmap(qta.icon('fa5s.star', color='#f1c40f').pixmap(11, 11))
-            star_icon.setStyleSheet("QLabel { background-color: transparent; border: none; outline: none; }") 
+            star_icon.setStyleSheet(f"QLabel {{ background-color: transparent; border: none; outline: none; }}") 
             
             star_lbl = QLabel(rating)
-            star_lbl.setStyleSheet("QLabel { color: #F1C40F; font-size: 11px; font-weight: bold; background-color: transparent; border: none; outline: none; }")
+            star_lbl.setStyleSheet(f"QLabel {{ color: #F1C40F; font-size: {self.config['s11']}px; font-weight: bold; background-color: transparent; border: none; outline: none; }}")
             
             star_layout.addWidget(star_icon)
             star_layout.addWidget(star_lbl)
@@ -202,7 +203,8 @@ class ApiSearchDialog(QDialog):
         self.current_query = query
         self.h1_text = h1_text
         self.t = t if t else {}
-        self.api_keys = parent.main_app.config.get("api_keys", {}) if parent and hasattr(parent, "main_app") else {}
+        self.config = parent.main_app.config if parent and hasattr(parent, "main_app") else {}
+        self.api_keys = self.config.get("api_keys", {})
         
         self.tag_rules = {}
         rules_text = self.api_keys.get("tag_rules", "")
@@ -214,7 +216,7 @@ class ApiSearchDialog(QDialog):
                     for src in srcs.split(','):
                         self.tag_rules[src.strip().lower()] = dst
                         
-        self.target_lang = parent.main_app.lang if parent and hasattr(parent, "main_app") else "ko"
+        self.target_lang = self.config.get("lang", "ko")
         
         self.search_results = []
         self.selected_raw_data = None  
@@ -272,7 +274,7 @@ class ApiSearchDialog(QDialog):
         self.btn_search.clicked.connect(self.action_manual_search)
         
         self.lbl_api_warning = QLabel(self.t.get("api_key_missing", "환경설정에서 API 키를 입력해주세요."))
-        self.lbl_api_warning.setStyleSheet("color: #E74C3C; font-weight: bold; font-size: 12px; margin-left: 10px;")
+        self.lbl_api_warning.setStyleSheet(f"color: #E74C3C; font-weight: bold; font-size: {self.config['s12']}px; margin-left: 10px;")
         self.lbl_api_warning.hide()
         
         header_layout.addWidget(self.cb_api); header_layout.addWidget(self.le_query); header_layout.addWidget(self.btn_search)
@@ -335,7 +337,7 @@ class ApiSearchDialog(QDialog):
         left_layout.addLayout(page_layout)
         
         self.lbl_result_count = QLabel(f"{self.t.get('search_result_prefix', '검색 결과:')} 0{self.t.get('search_result_suffix', '건')}")
-        self.lbl_result_count.setStyleSheet("color: #aaa; font-size: 12px; margin-top: 5px; border: none; outline: none;")
+        self.lbl_result_count.setStyleSheet(f"color: #aaa; font-size: {self.config['s12']}px; margin-top: 5px; border: none; outline: none;")
         self.lbl_result_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
         left_layout.addWidget(self.lbl_result_count)
         
@@ -354,7 +356,7 @@ class ApiSearchDialog(QDialog):
         
         title_layout = QHBoxLayout()
         self.lbl_detail_title = QLabel("-")
-        self.lbl_detail_title.setStyleSheet("font-size: 20px; font-weight: bold; color: white; padding-bottom: 5px;")
+        self.lbl_detail_title.setStyleSheet(f"font-size: {self.config['s20']}px; font-weight: bold; color: white; padding-bottom: 5px;")
         self.lbl_detail_title.setWordWrap(True)
         self.lbl_detail_title.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.lbl_detail_title.setCursor(Qt.CursorShape.IBeamCursor)
@@ -362,7 +364,7 @@ class ApiSearchDialog(QDialog):
         self.btn_translate = QPushButton(f" {self.t.get('btn_translate_web', '번역')}")
         self.btn_translate.setIcon(qta.icon('fa5s.language', color='white'))
         self.btn_translate.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_translate.setStyleSheet("background-color: #27AE60; color: white; padding: 5px 15px; border-radius: 4px; font-weight: bold;")
+        self.btn_translate.setStyleSheet(f"background-color: #27AE60; color: white; padding: 5px 15px; border-radius: 4px; font-weight: bold; font-size: {self.config['s11']}px;")
         self.btn_translate.clicked.connect(self.action_translate)
         self.btn_translate.hide()
         
@@ -400,7 +402,7 @@ class ApiSearchDialog(QDialog):
             lbl_val = QLabel("-")
             lbl_val.setWordWrap(True)
             lbl_val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            lbl_val.setStyleSheet("color: #ddd; font-size: 13px;")
+            lbl_val.setStyleSheet(f"color: #ddd; font-size: {self.config['s13']}px;")
             lbl_val.setCursor(Qt.CursorShape.IBeamCursor)
             
             lbl_title = QLabel(f"{label_text}")
@@ -424,7 +426,7 @@ class ApiSearchDialog(QDialog):
         lbl_rating = QLabel("-")
         lbl_rating.setWordWrap(True)
         lbl_rating.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        lbl_rating.setStyleSheet("color: #ddd; font-size: 13px;")
+        lbl_rating.setStyleSheet(f"color: #ddd; font-size: {self.config['s13']}px;")
         lbl_rating.setCursor(Qt.CursorShape.IBeamCursor)
         
         rating_layout.addWidget(self.detail_star_icon)
@@ -441,7 +443,7 @@ class ApiSearchDialog(QDialog):
             lbl_val = QLabel("-")
             lbl_val.setWordWrap(True)
             lbl_val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            lbl_val.setStyleSheet("color: #ddd; font-size: 13px;")
+            lbl_val.setStyleSheet(f"color: #ddd; font-size: {self.config['s13']}px;")
             lbl_val.setCursor(Qt.CursorShape.IBeamCursor)
             
             lbl_title = QLabel(f"{label_text}")
@@ -462,7 +464,7 @@ class ApiSearchDialog(QDialog):
             lbl_v.setWordWrap(True)
             lbl_v.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
             lbl_v.setOpenExternalLinks(True)
-            lbl_v.setStyleSheet("color: #ddd; font-size: 13px; line-height: 1.5;")
+            lbl_v.setStyleSheet(f"color: #ddd; font-size: {self.config['s13']}px; line-height: 1.5;")
             lbl_v.setCursor(Qt.CursorShape.IBeamCursor)
             
             detail_layout.addWidget(lbl_t); detail_layout.addWidget(lbl_v)
@@ -483,7 +485,7 @@ class ApiSearchDialog(QDialog):
         btn_layout = QHBoxLayout()
         
         self.lbl_cache_notice = QLabel(self.t.get("api_cache_notice", "빠른 표시를 위해 검색 결과는 7일간 캐싱됩니다."))
-        self.lbl_cache_notice.setStyleSheet("color: #888; font-size: 11px; border: none;")
+        self.lbl_cache_notice.setStyleSheet(f"color: #888; font-size: {self.config['s11']}px; border: none;")
         btn_layout.addWidget(self.lbl_cache_notice)
         
         btn_layout.addStretch()
@@ -652,7 +654,7 @@ class ApiSearchDialog(QDialog):
         
         for data in self.search_results:
             item = QListWidgetItem(self.list_widget)
-            widget = SearchResultWidget(data)
+            widget = SearchResultWidget(data, self.config)
             item.setSizeHint(widget.sizeHint())
             self.list_widget.setItemWidget(item, widget)
             
@@ -753,10 +755,10 @@ class ApiSearchDialog(QDialog):
             if key == "Rating":
                 if val and val != "-":
                     self.detail_star_icon.show()
-                    lbl_widget.setStyleSheet("color: #F1C40F; font-size: 13px; font-weight: bold;")
+                    lbl_widget.setStyleSheet(f"color: #F1C40F; font-size: {self.config['s13']}px; font-weight: bold;")
                 else:
                     self.detail_star_icon.hide()
-                    lbl_widget.setStyleSheet("color: #ddd; font-size: 13px;")
+                    lbl_widget.setStyleSheet(f"color: #ddd; font-size: {self.config['s13']}px;")
             
         self.lbl_summary.setText(self._parse_list_to_string(data.get("Summary", "-")))
         

@@ -29,7 +29,16 @@ from ui.tabs.tab_folder import TabFolder
 
 from core.i18n import get_i18n
 
-from ui.tabs.tab_folder import TabFolder
+from PyQt6.QtWebEngineWidgets import QWebEngineView
+from PyQt6.QtWebEngineCore import QWebEnginePage
+
+class ExternalLinkWebPage(QWebEnginePage):
+    def acceptNavigationRequest(self, url, _type, isMainFrame):
+        if _type == QWebEnginePage.NavigationType.NavigationTypeLinkClicked:
+            import webbrowser
+            webbrowser.open(url.toString())
+            return False
+        return super().acceptNavigationRequest(url, _type, isMainFrame)
 
 class RenamerApp(QMainWindow):
     def __init__(self):
@@ -97,9 +106,14 @@ class RenamerApp(QMainWindow):
     def on_version_checked(self, latest_version):
         self.latest_version_found = latest_version
         self.update_version_button_ui()
-
-    def on_release_notes_loaded(self, markdown):
-        self.browser_release.setMarkdown(markdown)
+    
+    def on_release_notes_loaded(self, html_content):
+        # 🌟 QWebEngineView가 완전히 준비되지 않은 상태에서 호출될 경우를 대비한 방어 코드
+        if hasattr(self, 'browser_release') and self.browser_release:
+            try:
+                self.browser_release.setHtml(html_content)
+            except Exception as e:
+                print(f"WebEngine Render Error: {e}")
 
     def update_version_button_ui(self):
         if self.latest_version_found:
@@ -171,7 +185,7 @@ class RenamerApp(QMainWindow):
         self.btn_issue = QPushButton()
         self.btn_issue.setIcon(qta.icon('fa5s.bug', color='white'))
         self.btn_issue.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_issue.setObjectName("settingsBtn") # 스타일 일치를 위해 settingsBtn 속성 사용
+        self.btn_issue.setObjectName("settingsBtn")
         self.btn_issue.clicked.connect(self.open_issue_link)
         toolbar_layout.addWidget(self.btn_issue)
 
@@ -207,8 +221,12 @@ class RenamerApp(QMainWindow):
         main_layout.addWidget(self.tabs, 1)
 
         t4_layout = QVBoxLayout(self.tab_releases)
-        self.browser_release = QTextBrowser()
-        self.browser_release.setOpenExternalLinks(True)
+        
+        # 🌟 QTextBrowser 대신 QWebEngineView 교체 적용 부분
+        self.browser_release = QWebEngineView()
+        self.browser_page = ExternalLinkWebPage(self.browser_release)
+        self.browser_release.setPage(self.browser_page)
+        self.browser_release.setStyleSheet("background-color: transparent;") 
         t4_layout.addWidget(self.browser_release)
 
         bottom_layout = QHBoxLayout()
@@ -241,46 +259,35 @@ class RenamerApp(QMainWindow):
     def apply_dark_theme(self):
         self.is_dark_mode = True 
         
-        # 폰트 비율(Scale) 및 패밀리 계산
-        scale = self.config.get("font_scale", 100) / 100.0
-        ff = self.config.get("font_family", "Default")
-        font_family_str = "'Jua', 'Noto Sans KR', 'Segoe UI Emoji'" if ff == "Default" else f"'{ff}', 'Segoe UI Emoji'"
-        
-        # 비례 적용을 위한 각 베이스 크기를 동적 계산
-        s15 = int(15 * scale)
-        s14 = int(14 * scale)
-        s12 = int(12 * scale)
-        s11 = int(11 * scale)
-        
         style = f"""
-        QMainWindow, QDialog {{ background-color: #1e1e1e; font-size: {s12}px; }}
+        QMainWindow, QDialog {{ background-color: #1e1e1e; font-size: {self.config['s12']}px; }}
         QFrame#panelFrame {{ background-color: #2b2b2b; border-radius: 10px; }}
         QFrame#optionsFrame {{ background-color: #2b2b2b; border-radius: 8px; }}
         QFrame#divider {{ background-color: #444444; }}
         
-        QLabel {{ color: #ffffff; font-family: {font_family_str}; font-size: {s12}px; }}
-        QLabel#titleLabel {{ font-size: {s15}px; font-weight: bold; margin-bottom: 5px; }}
-        QLabel#boldLabel {{ font-size: {s12}px; font-weight: bold; margin-top: 5px; }}
-        QLabel#langLabel {{ font-size: {s12}px; font-weight: bold; }}
-        QLabel#statusLabel {{ color: #3498DB; font-weight: bold; font-size: {s12}px; }}
-        QLabel#infoLabel {{ color: #aaaaaa; font-size: {s11}px; }}
+        QLabel {{ color: #ffffff; font-family: {self.config['font_family_str']}; font-size: {self.config['s12']}px; }}
+        QLabel#titleLabel {{ font-size: {self.config['s15']}px; font-weight: bold; margin-bottom: 5px; }}
+        QLabel#boldLabel {{ font-size: {self.config['s12']}px; font-weight: bold; margin-top: 5px; }}
+        QLabel#langLabel {{ font-size: {self.config['s12']}px; font-weight: bold; }}
+        QLabel#statusLabel {{ color: #3498DB; font-weight: bold; font-size: {self.config['s12']}px; }}
+        QLabel#infoLabel {{ color: #aaaaaa; font-size: {self.config['s11']}px; }}
         QLabel#imageLabel {{ background-color: #1a1a1a; border-radius: 8px; }}
         
-        QCheckBox, QRadioButton {{ color: #ffffff; font-family: {font_family_str}; font-size: {s12}px; }}
+        QCheckBox, QRadioButton {{ color: #ffffff; font-family: {self.config['font_family_str']}; font-size: {self.config['s12']}px; }}
         QCheckBox:disabled, QRadioButton:disabled {{ color: #777777; }}
         
-        QGroupBox {{ color: #ffffff; font-family: {font_family_str}; font-size: {s12}px; font-weight: bold; border: 1px solid #555555; border-radius: 6px; margin-top: 12px; padding-top: 10px; }}
+        QGroupBox {{ color: #ffffff; font-family: {self.config['font_family_str']}; font-size: {self.config['s12']}px; font-weight: bold; border: 1px solid #555555; border-radius: 6px; margin-top: 12px; padding-top: 10px; }}
         QGroupBox::title {{ subcontrol-origin: margin; subcontrol-position: top left; left: 10px; padding: 0 5px; color: #ffffff; }}
 
         QTabWidget::pane {{ border: 1px solid #444; border-radius: 5px; top: -1px; background: #1e1e1e; }}
-        QTabBar::tab {{ background: #2b2b2b; color: #888; border: 1px solid #444; padding: 10px 20px; margin-right: 2px; border-top-left-radius: 5px; border-top-right-radius: 5px; font-weight: bold; font-size: {s12}px; }}
+        QTabBar::tab {{ background: #2b2b2b; color: #888; border: 1px solid #444; padding: 10px 20px; margin-right: 2px; border-top-left-radius: 5px; border-top-right-radius: 5px; font-weight: bold; font-size: {self.config['s12']}px; }}
         QTabBar::tab:selected {{ background: #3a7ebf; color: #fff; }}
         QTabBar::tab:hover:!selected {{ background: #3a3a3a; color: #fff; }}
 
         QProgressBar {{ background-color: #3a3a3a; border: none; border-radius: 5px; }}
         QProgressBar::chunk {{ background-color: #3498DB; border-radius: 5px; }}
         
-        QPushButton {{ background-color: #3a3a3a; color: white; border-radius: 6px; padding: 8px 12px; font-family: {font_family_str}; font-weight: bold; font-size: {s12}px; }}
+        QPushButton {{ background-color: #3a3a3a; color: white; border-radius: 6px; padding: 8px 12px; font-family: {self.config['font_family_str']}; font-weight: bold; font-size: {self.config['s12']}px; }}
         QPushButton:hover {{ background-color: #4a4a4a; }}
         
         QPushButton#versionBtn {{ background-color: #2b2b2b; color: #cccccc; border: 1px solid #555; }}
@@ -294,26 +301,25 @@ class RenamerApp(QMainWindow):
         QPushButton#dangerBtn:enabled {{ background-color: #D32F2F; color: #FFFFFF; border: none; }}
         QPushButton#dangerBtn:hover:enabled {{ background-color: #B71C1C; }}
         
-        QPushButton#actionBtn {{ background-color: #0078D7; font-size: {s14}px; padding: 10px 20px; border: none; }}
+        QPushButton#actionBtn {{ background-color: {self.config['btn_primary']}; font-size: {self.config['s14']}px; padding: 10px 20px; border: none; }}
         QPushButton#actionBtn:hover {{ background-color: #005A9E; }}
         
-        QPushButton#actionBtnGreen {{ background-color: #27AE60; font-size: {s14}px; padding: 10px 20px; border: none; color: white; border-radius: 6px; font-weight: bold; }}
+        QPushButton#actionBtnGreen {{ background-color: #27AE60; font-size: {self.config['s14']}px; padding: 10px 20px; border: none; color: white; border-radius: 6px; font-weight: bold; }}
         QPushButton#actionBtnGreen:hover {{ background-color: #2ECC71; }}
         
-        QPushButton#actionBtnOrange {{ background-color: #E67E22; font-size: {s14}px; padding: 10px 20px; border: none; color: white; border-radius: 6px; font-weight: bold; }}
+        QPushButton#actionBtnOrange {{ background-color: #E67E22; font-size: {self.config['s14']}px; padding: 10px 20px; border: none; color: white; border-radius: 6px; font-weight: bold; }}
         QPushButton#actionBtnOrange:hover {{ background-color: #F39C12; }}
         
-        QPushButton#actionBtnCancel {{ background-color: #E74C3C; font-size: {s14}px; padding: 10px 20px; border: none; }}
+        QPushButton#actionBtnCancel {{ background-color: #E74C3C; font-size: {self.config['s14']}px; padding: 10px 20px; border: none; }}
         QPushButton#actionBtnCancel:hover {{ background-color: #C0392B; }}
         
         QPushButton:disabled {{ background-color: #555555; color: #888888; border: 1px solid #444; }}
         
-        /* 테이블 및 트리 폰트 크기 강제 적용 */
-        QTableWidget, QTreeWidget, QTextBrowser {{ background-color: #2b2b2b; color: white; border: 1px solid #444; border-radius: 8px; gridline-color: #3a3a3a; outline: none; font-family: {font_family_str}; font-size: {s11}px; }}
-        QHeaderView::section {{ background-color: #1f1f1f; color: white; padding: 5px; border: none; font-weight: bold; font-family: {font_family_str}; font-size: {s11}px; }}
+        QTableWidget, QTreeWidget, QTextBrowser {{ background-color: #2b2b2b; color: white; border: 1px solid #444; border-radius: 8px; gridline-color: #3a3a3a; outline: none; font-family: {self.config['font_family_str']}; font-size: {self.config['s11']}px; }}
+        QHeaderView::section {{ background-color: #1f1f1f; color: white; padding: 5px; border: none; font-weight: bold; font-family: {self.config['font_family_str']}; font-size: {self.config['s11']}px; }}
         QHeaderView::section:hover {{ background-color: #3a3a3a; cursor: pointer; }}
         QTableWidget::item:selected, QTreeWidget::item:selected {{ background-color: #3a7ebf; }}
-        QTableWidget::item, QTreeWidget::item {{ padding: 4px; font-size: {s11}px; }}
+        QTableWidget::item, QTreeWidget::item {{ padding: 4px; font-size: {self.config['s11']}px; }}
         QTableWidget::indicator, QTreeWidget::indicator {{ width: 18px; height: 18px; }}
         
         QScrollArea {{ background-color: transparent; border: none; }}
@@ -321,7 +327,7 @@ class RenamerApp(QMainWindow):
         QSlider::handle:horizontal {{ background: #3498DB; width: 16px; height: 16px; margin: -4px 0; border-radius: 8px; }}
         QSlider::handle:horizontal:hover {{ background: #5DADE2; }}
         
-        QComboBox, QLineEdit, QTextEdit {{ background-color: #3a3a3a; color: white; border: 1px solid #555; border-radius: 4px; padding: 4px; font-family: {font_family_str}; font-size: {s12}px; }}
+        QComboBox, QLineEdit, QTextEdit {{ background-color: #3a3a3a; color: white; border: 1px solid #555; border-radius: 4px; padding: 4px; font-family: {self.config['font_family_str']}; font-size: {self.config['s12']}px; }}
         """
         self.setStyleSheet(style)
         
@@ -345,6 +351,8 @@ class RenamerApp(QMainWindow):
         self.btn_toggle_all.setText(f" {t['toggle_all']}")
         self.btn_settings.setText(f" {t['settings_btn']}") 
         self.btn_issue.setText(f" {t['btn_issue']}")
+
+        # self.tabs.setCursor(Qt.CursorShape.PointingHandCursor)
         
         if hasattr(self.tab1, 'retranslate_ui'): self.tab1.retranslate_ui(t, self.lang)
         if hasattr(self.tab2, 'retranslate_ui'): self.tab2.retranslate_ui(t, self.lang)
@@ -400,7 +408,7 @@ class RenamerApp(QMainWindow):
         
         dlg = SettingsDialog(self, self.config, self.format_keys, self.i18n)
         dlg.setStyleSheet(self.styleSheet()) 
-        from PyQt6.QtWidgets import QDialog
+        from PyQt6.QtWidgets import QDialog, QMessageBox
         
         if dlg.exec() == int(QDialog.DialogCode.Accepted):
             new_data = dlg.get_data()
@@ -428,29 +436,16 @@ class RenamerApp(QMainWindow):
             self.lang = self.config["lang"]
             save_config(self.config)
             
-            # 언어나 폰트 설정이 변경된 경우 재시작 유도
             if old_lang != new_lang or old_font != new_font or old_scale != new_scale:
-                if new_lang == "ko":
-                    restart_msg = "언어 또는 폰트 설정이 변경되었습니다. 적용을 위해 프로그램을 재시작합니다."
-                    restart_title = "프로그램 재시작"
-                elif new_lang == "ja":
-                    restart_msg = "言語やフォントの設定が変更されました。適用するためにプログラムを再起動します。"
-                    restart_title = "プログラムの再起動"
-                else:
-                    restart_msg = "Language or Font settings have changed. The program will restart to apply."
-                    restart_title = "Program Restart"
-                    
-                QMessageBox.information(self, restart_title, restart_msg)
+                msg = "언어 또는 폰트 설정이 변경되었습니다.\n변경사항을 적용하려면 프로그램을 수동으로 재시작해 주세요."
+                if self.lang == "en": msg = "Settings changed. Please restart the program manually to apply changes."
+                elif self.lang == "ja": msg = "設定が変更されました。変更を適用するには、プログラムを手動で再起動してください。"
                 
-                from PyQt6.QtCore import QCoreApplication
-                import sys, os
-                QCoreApplication.quit()
-                os.execl(sys.executable, sys.executable, *sys.argv)
-                return 
+                QMessageBox.information(self, "설정 변경" if self.lang == "ko" else "Settings Changed", msg)
 
             self.apply_language()
 
-            # [추가됨] B폴더가 변경되었으면 재인덱싱 트리거
+            # B폴더가 변경되었으면 재인덱싱 트리거
             if dup_folders_changed:
                 self.tab_folder.start_dup_scan()
 

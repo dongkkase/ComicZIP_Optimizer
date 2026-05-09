@@ -25,6 +25,9 @@ from PyQt6.QtCore import Qt, QDir, QAbstractTableModel, QModelIndex, QSize, QByt
 from config import get_resource_path, save_config
 from core.library_db import db
 
+from PyQt6.QtWebEngineWidgets import QWebEngineView
+from PyQt6.QtWebEngineCore import QWebEnginePage
+
 # ==========================================
 # [핵심 수정] i18n.py 구조에 맞춘 완벽한 다국어 처리 로직
 # ==========================================
@@ -42,6 +45,13 @@ def _(key):
     # 현재 언어의 딕셔너리에서 키를 찾고, 없으면 한국어에서 찾고, 그래도 없으면 키값 자체를 반환
     return _TRANSLATIONS.get(_CURRENT_LANG, _TRANSLATIONS["ko"]).get(key, key)
 
+class ExternalLinkWebPage(QWebEnginePage):
+    def acceptNavigationRequest(self, url, _type, isMainFrame):
+        if _type == QWebEnginePage.NavigationType.NavigationTypeLinkClicked:
+            import webbrowser
+            webbrowser.open(url.toString())
+            return False
+        return super().acceptNavigationRequest(url, _type, isMainFrame)
 
 # ==========================================
 # [추가됨] 중복 검사용 B폴더 스캔 스레드
@@ -1497,42 +1507,36 @@ class TabFolder(QWidget):
         left_layout = QVBoxLayout(self.left_panel)
         left_layout.setContentsMargins(5, 5, 5, 5)
         
-        # --- 가로로 꽉 차게 늘어나도록 Expanding 정책 설정 ---
         expanding_policy = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         self.btn_subfolders = QPushButton(_("folder_inc_sub_off"))
         self.btn_subfolders.setCheckable(True)
         self.btn_subfolders.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_subfolders.setStyleSheet(toggle_btn_style)
-        self.btn_subfolders.setSizePolicy(expanding_policy) # 50% 확장을 위해 변경
+        self.btn_subfolders.setSizePolicy(expanding_policy) 
         
         self.btn_dup_check = QPushButton(_("folder_dup_check_off"))
         self.btn_dup_check.setCheckable(True)
         self.btn_dup_check.setChecked(False)
         self.btn_dup_check.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_dup_check.setStyleSheet(toggle_btn_style)
-        self.btn_dup_check.setSizePolicy(expanding_policy) # 50% 확장을 위해 변경
+        self.btn_dup_check.setSizePolicy(expanding_policy) 
 
         self.btn_refresh_tree = QPushButton(_("folder_refresh_tree"))
         self.btn_refresh_tree.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_refresh_tree.setStyleSheet(toggle_btn_style)
-        self.btn_refresh_tree.setSizePolicy(expanding_policy) # 100% 확장을 위해 변경
+        self.btn_refresh_tree.setSizePolicy(expanding_policy) 
 
-        # --- [1번째 줄] 하위 폴더 포함 (50%) / 중복 검사 (50%) ---
         row1_layout = QHBoxLayout()
-        row1_layout.setSpacing(5) # 버튼 사이 여백
+        row1_layout.setSpacing(5) 
         row1_layout.addWidget(self.btn_subfolders)
         row1_layout.addWidget(self.btn_dup_check)
-        # addStretch()를 제거하여 남는 공간 없이 꽉 채우도록 함
         left_layout.addLayout(row1_layout)
 
-        # --- [2번째 줄] 새로고침 (100%) ---
         row2_layout = QHBoxLayout()
         row2_layout.addWidget(self.btn_refresh_tree)
-        # addStretch()를 제거하여 남는 공간 없이 꽉 채우도록 함
         left_layout.addLayout(row2_layout)
 
-        # --- [3번째 줄] 빠른 이동 (콤보박스) ---
         self.combo_quick_access = QComboBox()
         self.combo_quick_access.setStyleSheet("""
             QComboBox { background-color: #3a3a3a; color: white; border: 1px solid #555; border-radius: 4px; padding: 4px; margin-bottom: 5px; }
@@ -1617,6 +1621,7 @@ class TabFolder(QWidget):
         """)
         
         self.btn_refresh_list = QPushButton(_("folder_refresh_list"))
+        self.btn_refresh_list.setCursor(Qt.CursorShape.PointingHandCursor)
         
         self.btn_sidebar.setCursor(Qt.CursorShape.PointingHandCursor)
         list_toolbar.addWidget(self.btn_sidebar)
@@ -1686,9 +1691,13 @@ class TabFolder(QWidget):
         self.lbl_cover.setStyleSheet("border: 1px solid #555; background-color: #1a1a1a; border-radius: 4px;")
         right_bottom_layout.addWidget(self.lbl_cover)
 
-        self.info_browser = QTextBrowser()
-        self.info_browser.setOpenExternalLinks(True) 
-        self.info_browser.setStyleSheet("QTextBrowser { background-color: transparent; border: none; color: white; }")
+        # 🌟 QWebEngineView로 교체된 메타데이터 뷰어 패널
+        self.info_browser = QWebEngineView()
+        self.info_browser_page = ExternalLinkWebPage(self.info_browser)
+        self.info_browser.setPage(self.info_browser_page)
+        
+        self.info_browser.page().setBackgroundColor(Qt.GlobalColor.transparent)
+        self.info_browser.setStyleSheet("background-color: transparent; border: none;")
         right_bottom_layout.addWidget(self.info_browser, 1)
 
         self.right_splitter.addWidget(self.right_top_panel)
@@ -1708,7 +1717,7 @@ class TabFolder(QWidget):
         bottom_bar.setContentsMargins(5, 0, 5, 0)
         
         self.lbl_tree_status = QLabel(_("folder_ready"))
-        self.lbl_tree_status.setStyleSheet("color: #aaaaaa; font-size: 12px;")
+        self.lbl_tree_status.setStyleSheet(f"color: #aaaaaa; font-size: {self.config['s12']}px;")
         bottom_bar.addWidget(self.lbl_tree_status)
         
         self.progress_bar = QProgressBar()
@@ -2753,48 +2762,124 @@ class TabFolder(QWidget):
         tags = meta_dict.get("tags") or "-"
         notes = meta_dict.get("notes") or "-"
         
-        link = meta_dict.get("web") or "-"
-        link_html = f'<a href="{link}" style="color: #3498DB; text-decoration: none;">{link}</a>' if link != "-" else "-"
+        # 🌟 태그 문자열을 둥근 배지(Badge) 형태의 HTML로 변환하는 헬퍼 함수
+        def make_badges(text):
+            if not text or text == "-": return "-"
+            items = [x.strip() for x in text.split(',')]
+            return " ".join([f"<span class='badge'>{item}</span>" for item in items])
 
+        genre_html = make_badges(genre)
+        tags_html = make_badges(tags)
+        
+        link = meta_dict.get("web") or "-"
+        link_html = f'<a href="{link}" target="_blank" style="color: #3498DB; text-decoration: none;">{link}</a>' if link != "-" else "-"
+
+        # 🌟 QWebEngineView 전용 최신 CSS 및 Flexbox 레이아웃 디자인
         info_html = f"""
-        <div style="font-family: 'Jua', sans-serif;">
-            <h2 style="margin: 0px 0px 5px 0px; color: #ffffff; font-size: 18pt;">{title}</h2>
-            <h4 style="margin: 0px 0px 20px 0px; color: #cccccc; font-size: 12pt; font-weight: normal;">{series_info}</h4>
+        <!DOCTYPE html>
+        <html>
+        <head>
+        <style>
+            @import url('https://fonts.googleapis.com/css2?family=Jua&family=Noto+Sans+KR:wght@400;700&display=swap');
+            body {{
+                background-color: transparent; 
+                color: #e0e0e0;
+                font-family: {self.config['font_family_str']}, sans-serif;
+                margin: 0;
+                padding: 0 10px;
+            }}
+            /* 커스텀 스크롤바 */
+            ::-webkit-scrollbar {{ width: 8px; }}
+            ::-webkit-scrollbar-track {{ background: transparent; }}
+            ::-webkit-scrollbar-thumb {{ background: #555; border-radius: 4px; }}
+            ::-webkit-scrollbar-thumb:hover {{ background: #777; }}
+
+            .header {{ margin-bottom: 20px; }}
+            .title {{ font-size: {self.config.get('s18', 18)}px; color: #ffffff; margin: 0 0 5px 0; line-height: 1.2; }}
+            .subtitle {{ font-size: {self.config.get('s14', 14)}px; color: #aaaaaa; font-weight: normal; margin: 0; }}
+
+            .content-flex {{ display: flex; gap: 25px; }}
+            .left-col {{ flex: 0 0 45%; }}
+            .right-col {{ flex: 1; }}
+
+            /* 왼쪽 메인 정보 테이블 */
+            .info-table {{ width: 100%; border-collapse: collapse; font-size: {self.config.get('s12', 12)}px; }}
+            .info-table td {{ padding: 4px 0;  }}
+            .info-table td:first-child {{ color: #888888; width: 90px; }}
+            .info-table td:last-child {{ color: #ffffff; word-break: keep-all; }}
             
-            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size: 10pt;">
-                <tr>
-                    <td width="45%" valign="top" style="padding-right: 20px;">
-                        <table width="100%" cellpadding="4" cellspacing="0" border="0">
-                            <tr><td width="80" valign="top" style="color: #aaaaaa;">{_('col_creators')}</td><td valign="top" style="color: #ffffff;">{creators}</td></tr>
-                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_publisher')}</td><td valign="top" style="color: #ffffff;">{pub_full}</td></tr>
-                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_genre')}</td><td valign="top" style="color: #ffffff;">{genre}</td></tr>
-                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_page_count')}</td><td valign="top" style="color: #ffffff;">{page_count}</td></tr>
-                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_vol_count')}</td><td valign="top" style="color: #ffffff;">{volume_count}</td></tr>
-                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_format')}/{_('col_manga')}</td><td valign="top" style="color: #ffffff;">{format_val} / {manga}</td></tr>
-                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_rating')}</td><td valign="top" style="color: #ffffff;">{rating}</td></tr>
-                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_age_rating')}</td><td valign="top" style="color: #ffffff;">{age_rating}</td></tr>
-                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_pub_date')}</td><td valign="top" style="color: #ffffff;">{publish_date}</td></tr>
-                        </table>
-                    </td>
-                    <td width="55%" valign="top">
-                        <div style="color: #aaaaaa; margin-bottom: 4px;">{_('col_summary')}</div>
-                        <div style="margin-bottom: 15px; color: #dddddd; line-height: 1.5;">{summary}</div>
-                        
-                        <div style="color: #aaaaaa; margin-bottom: 4px;">{_('info_arc_team_loc')}</div>
-                        <div style="margin-bottom: 15px; color: #dddddd;">{story_arc} / {teams} / {locations}</div>
-                        
-                        <div style="color: #aaaaaa; margin-bottom: 4px;">{_('col_characters')}</div>
-                        <div style="margin-bottom: 15px; color: #dddddd;">{characters}</div>
-                        
-                        <div style="color: #aaaaaa; margin-bottom: 4px;">{_('col_tags')}</div>
-                        <div style="margin-bottom: 15px; color: #dddddd;">{tags}</div>
-                        
-                        <div style="color: #aaaaaa; margin-bottom: 4px;">{_('col_web')}</div>
-                        <div style="margin-bottom: 15px;">{link_html}</div>
-                    </td>
-                </tr>
-            </table>
-        </div>
+            /* 오른쪽 요약 및 태그 섹션 */
+            .section {{ margin-bottom: 20px; }}
+            .section-title {{ font-size: {self.config.get('s12', 12)}px; color: #888888; margin-bottom: 4px;  padding-bottom: 2px; }}
+            .section-body {{ font-size: {self.config.get('s12', 12)}px; color: #dddddd; line-height: 1.6; word-break: keep-all; }}
+            
+            /* 둥근 뱃지 디자인 */
+            .badge {{
+                display: inline-block;
+                background-color: #3a3a3a;
+                border: 1px solid #555;
+                padding: 3px 10px;
+                border-radius: 12px;
+                margin: 2px 4px 4px 0;
+                font-size: {self.config.get('s11', 11)}px;
+                color: #eeeeee;
+                white-space: nowrap;
+            }}
+            
+            a {{ color: #3498DB; text-decoration: none; }}
+            a:hover {{ text-decoration: underline; }}
+        </style>
+        </head>
+        <body>
+            <div class="header">
+                <h2 class="title">{title}</h2>
+                <h4 class="subtitle">{series_info}</h4>
+            </div>
+            
+            <div class="content-flex">
+                <div class="left-col">
+                    <table class="info-table">
+                        <tr><td>{_('col_creators')}</td><td>{creators}</td></tr>
+                        <tr><td>{_('col_publisher')}</td><td>{pub_full}</td></tr>
+                        <tr><td>{_('col_genre')}</td><td>{genre_html}</td></tr>
+                        <tr><td>{_('col_page_count')}</td><td>{page_count}</td></tr>
+                        <tr><td>{_('col_vol_count')}</td><td>{volume_count}</td></tr>
+                        <tr><td>{_('col_format')}/{_('col_manga')}</td><td>{format_val} / {manga}</td></tr>
+                        <tr><td>{_('col_rating')}</td><td>{rating}</td></tr>
+                        <tr><td>{_('col_age_rating')}</td><td>{age_rating}</td></tr>
+                        <tr><td>{_('col_pub_date')}</td><td>{publish_date}</td></tr>
+                    </table>
+                </div>
+                
+                <div class="right-col">
+                    <div class="section">
+                        <div class="section-title">{_('col_summary')}</div>
+                        <div class="section-body">{summary}</div>
+                    </div>
+                    
+                    <div class="section">
+                        <div class="section-title">{_('info_arc_team_loc')}</div>
+                        <div class="section-body">{story_arc} / {teams} / {locations}</div>
+                    </div>
+                    
+                    <div class="section">
+                        <div class="section-title">{_('col_characters')}</div>
+                        <div class="section-body">{characters}</div>
+                    </div>
+                    
+                    <div class="section">
+                        <div class="section-title">{_('col_tags')}</div>
+                        <div class="section-body">{tags_html}</div>
+                    </div>
+                    
+                    <div class="section">
+                        <div class="section-title">{_('col_web')}</div>
+                        <div class="section-body">{link_html}</div>
+                    </div>
+                </div>
+            </div>
+        </body>
+        </html>
         """
         self.info_browser.setHtml(info_html)
 
