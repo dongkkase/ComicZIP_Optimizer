@@ -996,10 +996,11 @@ class Tab3Metadata(QWidget):
     def refresh_tree(self, auto_select_first=True):
         t = self.main_app.i18n[self.main_app.lang]
         saved_selection = self.current_meta_file
+        
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
 
         self.tree_meta_files.setIndentation(0) # 들여쓰기 너비를 0으로 설정
         self.tree_meta_files.setRootIsDecorated(False)
-
         self.setStyleSheet("""
             QTreeView {
                 background: transparent;
@@ -1036,6 +1037,7 @@ class Tab3Metadata(QWidget):
                 # 1. 제목 영역 (빨간색 박스)
                 self.title_container = QWidget()
                 self.title_container.setStyleSheet("background-color: transparent;")
+                
                 self.title_layout = QHBoxLayout(self.title_container)
                 self.title_layout.setContentsMargins(4, 2, 4, 2)
                 self.title_layout.setSpacing(4)
@@ -1099,7 +1101,8 @@ class Tab3Metadata(QWidget):
         self.setContentsMargins(10, 5, 10, 5)
 
         for folder_path, files in self.meta_data.items():
-            self.setCursor(Qt.CursorShape.PointingHandCursor)
+            # [수정됨] 탭 전체에 커서가 적용되는 문제로 인해 아래 코드 주석 처리 또는 삭제
+            # self.setCursor(Qt.CursorShape.PointingHandCursor)
             # self.setStyleSheet("QTreeWidget { padding:15px; }")
 
             folder_name = os.path.basename(folder_path) or folder_path
