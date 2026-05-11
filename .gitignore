@@ -6,6 +6,7 @@ dist/
 
 # Config
 config.json
+rename_history.json
 
 # Python
 __pycache__/
