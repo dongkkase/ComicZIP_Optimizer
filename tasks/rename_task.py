@@ -56,8 +56,6 @@ class RenameTask:
         else: 
             return f"{n:0{pad}d}{ext}"
 
-    # 🌟 [수정됨] UI에서 넘겨받은 cap_opt, exif_opt 인자 추가
-    # 🌟 [수정됨] 모든 이미지 확장자 대응 및 무한 화질 손상 방지 로직
     def _phase1_convert(self, temp_dir, old_n, tmp_n, cap_opt, exif_opt):
         if self._is_cancelled: return None, False
         
@@ -65,7 +63,6 @@ class RenameTask:
         tmp_path = os.path.join(temp_dir, tmp_n)
         orig_ext = os.path.splitext(old_n)[1].lower()
         
-        # 🌟 개선: except 블록에서 참조 오류가 나지 않도록 최상단에서 미리 정의
         actual_tmp = os.path.splitext(tmp_path)[0] + orig_ext 
         
         if not os.path.exists(old_path): return None, False
@@ -79,19 +76,38 @@ class RenameTask:
             os.rename(old_path, actual_tmp)
             return actual_tmp, False
 
-        # 🌟 개선: 투명도를 흰색 배경으로 안전하게 바꿔주는 헬퍼 함수
         def safe_rgb_convert(image):
             if image.mode in ('RGBA', 'LA') or (image.mode == 'P' and 'transparency' in image.info):
                 alpha = image.convert('RGBA')
                 bg = Image.new('RGBA', alpha.size, (255, 255, 255, 255))
                 return Image.alpha_composite(bg, alpha).convert('RGB')
-            return image.convert('RGB') if image.mode != 'RGB' else image
+            return image.convert('RGB') if image.mode not in ('RGB', 'L') else image
+
+        # 🌟 핵심: 용량 검사 실패 시 메타데이터만 무식하게 날려버리는 강제 집행 함수
+        def force_strip_exif(src_path, dst_path, ext):
+            try:
+                with Image.open(src_path) as img:
+                    clean_img = safe_rgb_convert(img)
+                    clean_img.info.clear() # EXIF 및 모든 tEXt 청크 등 메타데이터 완벽 제거
+                    
+                    if ext in ['.jpg', '.jpeg']:
+                        try:
+                            clean_img.save(dst_path, format='JPEG', quality='keep')
+                        except:
+                            clean_img.save(dst_path, format='JPEG', quality=100)
+                    elif ext == '.png':
+                        clean_img.save(dst_path, format='PNG')
+                    elif ext == '.webp':
+                        clean_img.save(dst_path, format='WEBP', quality=100)
+                return os.path.exists(dst_path)
+            except Exception:
+                return False
 
         try:
             quality_val = int(self.img_quality)
 
             # ---------------------------------------------------------
-            # 1. WebP 일괄 변환 모드 (WebP가 켜져 있으면 여기서 무조건 끝냄)
+            # 1. WebP 일괄 변환 모드
             # ---------------------------------------------------------
             if self.webp_conversion and not is_already_webp:
                 if TOOL_CWEBP:
@@ -101,13 +117,18 @@ class RenameTask:
                     subprocess.run(cmd, creationflags=CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 else:
                     with Image.open(old_path) as img:
-                        # 🌟 WinError 32 방지 및 투명 배경 방어
                         rgb_img = safe_rgb_convert(img)
+                        if exif_opt: rgb_img.info.clear()
                         rgb_img.save(tmp_path, 'WEBP', quality=quality_val, method=4)
                 
-                # 가드: 용량이 더 커졌다면 원본 파일 그대로 반환하고 종료 (Fall-through 방지)
+                # 가드: 용량이 더 커졌다면 WebP를 취소
                 if os.path.exists(tmp_path) and os.path.getsize(tmp_path) >= orig_size:
                     os.remove(tmp_path)
+                    # 취소하더라도 EXIF 제거가 켜져있다면 원본 포맷 유지한 채 EXIF 날림
+                    if exif_opt:
+                        if force_strip_exif(old_path, actual_tmp, orig_ext):
+                            os.remove(old_path)
+                            return actual_tmp, True
                     os.rename(old_path, actual_tmp)
                     return actual_tmp, False
                 else:
@@ -115,7 +136,7 @@ class RenameTask:
                     return tmp_path, True
 
             # ---------------------------------------------------------
-            # 2. 용량 최적화 모드 (WebP가 꺼져있을 때 각각의 포맷 유지)
+            # 2. 용량 최적화 모드
             # ---------------------------------------------------------
             if orig_ext == '.png':
                 if cap_opt and TOOL_PNGQUANT:
@@ -124,10 +145,8 @@ class RenameTask:
                     cmd.extend([old_path, '-o', actual_tmp])
                     subprocess.run(cmd, creationflags=CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 
-                # 🌟 개선: Pillow의 살인적인 PNG 최적화 속도를 피하기 위해, 외부 툴이 실패하거나 없을 때 단순 저장만 수행
                 if not os.path.exists(actual_tmp) and exif_opt:
-                    with Image.open(old_path) as img:
-                        img.save(actual_tmp, format='PNG')
+                    force_strip_exif(old_path, actual_tmp, orig_ext)
 
             elif orig_ext in ['.jpg', '.jpeg']:
                 if quality_val == 100:
@@ -136,29 +155,41 @@ class RenameTask:
                         cmd.extend(['-copy', 'none'] if exif_opt else ['-copy', 'all'])
                         cmd.extend(['-outfile', actual_tmp, old_path])
                         subprocess.run(cmd, creationflags=CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    
+                    # JPEGTRAN이 없거나 실패했을 경우 파이썬 코드로 EXIF 날림
+                    if not os.path.exists(actual_tmp) and exif_opt:
+                        force_strip_exif(old_path, actual_tmp, orig_ext)
                 else:
                     with Image.open(old_path) as img:
-                        # 🌟 WinError 32 방지
                         rgb_img = safe_rgb_convert(img)
+                        if exif_opt: rgb_img.info.clear()
                         rgb_img.save(actual_tmp, format='JPEG', optimize=True, quality=quality_val)
 
             # ---------------------------------------------------------
-            # 🌟 3. 공통 가드 (결과물이 원본보다 99% 이상 크면 원본 유지)
+            # 🌟 3. 공통 가드 및 최후의 EXIF 방어선
             # ---------------------------------------------------------
             if os.path.exists(actual_tmp):
                 new_size = os.path.getsize(actual_tmp)
                 
-                # EXIF 제거 옵션이 켜져있다면 용량이 커지지 않는 한 무조건 적용
-                # 용량 최적화만 켜져있다면 1% 이상 줄어들었을 때만(99% 미만) 적용
-                if exif_opt:
+                # 약간의 용량 증가 허용치 설정 (EXIF만 제거하는 경우 5% 증가분까지는 눈감아줌)
+                if exif_opt and not cap_opt:
+                    is_acceptable = new_size <= (orig_size * 1.05)
+                elif cap_opt:
                     is_acceptable = new_size <= orig_size
                 else:
                     is_acceptable = new_size < (orig_size * 0.99)
 
+                # 용량이 뻥튀기 되어 최적화 결과물을 버려야 하는 경우
                 if not is_acceptable:
                     os.remove(actual_tmp)
+                    
+                    # 🌟 [해결] 결과물을 버렸더라도 EXIF 제거가 체크되어 있다면 원본 화질 그대로 강제 EXIF 제거 시도
+                    if exif_opt:
+                        if force_strip_exif(old_path, actual_tmp, orig_ext):
+                            os.remove(old_path)
+                            return actual_tmp, True
                 else:
-                    if os.path.exists(old_path): os.remove(old_path)
+                    os.remove(old_path)
                     return actual_tmp, True
 
             if not os.path.exists(actual_tmp):
@@ -166,7 +197,6 @@ class RenameTask:
             return actual_tmp, False
 
         except Exception as e:
-            # 🌟 에러 발생 시 쓰레기 파일 정리 및 안전하게 원본 유지
             if os.path.exists(actual_tmp): os.remove(actual_tmp)
             if os.path.exists(tmp_path): os.remove(tmp_path)
             if os.path.exists(old_path): os.rename(old_path, actual_tmp)
@@ -200,15 +230,13 @@ class RenameTask:
 
                     data = self.archive_data[file_path]
                     
-                    # 🌟 [수정됨] UI에서 선택된 옵션값 가져오기
+                    # 🌟 [핵심 1] UI의 체크박스 상태 읽어오기
                     cap_opt = data.get('cap_opt', False)
                     exif_opt = data.get('exif_opt', True)
                     
                     entries = data['entries'].copy() 
                     ext_type = data['ext'].lower()
-                    
-                    tf = str(self.target_format).lower()
-                    target_ext = ext_type if tf == 'none' else f".{tf}"
+                    target_ext = ext_type if self.target_format == 'none' else f".{self.target_format}"
                     archive_type = '-t7z' if target_ext == '.7z' else '-tzip'
 
                     cover_entry = next((e for e in entries if os.path.basename(e['filename']).lower().startswith('cover')), None)
@@ -222,10 +250,6 @@ class RenameTask:
 
                     has_non_webp = any(not e['original_name'].lower().endswith('.webp') for e in entries)
                     actual_webp_needed = self.webp_conversion and has_non_webp
-                    
-                    is_flatten_setting = (str(self.flatten_folders).lower() == 'true')
-                    is_already_flat = all('/' not in e['filename'] and '\\' not in e['filename'] for e in entries)
-                    is_flatten_needed = is_flatten_setting and not is_already_flat
 
                     for count, entry in enumerate(entries):
                         old_name = entry['original_name']
@@ -233,29 +257,21 @@ class RenameTask:
                         ext = os.path.splitext(entry['filename'])[1] or ".jpg" 
                         if self.webp_conversion: ext = ".webp"
                         
-                        if self.pattern_val == "__KEEP_NAME__":
-                            new_basename = os.path.splitext(os.path.basename(old_name))[0] + ext
-                        else:
-                            new_basename = self.generate_new_name(count, ext, total_count, stem_name)
-                            
-                        new_name = new_basename if is_flatten_needed else os.path.join(dir_name, new_basename).replace('\\', '/')
+                        new_basename = self.generate_new_name(count, ext, total_count, stem_name)
+                        new_name = new_basename if self.flatten_folders else os.path.join(dir_name, new_basename).replace('\\', '/')
 
-                        safe_old = os.path.normpath(old_name).replace('\\', '/').lower()
-                        safe_new = os.path.normpath(new_name).replace('\\', '/').lower()
-                        
-                        if safe_old != safe_new or actual_webp_needed:
+                        if old_name != new_name or actual_webp_needed:
                             rename_args.append((old_name, new_name))
 
                     format_changed = (target_ext != ext_type)
                     needs_rename = len(rename_args) > 0
                     
-                    # 🌟 [수정됨] 색상 최적화나 EXIF 제거가 체크되어 있으면 강제로 압축을 풀어야 함 (must_extract 트리거)
-                    must_extract = actual_webp_needed or format_changed or is_flatten_needed or (ext_type not in ['.zip', '.cbz']) or cap_opt or exif_opt
+                    # 🌟 [핵심 2] EXIF나 용량 최적화가 켜져 있으면 압축 풀기를 강제함 (must_extract 트리거)
+                    must_extract = actual_webp_needed or format_changed or self.flatten_folders or (ext_type not in ['.zip', '.cbz']) or cap_opt or exif_opt
 
                     if not needs_rename and not must_extract:
                         stats['skip'].append(filename)
-                        if self.pass_skip_meta:
-                            new_archive_data[file_path] = file_path
+                        new_archive_data[file_path] = file_path 
                         continue
 
                     if not must_extract:
@@ -271,29 +287,14 @@ class RenameTask:
                         for i in range(0, len(flat_args), 40):
                             if self._is_cancelled: break
                             try:
-                                res = subprocess.run([self.seven_z_exe, 'rn', temp_rn_archive] + flat_args[i:i + 40], startupinfo=startupinfo, creationflags=CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                                if res.returncode not in (0, 1):
-                                    rename_success = False
-                                    break
-                            except Exception:
+                                subprocess.run([self.seven_z_exe, 'rn', temp_rn_archive] + flat_args[i:i + 40], startupinfo=startupinfo, creationflags=CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+                            except Exception as e:
                                 rename_success = False
                                 break
                                 
                         if rename_success and not self._is_cancelled:
-                            tmp_backup_path = file_path + ".tmp"
-                            if os.path.exists(tmp_backup_path):
-                                os.remove(tmp_backup_path)
-                            os.rename(file_path, tmp_backup_path)
-
-                            try:
-                                shutil.move(temp_rn_archive, file_path)
-                                os.remove(tmp_backup_path)
-                            except Exception as e:
-                                if os.path.exists(file_path):
-                                    os.remove(file_path)
-                                os.rename(tmp_backup_path, file_path)
-                                raise e
-                                
+                            os.remove(file_path)
+                            shutil.move(temp_rn_archive, file_path)
                             stats['success'].append(filename)
                             new_archive_data[file_path] = file_path
                         else:
@@ -308,11 +309,9 @@ class RenameTask:
                         if os.path.exists(temp_dir): shutil.rmtree(temp_dir, ignore_errors=True)
                         os.makedirs(temp_dir, exist_ok=True)
                         
-                        res_x = subprocess.run([self.seven_z_exe, 'x', str(file_path), f'-o{temp_dir}', '-y'], startupinfo=startupinfo, creationflags=CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                        if res_x.returncode not in (0, 1):
-                            raise Exception(f"7-Zip Extraction Error (Code: {res_x.returncode})")
+                        subprocess.run([self.seven_z_exe, 'x', str(file_path), f'-o{temp_dir}', '-y'], startupinfo=startupinfo, creationflags=CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, check=True)
                         
-                        # rename_args가 없는 경우(단순 EXIF제거 등)를 위해 temp_rename_mapping을 전체 파일 기준으로 갱신
+                        # 🌟 [핵심 3] 파일명 변경이 없어도 EXIF 처리를 위해 전체 파일을 스레드풀에 매핑
                         temp_rename_mapping = []
                         if rename_args:
                             for old_n, new_n in rename_args:
@@ -327,7 +326,7 @@ class RenameTask:
                         actual_tmp_results = {}
                         
                         with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_threads) as executor:
-                            # 🌟 [수정됨] 스레드 풀에 cap_opt와 exif_opt 인자 전달
+                            # 🌟 [핵심 4] 예전 구형 함수 대신 EXIF 옵션을 온전히 전달받는 _phase1_convert 엔진 연결
                             future_to_args = {executor.submit(self._phase1_convert, temp_dir, old_n, tmp_n, cap_opt, exif_opt): (tmp_n, new_n, old_n) for old_n, tmp_n, new_n in temp_rename_mapping}
                             for i, future in enumerate(concurrent.futures.as_completed(future_to_args)):
                                 if self._is_cancelled: break 
@@ -351,7 +350,7 @@ class RenameTask:
                                 new_path = os.path.join(temp_dir, new_n)
                                 os.makedirs(os.path.dirname(new_path), exist_ok=True)
                                 
-                                # WebP 변환 옵션이 켜져 있으나, 원본이 이미 webp였거나 변환되지 않은 경우 처리
+                                # WebP fallback logic
                                 if self.webp_conversion and not converted and not old_n.lower().endswith('.webp'):
                                     old_ext = os.path.splitext(old_n)[1]
                                     new_path = os.path.splitext(new_path)[0] + old_ext
@@ -376,29 +375,31 @@ class RenameTask:
                         temp_archive = os.path.join(sys_temp, f"ComicZIP_Done_{safe_id}_{filename}{target_ext}")
                         
                         if os.path.exists(temp_archive): os.remove(temp_archive)
-                        
-                        res_a = subprocess.run([self.seven_z_exe, 'a', archive_type, temp_archive, '*', '-mx=0'], cwd=temp_dir, startupinfo=startupinfo, creationflags=CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                        if res_a.returncode not in (0, 1):
-                            raise Exception(f"7-Zip Archiving Error (Code: {res_a.returncode})")
-                            
+                        subprocess.run([self.seven_z_exe, 'a', archive_type, temp_archive, '*', '-mx=0'], cwd=temp_dir, startupinfo=startupinfo, creationflags=CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, check=True)
                         shutil.rmtree(temp_dir, ignore_errors=True)
                         
-                        tmp_backup_path = file_path + ".tmp"
-                        if os.path.exists(tmp_backup_path):
-                            os.remove(tmp_backup_path)
-                        os.rename(file_path, tmp_backup_path)
+                        is_same_path = os.path.normcase(os.path.abspath(file_path)) == os.path.normcase(os.path.abspath(target_final_path))
                         
-                        try:
-                            if os.path.exists(target_final_path):
-                                os.remove(target_final_path)
+                        if is_same_path:
+                            tmp_backup_path = file_path + ".tmp"
+                            if os.path.exists(tmp_backup_path):
+                                os.remove(tmp_backup_path)
+                            os.rename(file_path, tmp_backup_path)
                             
-                            shutil.move(temp_archive, target_final_path)
-                            os.remove(tmp_backup_path)
-                        except Exception as e:
-                            if os.path.exists(target_final_path):
+                            try:
+                                shutil.move(temp_archive, target_final_path)
+                                os.remove(tmp_backup_path)
+                            except Exception as e:
+                                if os.path.exists(target_final_path):
+                                    os.remove(target_final_path)
+                                os.rename(tmp_backup_path, file_path) 
+                                raise e 
+                        else:
+                            if os.path.exists(target_final_path): 
                                 os.remove(target_final_path)
-                            os.rename(tmp_backup_path, file_path) 
-                            raise e
+                            shutil.move(temp_archive, target_final_path)
+                            if os.path.exists(file_path): 
+                                os.remove(file_path)
                                 
                         stats['success'].append(filename)
                         new_archive_data[file_path] = target_final_path 

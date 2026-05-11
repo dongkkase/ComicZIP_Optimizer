@@ -467,6 +467,10 @@ class Tab2Renamer(QWidget):
             fp = item.data(Qt.ItemDataRole.UserRole)
             if fp and fp in self.archive_data:
                 self.archive_data[fp]['checked'] = (item.checkState() == Qt.CheckState.Checked)
+                
+                # 🌟 [추가] 개별 파일의 체크박스를 끄고 켤 때, 상단의 '전체 선택' 일괄 버튼도 실시간 동기화
+                self.all_checked = all(d.get('checked', False) for d in self.archive_data.values())
+                self.update_action_buttons()
 
     def refresh_list(self):
         if not self.archive_data:
@@ -476,8 +480,22 @@ class Tab2Renamer(QWidget):
             self.render_image("cover", None, None)
             self.render_image("inner", None, None)
             self.lbl_total_count.setText(self.main_app.i18n[self.main_app.lang]["total_files"].format(count=0))
+            
+            # 🌟 [추가] 리스트가 텅 비었을 때, 상단 일괄 버튼들을 강제로 초기화
+            self.all_checked = True
+            self.cap_all_checked = False
+            self.exif_all_checked = True
+            self.update_action_buttons()
             return
             
+        # 🌟 [핵심 해결] 리스트를 화면에 그리기 직전, 파일들의 실제 상태를 취합해 상단 버튼에 동기화합니다.
+        # 작업이 끝나고 파일이 재로드되면 파일 내부의 cap_opt가 False로 초기화되어 있으므로, 
+        # 이 로직을 거치면서 상단 '이미지 압축 일괄' 버튼의 체크가 자동으로 해제됩니다.
+        self.all_checked = all(d.get('checked', False) for d in self.archive_data.values())
+        self.cap_all_checked = any(d.get('cap_opt', False) for d in self.archive_data.values())
+        self.exif_all_checked = any(d.get('exif_opt', True) for d in self.archive_data.values())
+        self.update_action_buttons()
+
         self.stacked_archives.setCurrentIndex(1)
         self.table_archives.setUpdatesEnabled(False)
         self.table_archives.blockSignals(True)
@@ -510,27 +528,32 @@ class Tab2Renamer(QWidget):
             self.table_archives.setItem(row, 1, c_item)
             self.table_archives.setItem(row, 2, s_item)
 
-            # 🌟 [수정됨] 체크박스 가운데 정렬 및 포인터 커서 적용을 위한 위젯 팩토리 함수
+            # 🌟 개별 행의 체크박스를 클릭했을 때도 상단 마스터 버튼이 실시간으로 반응하도록 개선
             def create_centered_checkbox(is_checked, filepath, opt_key):
                 widget = QWidget()
                 layout = QHBoxLayout(widget)
                 layout.setContentsMargins(0, 0, 0, 0)
-                layout.setAlignment(Qt.AlignmentFlag.AlignCenter) # 가운데 정렬
+                layout.setAlignment(Qt.AlignmentFlag.AlignCenter) 
                 
                 chk = QCheckBox()
-                chk.setCursor(Qt.CursorShape.PointingHandCursor) # 포인터 커서
+                chk.setCursor(Qt.CursorShape.PointingHandCursor) 
                 chk.setChecked(is_checked)
                 
-                # 체크 상태 변경 시 데이터에 즉시 반영
                 def on_toggled(state, fp=filepath, key=opt_key):
                     if fp in self.archive_data:
                         self.archive_data[fp][key] = state
+                        
+                        # 체크박스를 조작할 때마다 데이터 상태를 재계산하여 상단 버튼 갱신
+                        if key == 'cap_opt':
+                            self.cap_all_checked = any(d.get('cap_opt', False) for d in self.archive_data.values())
+                        elif key == 'exif_opt':
+                            self.exif_all_checked = any(d.get('exif_opt', True) for d in self.archive_data.values())
+                        self.update_action_buttons()
                 
                 chk.toggled.connect(on_toggled)
                 layout.addWidget(chk)
                 return widget
             
-            # setItem 대신 setCellWidget을 사용하여 셀 내부에 위젯 렌더링
             self.table_archives.setCellWidget(row, 3, create_centered_checkbox(data.get('cap_opt', False), fp, 'cap_opt'))
             self.table_archives.setCellWidget(row, 4, create_centered_checkbox(data.get('exif_opt', True), fp, 'exif_opt'))
             

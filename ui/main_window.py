@@ -5,7 +5,8 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, 
-    QProgressBar, QFileDialog, QMessageBox, QTextBrowser, QTabWidget
+    QProgressBar, QFileDialog, QMessageBox, QTextBrowser, QTabWidget,
+    QScrollArea, QFrame
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QIcon
@@ -28,17 +29,6 @@ from ui.tabs.tab3_metadata import Tab3Metadata
 from ui.tabs.tab_folder import TabFolder
 
 from core.i18n import get_i18n
-
-from PyQt6.QtWebEngineWidgets import QWebEngineView
-from PyQt6.QtWebEngineCore import QWebEnginePage
-
-class ExternalLinkWebPage(QWebEnginePage):
-    def acceptNavigationRequest(self, url, _type, isMainFrame):
-        if _type == QWebEnginePage.NavigationType.NavigationTypeLinkClicked:
-            import webbrowser
-            webbrowser.open(url.toString())
-            return False
-        return super().acceptNavigationRequest(url, _type, isMainFrame)
 
 class RenamerApp(QMainWindow):
     def __init__(self):
@@ -107,13 +97,44 @@ class RenamerApp(QMainWindow):
         self.latest_version_found = latest_version
         self.update_version_button_ui()
     
-    def on_release_notes_loaded(self, html_content):
-        # 🌟 QWebEngineView가 완전히 준비되지 않은 상태에서 호출될 경우를 대비한 방어 코드
-        if hasattr(self, 'browser_release') and self.browser_release:
-            try:
-                self.browser_release.setHtml(html_content)
-            except Exception as e:
-                print(f"WebEngine Render Error: {e}")
+    def on_release_notes_loaded(self, release_list):
+        from PyQt6.QtWidgets import QFrame, QLabel, QVBoxLayout
+        from PyQt6.QtCore import Qt
+
+        if not release_list:
+            error_lbl = QLabel("릴리즈 노트를 불러올 수 없습니다.")
+            error_lbl.setStyleSheet(f"color: #aaaaaa; font-family: {self.config.get('font_family_str', 'Jua')};")
+            self.release_layout.addWidget(error_lbl)
+            self.release_layout.addStretch()
+            return
+
+        for item in release_list:
+            card = QFrame()
+            card.setStyleSheet("""
+                QFrame {
+                    background-color: #2b2b2b;
+                    border: 1px solid #444444;
+                    border-radius: 15px;
+                }
+            """)
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(20, 20, 20, 20)
+
+            title_lbl = QLabel(f"📦 {item.get('name', '')} <span style='color:#aaaaaa; font-size:13px;'>({item.get('date', '')})</span>")
+            title_lbl.setTextFormat(Qt.TextFormat.RichText)
+            title_lbl.setStyleSheet(f"color: #3498DB; font-size: 20px; font-weight: bold; border: none; font-family: {self.config.get('font_family_str', 'Jua')};")
+            
+            body_lbl = QLabel(item.get('body', ''))
+            body_lbl.setTextFormat(Qt.TextFormat.RichText)
+            body_lbl.setWordWrap(True) 
+            body_lbl.setOpenExternalLinks(True)
+            body_lbl.setStyleSheet(f"color: #e0e0e0; font-size: 14px; border: none; font-family: {self.config.get('font_family_str', 'Jua')}; line-height: 1.5;")
+
+            card_layout.addWidget(title_lbl)
+            card_layout.addWidget(body_lbl)
+            self.release_layout.addWidget(card)
+
+        self.release_layout.addStretch()
 
     def update_version_button_ui(self):
         if self.latest_version_found:
@@ -205,12 +226,12 @@ class RenamerApp(QMainWindow):
         main_layout.addLayout(toolbar_layout)
 
         self.tabs = QTabWidget()
-        
+
         self.tab_folder = TabFolder(self)
         self.tab1 = Tab1Organizer(self)
         self.tab2 = Tab2Renamer(self)
         self.tab3 = Tab3Metadata(self)
-        self.tab_releases = QWidget() 
+        self.tab_releases = QWidget()
         
         self.tabs.addTab(self.tab_folder, "폴더")
         self.tabs.addTab(self.tab1, "")
@@ -220,14 +241,21 @@ class RenamerApp(QMainWindow):
         self.tabs.currentChanged.connect(self.on_tab_changed)
         main_layout.addWidget(self.tabs, 1)
 
+        # 🌟 에러가 났던 부분: t4_layout 선언 복구 완료
         t4_layout = QVBoxLayout(self.tab_releases)
+
+        self.scroll_release = QScrollArea()
+        self.scroll_release.setWidgetResizable(True)
+        self.scroll_release.setStyleSheet("QScrollArea { border: none; background-color: transparent; }")
         
-        # 🌟 QTextBrowser 대신 QWebEngineView 교체 적용 부분
-        self.browser_release = QWebEngineView()
-        self.browser_page = ExternalLinkWebPage(self.browser_release)
-        self.browser_release.setPage(self.browser_page)
-        self.browser_release.setStyleSheet("background-color: transparent;") 
-        t4_layout.addWidget(self.browser_release)
+        self.release_content_widget = QWidget()
+        self.release_content_widget.setStyleSheet("background-color: transparent;")
+        self.release_layout = QVBoxLayout(self.release_content_widget)
+        self.release_layout.setContentsMargins(15, 15, 15, 15)
+        self.release_layout.setSpacing(20)
+        
+        self.scroll_release.setWidget(self.release_content_widget)
+        t4_layout.addWidget(self.scroll_release)
 
         bottom_layout = QHBoxLayout()
         self.lbl_status = QLabel()
@@ -352,7 +380,7 @@ class RenamerApp(QMainWindow):
         self.btn_settings.setText(f" {t['settings_btn']}") 
         self.btn_issue.setText(f" {t['btn_issue']}")
 
-        # self.tabs.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.tabs.tabBar().setCursor(Qt.CursorShape.PointingHandCursor)
         
         if hasattr(self.tab1, 'retranslate_ui'): self.tab1.retranslate_ui(t, self.lang)
         if hasattr(self.tab2, 'retranslate_ui'): self.tab2.retranslate_ui(t, self.lang)
@@ -436,21 +464,47 @@ class RenamerApp(QMainWindow):
             self.lang = self.config["lang"]
             save_config(self.config)
             
+            # 설정값이 변경되었을 경우 수동 안내 대신 재시작 팝업 띄우기
             if old_lang != new_lang or old_font != new_font or old_scale != new_scale:
-                msg = "언어 또는 폰트 설정이 변경되었습니다.\n변경사항을 적용하려면 프로그램을 수동으로 재시작해 주세요."
-                if self.lang == "en": msg = "Settings changed. Please restart the program manually to apply changes."
-                elif self.lang == "ja": msg = "設定が変更されました。変更を適用するには、プログラムを手動で再起動してください。"
+                msg = "언어, 글꼴 또는 크기 설정이 변경되었습니다.\n변경사항을 적용하기 위해 프로그램을 지금 재시작하시겠습니까?"
+                if self.lang == "en": msg = "Settings changed. Do you want to restart the program now to apply changes?"
+                elif self.lang == "ja": msg = "設定が変更されました。変更を適用するために今すぐプログラムを再起動しますか？"
                 
-                QMessageBox.information(self, "설정 변경" if self.lang == "ko" else "Settings Changed", msg)
-
+                reply = QMessageBox.question(
+                    self, 
+                    "재시작 확인" if self.lang == "ko" else "Restart Required", 
+                    msg, 
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                
+                if reply == QMessageBox.StandardButton.Yes:
+                    self.restart_app()
+                    return
+            
             self.apply_language()
 
-            # B폴더가 변경되었으면 재인덱싱 트리거
+            # 폴더가 변경되었으면 재인덱싱 트리거
             if dup_folders_changed:
                 self.tab_folder.start_dup_scan()
 
             if hasattr(self.tab2, 'update_inner_preview_list'):
                 self.tab2.update_inner_preview_list()
+
+    def restart_app(self):
+        # 재시작 전 현재 창의 상태를 안전하게 저장
+        self.config["width"] = self.normalGeometry().width()
+        self.config["height"] = self.normalGeometry().height()
+        self.config["is_maximized"] = self.isMaximized()
+        self.config["last_tab_index"] = self.tabs.currentIndex()
+        save_config(self.config)
+        
+        import sys
+        from PyQt6.QtCore import QProcess
+        from PyQt6.QtWidgets import QApplication
+        
+        # 메인 프로세스를 종료하고 새로운 프로세스 실행
+        QApplication.quit()
+        QProcess.startDetached(sys.executable, sys.argv)
 
     def dragEnterEvent(self, event):
         # 변수명 변경 및 인덱스 4(릴리즈 노트)에서 드롭 무시

@@ -25,9 +25,6 @@ from PyQt6.QtCore import Qt, QDir, QAbstractTableModel, QModelIndex, QSize, QByt
 from config import get_resource_path, save_config
 from core.library_db import db
 
-from PyQt6.QtWebEngineWidgets import QWebEngineView
-from PyQt6.QtWebEngineCore import QWebEnginePage
-
 # ==========================================
 # [핵심 수정] i18n.py 구조에 맞춘 완벽한 다국어 처리 로직
 # ==========================================
@@ -45,13 +42,6 @@ def _(key):
     # 현재 언어의 딕셔너리에서 키를 찾고, 없으면 한국어에서 찾고, 그래도 없으면 키값 자체를 반환
     return _TRANSLATIONS.get(_CURRENT_LANG, _TRANSLATIONS["ko"]).get(key, key)
 
-class ExternalLinkWebPage(QWebEnginePage):
-    def acceptNavigationRequest(self, url, _type, isMainFrame):
-        if _type == QWebEnginePage.NavigationType.NavigationTypeLinkClicked:
-            import webbrowser
-            webbrowser.open(url.toString())
-            return False
-        return super().acceptNavigationRequest(url, _type, isMainFrame)
 
 # ==========================================
 # [추가됨] 중복 검사용 B폴더 스캔 스레드
@@ -633,6 +623,62 @@ class DimOverlay(QWidget):
         self.raise_()
         self.resize(self.parent().size())
         super().showEvent(event)
+
+# ==========================================
+# 커스텀 헤더 뷰 (텍스트 강조색 및 아이콘 직접 렌더링)
+# ==========================================
+class CustomHeaderView(QHeaderView):
+    def __init__(self, orientation, parent=None):
+        super().__init__(orientation, parent)
+
+    def paintSection(self, painter, rect, logicalIndex):
+        from PyQt6.QtGui import QColor, QPainter
+        from PyQt6.QtCore import Qt, QRect
+
+        # 1. 스타일시트로 지정된 기본 배경, 테두리, 정렬 화살표만 먼저 그립니다 (텍스트는 제외)
+        painter.save()
+        super().paintSection(painter, rect, logicalIndex)
+        painter.restore()
+
+        model = self.model()
+        if not model: return
+
+        # 모델의 UserRole에서 순수 텍스트를 가져옵니다.
+        text = model.headerData(logicalIndex, self.orientation(), Qt.ItemDataRole.UserRole)
+        if not text: return
+
+        is_sorted = (self.sortIndicatorSection() == logicalIndex)
+        
+        # 정렬 상태에 따른 강조색 결정
+        color = QColor("#3498DB") if is_sorted else QColor("#cccccc")
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        # 2. 점 6개 그립 아이콘 그리기
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(color)
+        y_offset = rect.y() + (rect.height() - 13) // 2
+        x_offset = rect.x() + 8
+        for row in range(3):
+            for col in range(2):
+                painter.drawEllipse(x_offset + col * 4, y_offset + row * 5, 2, 2)
+
+        # 3. 텍스트 그리기 (QSS를 무시하고 직접 색상 적용)
+        font = model.headerData(logicalIndex, self.orientation(), Qt.ItemDataRole.FontRole)
+        if font:
+            painter.setFont(font)
+        painter.setPen(color)
+        
+        # 우측 네이티브 정렬 화살표와 텍스트가 겹치지 않도록 우측 여백(마진) 확보
+        right_margin = 20 if is_sorted else 5
+        text_rect = QRect(x_offset + 16, rect.y(), rect.width() - 24 - right_margin, rect.height())
+        
+        # 텍스트가 길면 자동으로 잘리도록(Clip) 설정하여 그립니다.
+        painter.drawText(text_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, text)
+        
+        painter.restore()
+
 # ==========================================
 # 커스텀 테이블 뷰
 # ==========================================
@@ -840,19 +886,65 @@ class FolderScanThread(QThread):
         self.is_cancelled = True
 
 # ==========================================
-# 썸네일/타일 뷰용 델리게이트
+# 썸네일/타일 뷰용 델리게이트 (부드러운 애니메이션 및 스택 투명도 적용)
 # ==========================================
 class ThumbnailDelegate(QStyledItemDelegate):
     def __init__(self, parent=None, thumb_dir=""):
         super().__init__(parent)
         self.view_mode = "thumbnail"
-        self.item_size = 120
+        self.item_size = 360
         self.thumb_dir = thumb_dir
+        
+        # --- [추가됨] 부드러운 확대 애니메이션을 위한 변수 및 타이머 ---
+        self.hover_targets = {}
+        self.current_scales = {}
+        self.anim_timer = QTimer(self)
+        self.anim_timer.setInterval(15) # 약 60FPS
+        self.anim_timer.timeout.connect(self._on_anim_tick)
+
+    def _on_anim_tick(self):
+        needs_update = False
+        for row, target in list(self.hover_targets.items()):
+            current = self.current_scales.get(row, 1.0)
+            diff = target - current
+            
+            # 목표 배율에 거의 도달하면 타이머 갱신 종료
+            if abs(diff) < 0.005:
+                self.current_scales[row] = target
+                if target == 1.0:
+                    del self.hover_targets[row]
+                    if row in self.current_scales:
+                        del self.current_scales[row]
+            else:
+                # 현재 값에서 목표 값으로 30%씩 부드럽게 이동 (Easing 효과)
+                self.current_scales[row] = current + diff * 0.3
+                needs_update = True
+                
+        # 변경된 스케일이 있다면 화면을 다시 그리도록 요청
+        if needs_update:
+            if self.parent() and hasattr(self.parent(), 'currentWidget'):
+                view = self.parent().currentWidget()
+                if view and hasattr(view, 'viewport'):
+                    view.viewport().update()
+        else:
+            self.anim_timer.stop()
 
     def paint(self, painter, option, index):
+        from PyQt6.QtGui import QPen, QPainterPath
+        from PyQt6.QtCore import QRectF
+
         if not index.isValid(): return
         
         row_data = index.model()._data[index.row()]
+        
+        # 상위 위젯(TabFolder)을 역추적하여 안전하게 config 설정값을 가져옵니다.
+        font_family = "Jua"
+        p = self.parent()
+        while p:
+            if hasattr(p, 'config') and isinstance(p.config, dict):
+                font_family = p.config.get("font_family_str", "Jua")
+                break
+            p = p.parent()
         
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -860,7 +952,7 @@ class ThumbnailDelegate(QStyledItemDelegate):
         if row_data.get("is_group"):
             painter.fillRect(option.rect, QColor("#2b2b2b"))
             painter.setPen(QColor("#3498DB"))
-            font = QFont("Jua", 11, QFont.Weight.Bold)
+            font = QFont(font_family, 11, QFont.Weight.Bold)
             painter.setFont(font)
             text = _("group_header").format(row_data['name'], row_data['count'])
             flags = Qt.AlignmentFlag.AlignLeft.value | Qt.AlignmentFlag.AlignVCenter.value
@@ -871,11 +963,10 @@ class ThumbnailDelegate(QStyledItemDelegate):
             painter.restore()
             return
         
-        # --- [수정됨] 중복 정보 (폴더 단위) ---
         if row_data.get("is_dup_folder"):
             painter.fillRect(option.rect, QColor("#1e1e1e"))
             painter.setPen(QColor("#e67e22"))
-            font = QFont("Jua", 10, QFont.Weight.Bold)
+            font = QFont(font_family, 10, QFont.Weight.Bold)
             painter.setFont(font)
             text = f"📁 {row_data['path']} - ~{int(row_data['max_ratio'])}%"
             
@@ -885,7 +976,6 @@ class ThumbnailDelegate(QStyledItemDelegate):
             fm = painter.fontMetrics()
             text_width = fm.horizontalAdvance(text)
             
-            # 텍스트 바로 옆에 '폴더 열기' 버튼 그리기
             btn_rect = QRect(option.rect.left() + 20 + text_width + 15, option.rect.top() + 5, 90, 24)
             painter.fillRect(btn_rect, QColor("#3a3a3a"))
             painter.setPen(QColor("#ffffff"))
@@ -895,11 +985,10 @@ class ThumbnailDelegate(QStyledItemDelegate):
             painter.restore()
             return
 
-        # --- [수정됨] 중복 정보 (파일 단위) ---
         if row_data.get("is_dup_child"):
             painter.fillRect(option.rect, QColor("#1e1e1e"))
             painter.setPen(QColor("#aaaaaa"))
-            font = QFont("Jua", 9)
+            font = QFont(font_family, 9)
             painter.setFont(font)
             text = f"      └ 📦 {row_data['name']} ({row_data['size_str']}) - {int(row_data['ratio'])}%"
             flags = Qt.AlignmentFlag.AlignLeft.value | Qt.AlignmentFlag.AlignVCenter.value
@@ -961,13 +1050,32 @@ class ThumbnailDelegate(QStyledItemDelegate):
                         if not pixmap.isNull():
                             QPixmapCache.insert(file_hash, pixmap)
         
-        if option.state & QStyle.StateFlag.State_Selected:
+        is_hovered = option.state & QStyle.StateFlag.State_MouseOver
+        is_selected = option.state & QStyle.StateFlag.State_Selected
+
+        row = index.row()
+        target_scale = 1.05 if (is_hovered and self.view_mode in ["thumbnail", "tile"]) else 1.0
+        
+        if self.hover_targets.get(row, 1.0) != target_scale:
+            self.hover_targets[row] = target_scale
+            if not self.anim_timer.isActive():
+                self.anim_timer.start()
+                
+        current_scale = self.current_scales.get(row, 1.0)
+
+        if is_selected:
             painter.fillRect(option.rect, QColor("#3a7ebf"))
             painter.setPen(QColor("white"))
         else:
             painter.setPen(QColor("#cccccc"))
             
         rect = option.rect
+
+        if current_scale > 1.0:
+            center = rect.center()
+            painter.translate(center)
+            painter.scale(current_scale, current_scale)
+            painter.translate(-center)
         
         if self.view_mode == "thumbnail":
             img_size = self.item_size - 40
@@ -978,12 +1086,32 @@ class ThumbnailDelegate(QStyledItemDelegate):
                     nw, nh = int(pw * ratio), int(ph * ratio)
                     x = rect.x() + (rect.width() - nw) // 2
                     y = rect.y() + 5
+                    
+                    img_rect = QRect(x, y, nw, nh)
+                    stack_offset = 4
+                    
+                    painter.setPen(QPen(QColor(150, 150, 150, 100), 1))
+                    painter.setBrush(QColor(255, 255, 255, 153))
+                    painter.drawRoundedRect(img_rect.translated(stack_offset * 2, stack_offset * 2), 4, 4)
+                    painter.drawRoundedRect(img_rect.translated(stack_offset, stack_offset), 4, 4)
+                    
+                    path = QPainterPath()
+                    path.addRoundedRect(QRectF(img_rect), 4, 4)
+                    painter.save()
+                    painter.setClipPath(path)
                     painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
-                    painter.drawPixmap(x, y, nw, nh, pixmap)
+                    painter.drawPixmap(img_rect, pixmap)
+                    painter.restore()
+                    
+                    painter.setPen(QPen(QColor(150, 150, 150, 150), 1))
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.drawRoundedRect(img_rect, 4, 4)
             
-            font = QFont("Jua", 9)
+            font = QFont(font_family, 9)
             painter.setFont(font)
-            text_rect = rect.adjusted(5, img_size + 10, -5, -5)
+            
+            # 기존 img_size + 10 위치에서 10픽셀 아래로 조정하여 Margin Top 10px 효과 추가
+            text_rect = rect.adjusted(5, img_size + 20, -5, -5)
             flags = Qt.AlignmentFlag.AlignHCenter.value | Qt.TextFlag.TextWordWrap.value
             painter.drawText(text_rect, flags, file_name)
             
@@ -996,10 +1124,28 @@ class ThumbnailDelegate(QStyledItemDelegate):
                     nw, nh = int(pw * ratio), int(ph * ratio)
                     x = rect.x() + 5
                     y = rect.y() + (rect.height() - nh) // 2
+                    
+                    img_rect = QRect(x, y, nw, nh)
+                    stack_offset = 4
+                    
+                    painter.setPen(QPen(QColor(150, 150, 150, 100), 1))
+                    painter.setBrush(QColor(255, 255, 255, 153))
+                    painter.drawRoundedRect(img_rect.translated(stack_offset * 2, stack_offset * 2), 4, 4)
+                    painter.drawRoundedRect(img_rect.translated(stack_offset, stack_offset), 4, 4)
+                    
+                    path = QPainterPath()
+                    path.addRoundedRect(QRectF(img_rect), 4, 4)
+                    painter.save()
+                    painter.setClipPath(path)
                     painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
-                    painter.drawPixmap(x, y, nw, nh, pixmap)
+                    painter.drawPixmap(img_rect, pixmap)
+                    painter.restore()
+                    
+                    painter.setPen(QPen(QColor(150, 150, 150, 150), 1))
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.drawRoundedRect(img_rect, 4, 4)
             
-            font = QFont("Jua", 10, QFont.Weight.Bold)
+            font = QFont(font_family, 10, QFont.Weight.Bold)
             painter.setFont(font)
             text_rect = rect.adjusted(img_size + 15, 10, -5, -5)
             flags = Qt.AlignmentFlag.AlignLeft.value | Qt.AlignmentFlag.AlignTop.value | Qt.TextFlag.TextWordWrap.value
@@ -1009,19 +1155,15 @@ class ThumbnailDelegate(QStyledItemDelegate):
 
     def sizeHint(self, option, index):
         row_data = index.model()._data[index.row()]
-        # is_dup_folder, is_dup_child 도 동일한 행 높이 사용
         if row_data.get("is_group") or row_data.get("is_dup_folder") or row_data.get("is_dup_child"):
             width = self.parent().viewport().width() if hasattr(self.parent(), 'viewport') else 800
             return QSize(width - 20, 35)
-        
-        if row_data.get("is_group"):
-            width = self.parent().viewport().width() if hasattr(self.parent(), 'viewport') else 800
-            return QSize(width - 20, 35)
 
+        # 확대 시 아이템이 잘리지 않도록 여백 영역을 조금 넓힘
         if self.view_mode == "thumbnail":
-            return QSize(self.item_size, self.item_size + 30)
+            return QSize(self.item_size + 15, self.item_size + 40)
         elif self.view_mode == "tile":
-            return QSize(self.item_size * 2, self.item_size)
+            return QSize(self.item_size * 2 + 15, self.item_size + 15)
         return super().sizeHint(option, index)
 
 # ==========================================
@@ -1162,9 +1304,51 @@ class LibraryTableModel(QAbstractTableModel):
         return len(self.active_columns)
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
-        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
+        from PyQt6.QtGui import QFont
+        from PyQt6.QtCore import Qt
+        
+        if orientation == Qt.Orientation.Horizontal:
+            if section >= len(self.active_columns): return None
             col_id = self.active_columns[section]
-            return self.ALL_COLUMNS.get(col_id, "")
+            
+            is_sorted = False
+            config = None
+            
+            if hasattr(self, 'table_view'):
+                if self.table_view.horizontalHeader().sortIndicatorSection() == section:
+                    is_sorted = True
+                p = self.table_view
+                while p:
+                    if hasattr(p, 'config') and isinstance(p.config, dict):
+                        config = p.config
+                        break
+                    p = p.parent()
+
+            text = f"{self.ALL_COLUMNS.get(col_id, '')}"
+            
+            if config:
+                ff = config.get("font_family", "Default")
+                font_family = "Jua" if ff == "Default" else ff
+                base_size = config.get("s12", 12)
+            else:
+                font_family = "Jua"
+                base_size = 12
+
+            if role == Qt.ItemDataRole.DisplayRole:
+                # CustomHeaderView에서 직접 그리므로, 기본 텍스트 렌더링 엔진 작동을 막습니다.
+                return None  
+                
+            elif role == Qt.ItemDataRole.UserRole:
+                # CustomHeaderView 텍스트 드로잉에 사용할 원본 텍스트 전달
+                return text  
+                
+            elif role == Qt.ItemDataRole.FontRole:
+                font = QFont(font_family)
+                font.setPixelSize(base_size + 1)
+                if is_sorted: 
+                    font.setBold(True)
+                return font
+                
         return None
 
     def update_data(self, new_data):
@@ -1295,9 +1479,71 @@ class TabFolder(QWidget):
 
     
     def eventFilter(self, obj, event):
-        if obj is self.table_view and event.type() == event.Type.Resize:
+        from PyQt6.QtCore import QEvent, Qt
+        
+        if obj is self.table_view and event.type() == QEvent.Type.Resize:
             if hasattr(self, 'dim_overlay'):
                 self.dim_overlay.resize(self.table_view.size())
+                
+        # 헤더 영역의 마우스 커서 동적 변경
+        if hasattr(self, 'table_view'):
+            header = self.table_view.horizontalHeader()
+            
+            # [핵심] header 자체뿐만 아니라 이벤트가 실제로 발생하는 viewport()까지 반드시 검사
+            if obj is header or (header.viewport() and obj is header.viewport()):
+                
+                if event.type() in (QEvent.Type.MouseMove, QEvent.Type.HoverMove):
+                    pos = event.position().toPoint() if hasattr(event, 'position') else event.pos()
+                    idx = header.logicalIndexAt(pos)
+                    if idx >= 0:
+                        section_x = header.sectionViewportPosition(idx)
+                        section_width = header.sectionSize(idx)
+                        
+                        # 우측 끝 영역(5px)은 컬럼 크기 조절을 위해 기본 커서 유지
+                        if pos.x() >= section_x + section_width - 5:
+                            cursor = Qt.CursorShape.SplitHCursor
+                            header.setCursor(cursor)
+                            if header.viewport(): header.viewport().setCursor(cursor)
+                        
+                        # 그립 아이콘 영역(좌측 25픽셀 이내)은 Grab(펼친 손) 커서
+                        elif pos.x() - section_x <= 25:
+                            cursor = Qt.CursorShape.OpenHandCursor
+                            header.setCursor(cursor)
+                            if header.viewport(): header.viewport().setCursor(cursor)
+                            
+                        # 나머지 텍스트 영역은 Pointer(클릭 손) 커서
+                        else:
+                            cursor = Qt.CursorShape.PointingHandCursor
+                            header.setCursor(cursor)
+                            if header.viewport(): header.viewport().setCursor(cursor)
+                            
+                elif event.type() == QEvent.Type.Leave:
+                    header.unsetCursor()
+                    if header.viewport(): header.viewport().unsetCursor()
+                    
+                elif event.type() == QEvent.Type.MouseButtonPress:
+                    pos = event.position().toPoint() if hasattr(event, 'position') else event.pos()
+                    idx = header.logicalIndexAt(pos)
+                    if idx >= 0:
+                        section_x = header.sectionViewportPosition(idx)
+                        # 아이콘 영역 클릭 시 Grabbing(움켜쥔 손) 커서로 피드백
+                        if pos.x() - section_x <= 25:
+                            cursor = Qt.CursorShape.ClosedHandCursor
+                            header.setCursor(cursor)
+                            if header.viewport(): header.viewport().setCursor(cursor)
+                            
+                elif event.type() == QEvent.Type.MouseButtonRelease:
+                    pos = event.position().toPoint() if hasattr(event, 'position') else event.pos()
+                    idx = header.logicalIndexAt(pos)
+                    if idx >= 0:
+                        section_x = header.sectionViewportPosition(idx)
+                        if pos.x() - section_x <= 25:
+                            cursor = Qt.CursorShape.OpenHandCursor
+                        else:
+                            cursor = Qt.CursorShape.PointingHandCursor
+                        header.setCursor(cursor)
+                        if header.viewport(): header.viewport().setCursor(cursor)
+                            
         return super().eventFilter(obj, event)
     
     # --- [추가됨] 백그라운드 스레드 제어 메서드 ---
@@ -1640,6 +1886,8 @@ class TabFolder(QWidget):
         self.item_delegate = ThumbnailDelegate(self.view_stack, self.thumb_dir)
         
         self.table_view = CustomTableView()
+        # [추가] 커스텀 헤더 뷰 장착
+        self.table_view.setHorizontalHeader(CustomHeaderView(Qt.Orientation.Horizontal, self.table_view))
         self.table_view.setModel(self.table_model)
         self.table_view.installEventFilter(self)
         self.table_view.setItemDelegate(self.item_delegate)
@@ -1650,7 +1898,41 @@ class TabFolder(QWidget):
         self.table_view.setSortingEnabled(False) 
         self.table_view.horizontalHeader().setSortIndicatorShown(True)
         self.table_view.horizontalHeader().setSectionsMovable(True)
-        self.table_view.setStyleSheet("QTableView { border: none; background-color: transparent; color: white; }")
+        
+        self.table_model.table_view = self.table_view
+        
+        header = self.table_view.horizontalHeader()
+        
+        # (기존에 있던 header.setIconSize(QSize(1000, 60)) 코드는 삭제합니다)
+        
+        # 헤더와 뷰포트 양쪽에 이벤트 필터와 마우스 트래킹 동시 적용
+        header.setMouseTracking(True)
+        header.installEventFilter(self)
+        if header.viewport():
+            header.viewport().setMouseTracking(True)
+            header.viewport().installEventFilter(self)
+        
+        self.table_view.setStyleSheet("""
+            QTableView { 
+                border: none; 
+                background-color: transparent; 
+                color: white; 
+            }
+            QHeaderView::section {
+                background-color: #2b2b2b;
+                padding: 4px 8px;
+                border: 1px solid #444;
+                border-radius: 4px;
+                margin:2px 1px;
+            }
+            QHeaderView::section:hover {
+                background-color: #3a3a3a; 
+            }
+            QHeaderView::section:pressed {
+                background-color: #4a4a4a;
+            }
+        """)
+
         self.table_view.setDragEnabled(False)
         self.table_view.setDragDropMode(QAbstractItemView.DragDropMode.NoDragDrop)
         self.table_view.verticalHeader().setDefaultSectionSize(64) 
@@ -1670,6 +1952,10 @@ class TabFolder(QWidget):
         self.list_view.setStyleSheet("QListView { border: none; background-color: transparent;  color: white; }")
         self.list_view.setDragEnabled(False)
         self.list_view.setDragDropMode(QAbstractItemView.DragDropMode.NoDragDrop)
+        
+        # 아이템 호버 효과를 위해 마우스 트래킹 켜기 (확대 애니메이션 연동)
+        self.list_view.setMouseTracking(True)
+        self.list_view.entered.connect(self.list_view.viewport().update)
 
         self.table_view.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.table_view.verticalScrollBar().setSingleStep(15)
@@ -1688,16 +1974,12 @@ class TabFolder(QWidget):
         self.lbl_cover = QLabel(_("folder_cover_img"))
         self.lbl_cover.setFixedSize(220, 310) 
         self.lbl_cover.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_cover.setStyleSheet("border: 1px solid #555; background-color: #1a1a1a; border-radius: 4px;")
-        right_bottom_layout.addWidget(self.lbl_cover)
+        self.lbl_cover.setStyleSheet("border: 1px solid #555; background-color: #1a1a1a; border-radius: 10px;")
+        right_bottom_layout.addWidget(self.lbl_cover, alignment=Qt.AlignmentFlag.AlignTop)
 
-        # 🌟 QWebEngineView로 교체된 메타데이터 뷰어 패널
-        self.info_browser = QWebEngineView()
-        self.info_browser_page = ExternalLinkWebPage(self.info_browser)
-        self.info_browser.setPage(self.info_browser_page)
-        
-        self.info_browser.page().setBackgroundColor(Qt.GlobalColor.transparent)
-        self.info_browser.setStyleSheet("background-color: transparent; border: none;")
+        self.info_browser = QTextBrowser()
+        self.info_browser.setOpenExternalLinks(True) 
+        self.info_browser.setStyleSheet("QTextBrowser { background-color: transparent; border: none; color: white; }")
         right_bottom_layout.addWidget(self.info_browser, 1)
 
         self.right_splitter.addWidget(self.right_top_panel)
@@ -1758,6 +2040,11 @@ class TabFolder(QWidget):
         self.table_view.horizontalHeader().sectionMoved.connect(self.save_current_layout_state)
         self.table_view.horizontalHeader().sectionClicked.connect(self.on_header_clicked)
         self.combo_quick_access.currentIndexChanged.connect(self.on_quick_access_changed)
+
+        self.table_view.horizontalHeader().sectionClicked.connect(
+            lambda: self.table_model.headerDataChanged.emit(Qt.Orientation.Horizontal, 0, len(self.table_model.active_columns) - 1)
+        )
+
         self.folder_watcher.directoryChanged.connect(self.on_watched_folder_changed)
         self.search_bar.textChanged.connect(self.on_search_text_changed)
         self.table_view.doubleClicked.connect(self.open_viewer)
@@ -2232,26 +2519,57 @@ class TabFolder(QWidget):
         if mode == "detail":
             self.view_stack.setCurrentIndex(0)
             self.item_delegate.view_mode = "detail"
+            
+            # 자세히 보기 모드일 때의 높이(행 크기) 복원 (기본값 120)
+            saved_size = self.config.get("folder_item_size_detail", 120)
+            self.slider_item_size.blockSignals(True)
+            self.slider_item_size.setValue(saved_size)
+            self.slider_item_size.blockSignals(False)
+            
+            # 테이블(Detail) 뷰에 맞게 row 높이 및 아이콘 크기 적용
+            table_row_height = max(36, int(saved_size * 0.6))
+            self.table_view.verticalHeader().setDefaultSectionSize(table_row_height)
+            icon_h = table_row_height - 4
+            icon_w = int(icon_h * 0.75)
+            self.table_view.setIconSize(QSize(icon_w, icon_h))
+            
         else:
             self.view_stack.setCurrentIndex(1)
             self.item_delegate.view_mode = mode
-            self.item_delegate.item_size = self.slider_item_size.value()
+            
+            # 모드별 저장된 썸네일/타일 크기 복원 (기본값: 썸네일 240, 타일 300)
+            default_size = 240 if mode == "thumbnail" else 300
+            saved_size = self.config.get(f"folder_item_size_{mode}", default_size)
+            
+            self.slider_item_size.blockSignals(True)
+            self.slider_item_size.setValue(saved_size)
+            self.item_delegate.item_size = saved_size
+            self.slider_item_size.blockSignals(False)
+            
             self.list_view.setGridSize(QSize()) 
             self.list_view.doItemsLayout()
+            
         self.table_model.layoutChanged.emit()
         self.apply_grouping_and_sorting()
 
     def on_size_changed(self, value):
-        self.item_delegate.item_size = value
-        self.table_model.layoutChanged.emit()
-        self.list_view.doItemsLayout()
+        mode = self.item_delegate.view_mode
         
-        table_row_height = max(36, int(value * 0.6))
-        self.table_view.verticalHeader().setDefaultSectionSize(table_row_height)
-        
-        icon_h = table_row_height - 4
-        icon_w = int(icon_h * 0.75)
-        self.table_view.setIconSize(QSize(icon_w, icon_h))
+        if mode in ["thumbnail", "tile"]:
+            self.item_delegate.item_size = value
+            self.config[f"folder_item_size_{mode}"] = value
+            self.table_model.layoutChanged.emit()
+            self.list_view.doItemsLayout()
+        else:
+            # detail 뷰 모드일 때는 행 높이로 사용
+            self.config["folder_item_size_detail"] = value
+            table_row_height = max(36, int(value * 0.6))
+            self.table_view.verticalHeader().setDefaultSectionSize(table_row_height)
+            icon_h = table_row_height - 4
+            icon_w = int(icon_h * 0.75)
+            self.table_view.setIconSize(QSize(icon_w, icon_h))
+            
+        save_config(self.config)
 
     def toggle_sidebar(self, checked):
         self.left_panel.setVisible(checked)
@@ -2699,6 +3017,37 @@ class TabFolder(QWidget):
         self.update_info_panel(full_path, {})
 
     def update_info_panel(self, full_path, meta_dict):
+        from PyQt6.QtCore import Qt
+        
+        # 🌟 표지 이미지 라벨 컨테이너 자체가 항상 상단에 붙도록 정렬
+        self.lbl_cover.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
+        
+        # 🌟 background-size: cover (Top 정렬) 및 border-radius 10px 적용 헬퍼 함수
+        def get_covered_pixmap(pm, w=220, h=310, radius=10):
+            from PyQt6.QtGui import QPixmap, QPainter, QPainterPath
+            
+            # 1. 비율 유지하며 꽉 차게 확대/축소 (Expanding)
+            scaled = pm.scaled(w, h, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
+            
+            # 2. X축은 중앙, Y축은 상단(0)을 기준으로 자름 (Top 정렬)
+            crop_x = (scaled.width() - w) // 2
+            crop_y = 0 
+            cropped = scaled.copy(crop_x, crop_y, w, h)
+            
+            # 3. 테두리 모서리 둥글게 10px 마스크 적용
+            rounded = QPixmap(w, h)
+            rounded.fill(Qt.GlobalColor.transparent)
+            
+            painter = QPainter(rounded)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            path = QPainterPath()
+            path.addRoundedRect(0, 0, w, h, radius, radius)
+            painter.setClipPath(path)
+            painter.drawPixmap(0, 0, cropped)
+            painter.end()
+            
+            return rounded
+
         row = self.file_data_map.get(full_path)
         if row:
             file_hash = row.get("hash", "")
@@ -2707,13 +3056,14 @@ class TabFolder(QWidget):
             cached_pix = QPixmapCache.find(file_hash) if file_hash else None
             
             if cached_pix is not None and not cached_pix.isNull():
-                self.lbl_cover.setPixmap(cached_pix.scaled(220, 310, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+                self.lbl_cover.setPixmap(get_covered_pixmap(cached_pix))
             elif os.path.exists(thumb_path):
                 if os.path.getsize(thumb_path) > 0:
+                    from PyQt6.QtGui import QPixmap
                     pixmap = QPixmap(thumb_path)
                     if not pixmap.isNull():
                         QPixmapCache.insert(file_hash, pixmap)
-                        self.lbl_cover.setPixmap(pixmap.scaled(220, 310, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+                        self.lbl_cover.setPixmap(get_covered_pixmap(pixmap))
                     else:
                         self.lbl_cover.setText(_("folder_no_cover"))
                 else:
@@ -2762,124 +3112,48 @@ class TabFolder(QWidget):
         tags = meta_dict.get("tags") or "-"
         notes = meta_dict.get("notes") or "-"
         
-        # 🌟 태그 문자열을 둥근 배지(Badge) 형태의 HTML로 변환하는 헬퍼 함수
-        def make_badges(text):
-            if not text or text == "-": return "-"
-            items = [x.strip() for x in text.split(',')]
-            return " ".join([f"<span class='badge'>{item}</span>" for item in items])
-
-        genre_html = make_badges(genre)
-        tags_html = make_badges(tags)
-        
         link = meta_dict.get("web") or "-"
-        link_html = f'<a href="{link}" target="_blank" style="color: #3498DB; text-decoration: none;">{link}</a>' if link != "-" else "-"
+        link_html = f'<a href="{link}" style="color: #3498DB; text-decoration: none;">{link}</a>' if link != "-" else "-"
 
-        # 🌟 QWebEngineView 전용 최신 CSS 및 Flexbox 레이아웃 디자인
         info_html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-        <style>
-            @import url('https://fonts.googleapis.com/css2?family=Jua&family=Noto+Sans+KR:wght@400;700&display=swap');
-            body {{
-                background-color: transparent; 
-                color: #e0e0e0;
-                font-family: {self.config['font_family_str']}, sans-serif;
-                margin: 0;
-                padding: 0 10px;
-            }}
-            /* 커스텀 스크롤바 */
-            ::-webkit-scrollbar {{ width: 8px; }}
-            ::-webkit-scrollbar-track {{ background: transparent; }}
-            ::-webkit-scrollbar-thumb {{ background: #555; border-radius: 4px; }}
-            ::-webkit-scrollbar-thumb:hover {{ background: #777; }}
-
-            .header {{ margin-bottom: 20px; }}
-            .title {{ font-size: {self.config.get('s18', 18)}px; color: #ffffff; margin: 0 0 5px 0; line-height: 1.2; }}
-            .subtitle {{ font-size: {self.config.get('s14', 14)}px; color: #aaaaaa; font-weight: normal; margin: 0; }}
-
-            .content-flex {{ display: flex; gap: 25px; }}
-            .left-col {{ flex: 0 0 45%; }}
-            .right-col {{ flex: 1; }}
-
-            /* 왼쪽 메인 정보 테이블 */
-            .info-table {{ width: 100%; border-collapse: collapse; font-size: {self.config.get('s12', 12)}px; }}
-            .info-table td {{ padding: 4px 0;  }}
-            .info-table td:first-child {{ color: #888888; width: 90px; }}
-            .info-table td:last-child {{ color: #ffffff; word-break: keep-all; }}
+        <div style="font-family: {self.config['font_family_str']}">
+            <h2 style="margin: 0px 0px 0px 0px; color: #ffffff; font-size: {self.config['s18']}pt;">{title}</h2>
+            <h4 style="margin: 0px 0px 25px 0px; color: #cccccc; font-size: {self.config['s14']}pt; font-weight: normal;">{series_info}</h4>
             
-            /* 오른쪽 요약 및 태그 섹션 */
-            .section {{ margin-bottom: 20px; }}
-            .section-title {{ font-size: {self.config.get('s12', 12)}px; color: #888888; margin-bottom: 4px;  padding-bottom: 2px; }}
-            .section-body {{ font-size: {self.config.get('s12', 12)}px; color: #dddddd; line-height: 1.6; word-break: keep-all; }}
-            
-            /* 둥근 뱃지 디자인 */
-            .badge {{
-                display: inline-block;
-                background-color: #3a3a3a;
-                border: 1px solid #555;
-                padding: 3px 10px;
-                border-radius: 12px;
-                margin: 2px 4px 4px 0;
-                font-size: {self.config.get('s11', 11)}px;
-                color: #eeeeee;
-                white-space: nowrap;
-            }}
-            
-            a {{ color: #3498DB; text-decoration: none; }}
-            a:hover {{ text-decoration: underline; }}
-        </style>
-        </head>
-        <body>
-            <div class="header">
-                <h2 class="title">{title}</h2>
-                <h4 class="subtitle">{series_info}</h4>
-            </div>
-            
-            <div class="content-flex">
-                <div class="left-col">
-                    <table class="info-table">
-                        <tr><td>{_('col_creators')}</td><td>{creators}</td></tr>
-                        <tr><td>{_('col_publisher')}</td><td>{pub_full}</td></tr>
-                        <tr><td>{_('col_genre')}</td><td>{genre_html}</td></tr>
-                        <tr><td>{_('col_page_count')}</td><td>{page_count}</td></tr>
-                        <tr><td>{_('col_vol_count')}</td><td>{volume_count}</td></tr>
-                        <tr><td>{_('col_format')}/{_('col_manga')}</td><td>{format_val} / {manga}</td></tr>
-                        <tr><td>{_('col_rating')}</td><td>{rating}</td></tr>
-                        <tr><td>{_('col_age_rating')}</td><td>{age_rating}</td></tr>
-                        <tr><td>{_('col_pub_date')}</td><td>{publish_date}</td></tr>
-                    </table>
-                </div>
-                
-                <div class="right-col">
-                    <div class="section">
-                        <div class="section-title">{_('col_summary')}</div>
-                        <div class="section-body">{summary}</div>
-                    </div>
-                    
-                    <div class="section">
-                        <div class="section-title">{_('info_arc_team_loc')}</div>
-                        <div class="section-body">{story_arc} / {teams} / {locations}</div>
-                    </div>
-                    
-                    <div class="section">
-                        <div class="section-title">{_('col_characters')}</div>
-                        <div class="section-body">{characters}</div>
-                    </div>
-                    
-                    <div class="section">
-                        <div class="section-title">{_('col_tags')}</div>
-                        <div class="section-body">{tags_html}</div>
-                    </div>
-                    
-                    <div class="section">
-                        <div class="section-title">{_('col_web')}</div>
-                        <div class="section-body">{link_html}</div>
-                    </div>
-                </div>
-            </div>
-        </body>
-        </html>
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:10px;font-size: {self.config['s12']}px;">
+                <tr>
+                    <td width="45%" valign="top" style="padding-right: 20px;">
+                        <table width="100%" cellpadding="4" cellspacing="0" border="0">
+                            <tr><td width="80" valign="top" style="color: #aaaaaa;">{_('col_creators')}</td><td valign="top" style="color: #ffffff;">{creators}</td></tr>
+                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_publisher')}</td><td valign="top" style="color: #ffffff;">{pub_full}</td></tr>
+                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_genre')}</td><td valign="top" style="color: #ffffff;">{genre}</td></tr>
+                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_page_count')}</td><td valign="top" style="color: #ffffff;">{page_count}</td></tr>
+                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_vol_count')}</td><td valign="top" style="color: #ffffff;">{volume_count}</td></tr>
+                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_format')}/{_('col_manga')}</td><td valign="top" style="color: #ffffff;">{format_val} / {manga}</td></tr>
+                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_rating')}</td><td valign="top" style="color: #ffffff;">{rating}</td></tr>
+                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_age_rating')}</td><td valign="top" style="color: #ffffff;">{age_rating}</td></tr>
+                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_pub_date')}</td><td valign="top" style="color: #ffffff;">{publish_date}</td></tr>
+                        </table>
+                    </td>
+                    <td width="55%" valign="top">
+                        <div style="color: #aaaaaa; margin-bottom: 4px;">{_('col_summary')}</div>
+                        <div style="margin-bottom: 15px; color: #dddddd; line-height: 1.2;">{summary}</div>
+                        
+                        <div style="color: #aaaaaa; margin-bottom: 4px;">{_('info_arc_team_loc')}</div>
+                        <div style="margin-bottom: 15px; color: #dddddd;">{story_arc} / {teams} / {locations}</div>
+                        
+                        <div style="color: #aaaaaa; margin-bottom: 4px;">{_('col_characters')}</div>
+                        <div style="margin-bottom: 15px; color: #dddddd;">{characters}</div>
+                        
+                        <div style="color: #aaaaaa; margin-bottom: 4px;">{_('col_tags')}</div>
+                        <div style="margin-bottom: 15px; color: #dddddd;">{tags}</div>
+                        
+                        <div style="color: #aaaaaa; margin-bottom: 4px;">{_('col_web')}</div>
+                        <div style="margin-bottom: 15px;">{link_html}</div>
+                    </td>
+                </tr>
+            </table>
+        </div>
         """
         self.info_browser.setHtml(info_html)
 

@@ -11,4 +11,4 @@ class WorkerSignals(QObject):
     image_loaded = pyqtSignal(str, str, object)
     
     version_checked = pyqtSignal(str)
-    release_notes_loaded = pyqtSignal(str)
+    release_notes_loaded = pyqtSignal(object)

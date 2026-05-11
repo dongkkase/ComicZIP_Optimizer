@@ -117,6 +117,7 @@ class Tab3Metadata(QWidget):
         def right_frame_resize(event):
             QFrame.resizeEvent(self.right_frame, event)
             self.right_overlay.setGeometry(self.right_frame.rect())
+            
         self.right_frame.resizeEvent = right_frame_resize
 
         self._setup_search_panel(right_layout, t)
@@ -153,12 +154,25 @@ class Tab3Metadata(QWidget):
 
         self.tree_meta_files = OrgTreeWidget()
         self.tree_meta_files.setHeaderHidden(True)
-        self.tree_meta_files.setIndentation(10) 
+        self.tree_meta_files.setIndentation(5)
+        self.tree_meta_files.setStyleSheet("""
+            QTreeView::item {
+                padding: 0px;
+                margin: 0px;
+            }
+        """)
         self.tree_meta_files.itemSelectionChanged.connect(self.on_tree_select)
         self.tree_meta_files.delete_pressed.connect(self.remove_selected)
         self.tree_meta_files.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.tree_meta_files.verticalScrollBar().setSingleStep(15)
-        
+
+        # 가로 스크롤: 폴더명 등 root 아이템이 길 때만 표시
+        self.tree_meta_files.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.tree_meta_files.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.tree_meta_files.horizontalScrollBar().setSingleStep(15)
+        # 컬럼은 뷰포트 너비에 맞게 stretch — child 위젯은 뷰포트 기준으로 렌더링됨
+        self.tree_meta_files.header().setStretchLastSection(True)
+
         left_layout.addWidget(self.lbl_meta_cover)
         left_layout.addWidget(self.tree_meta_files)
         layout_content.addWidget(left_frame)
@@ -982,104 +996,154 @@ class Tab3Metadata(QWidget):
     def refresh_tree(self, auto_select_first=True):
         t = self.main_app.i18n[self.main_app.lang]
         saved_selection = self.current_meta_file
-        
-        # 새로고침 전 기존 폴더들의 펼침/접힘 상태를 저장
+
+        self.tree_meta_files.setIndentation(0) # 들여쓰기 너비를 0으로 설정
+        self.tree_meta_files.setRootIsDecorated(False)
+
+        self.setStyleSheet("""
+            QTreeView {
+                background: transparent;
+                outline: none;
+                           padding: 10px 5px;
+            }
+            QTreeView::item {
+                border-radius: 3px;
+            }
+            QTreeView::item:hover {
+                background: rgba(255, 255, 255, 0.1);
+            }
+            QTreeView::branch {
+                background: transparent;
+                           width: 0px;
+            }
+
+        """)
+
+        # 스스로의 높이를 줄바꿈에 맞춰 계산하는 정밀 위젯
+        class PreciseItemWidget(QWidget):
+            def __init__(self, tree_item, title, mod_date, config, qta_icon_func):
+                super().__init__()
+                self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+                self.tree_item = tree_item
+                self.setStyleSheet("background: transparent; border: none;")
+
+                # 전체 레이아웃 (상단 3px, 하단 3px 여백)
+                self.main_layout = QVBoxLayout(self)
+                self.main_layout.setContentsMargins(0, 3, 0, 3)
+                self.main_layout.setSpacing(0)
+
+                # 1. 제목 영역 (빨간색 박스)
+                self.title_container = QWidget()
+                self.title_container.setStyleSheet("background-color: transparent;")
+                self.title_layout = QHBoxLayout(self.title_container)
+                self.title_layout.setContentsMargins(4, 2, 4, 2)
+                self.title_layout.setSpacing(4)
+
+                icon_lbl = QLabel()
+                icon_lbl.setPixmap(qta_icon_func('fa5s.file-alt', color='#bdc3c7').pixmap(12, 12))
+                icon_lbl.setFixedSize(14, 14)
+
+                self.lbl_title = QLabel(title)
+                self.lbl_title.setWordWrap(True) # 줄바꿈 활성화 (짤림 방지)
+                self.lbl_title.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+                self.lbl_title.setStyleSheet(f"font-size: {config['s12']}px; line-height: 1.2; color: rgba(255,255,255,0.7); background: transparent;")
+
+                self.title_layout.addWidget(icon_lbl, 0, Qt.AlignmentFlag.AlignTop)
+                self.title_layout.addWidget(self.lbl_title, 1)
+                self.main_layout.addWidget(self.title_container)
+
+                # 2. 날짜 영역 (파란색 박스)
+                self.date_container = QWidget()
+                self.date_container.setStyleSheet("background-color: transparent;")
+                self.date_layout = QHBoxLayout(self.date_container)
+                self.date_layout.setContentsMargins(4, 0, 4, 0)
+                self.date_layout.setSpacing(4)
+
+                clock_lbl = QLabel()
+                clock_lbl.setPixmap(qta_icon_func('fa5s.clock', color='#7f8c8d').pixmap(10, 10))
+                clock_lbl.setFixedSize(10, 10)
+
+                self.lbl_date = QLabel(mod_date if mod_date else "No Data")
+                self.lbl_date.setStyleSheet(f"font-size: {config['s10']}px; line-height: 1.2; color: rgba(255,255,255,0.4); background: transparent;")
+                
+                # 날짜 박스 높이 고정 (내부 여백 0픽셀 효과)
+                font_metrics = self.lbl_date.fontMetrics()
+                self.date_container.setFixedHeight(font_metrics.height())
+
+                self.date_layout.addSpacing(18)
+                self.date_layout.addWidget(clock_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
+                self.date_layout.addWidget(self.lbl_date, 1, Qt.AlignmentFlag.AlignVCenter)
+                self.main_layout.addWidget(self.date_container)
+
+            def resizeEvent(self, event):
+                super().resizeEvent(event)
+                self.lbl_title.setFixedWidth(230)
+                
+                actual_height = self.main_layout.sizeHint().height()
+                self.tree_item.setSizeHint(0, QSize(event.size().width(), actual_height))
+
+        # 트리 데이터 갱신 로직
         expanded_states = {}
         for i in range(self.tree_meta_files.topLevelItemCount()):
             item = self.tree_meta_files.topLevelItem(i)
             expanded_states[item.text(0)] = item.isExpanded()
-        
+
         self.tree_meta_files.clear()
         if not self.meta_data:
             self.meta_stacked.setCurrentIndex(0); self.set_right_panel_active(False); return
-            
-        self.meta_stacked.setCurrentIndex(1); self.set_right_panel_active(False)
+
+        self.meta_stacked.setCurrentIndex(1)
         target_item_to_select = None
-        
+
+        self.setContentsMargins(10, 5, 10, 5)
+
         for folder_path, files in self.meta_data.items():
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+            # self.setStyleSheet("QTreeWidget { padding:15px; }")
+
             folder_name = os.path.basename(folder_path) or folder_path
             root_item = QTreeWidgetItem([folder_name])
+            
+
+            folder_font = root_item.font(0)
+            folder_font.setPointSize(self.config['s10']) # 파일(s13)보다 큰 s15 정도로 설정
+            folder_font.setBold(True)
+            
+            root_item.setFont(0, folder_font)
+
+            if self.tree_meta_files.topLevelItemCount() > 0:
+                spacer_item = QTreeWidgetItem([""])
+                spacer_item.setFlags(Qt.ItemFlag.NoItemFlags)
+                spacer_item.setSizeHint(0, QSize(0, 10))
+                self.tree_meta_files.addTopLevelItem(spacer_item)
+
             root_item.setIcon(0, qta.icon('fa5s.folder-open', color='#F39C12'))
             self.tree_meta_files.addTopLevelItem(root_item)
-            sorted_files = sorted(files, key=lambda x: natural_keys(x.name))
+
             
-            for f in sorted_files:
-                fp = str(f); b_meta = self.book_meta.get(fp, {})
-                title = f.name 
-                mod_date = b_meta.get('ComicZipModifiedDate')
-                
+
+            for f in sorted(files, key=lambda x: natural_keys(x.name)):
+                fp = str(f)
+                mod_date = self.book_meta.get(fp, {}).get('ComicZipModifiedDate')
                 child_item = QTreeWidgetItem()
                 child_item.setData(0, Qt.ItemDataRole.UserRole, fp)
-                child_item.setToolTip(0, title)
                 root_item.addChild(child_item)
-                
-                if fp == saved_selection:
-                    target_item_to_select = child_item
-                    
-                # 1. 최상위 위젯 (트리 아이템 전체 영역)
-                item_widget = QWidget()
-                item_widget.setStyleSheet("background: transparent;")
-                outer_layout = QVBoxLayout(item_widget)
-                outer_layout.setContentsMargins(4, 4, 4, 4)
-                # 내부 요소를 통째로 수직 중앙 정렬! (이것이 핵심입니다)
-                outer_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter) 
 
-                # 2. 제목과 날짜를 꽉 묶어줄 내부 컨테이너 위젯
-                inner_widget = QWidget()
-                inner_layout = QVBoxLayout(inner_widget)
-                inner_layout.setContentsMargins(0, 0, 0, 0) # 내부 마진 완전히 0
-                inner_layout.setSpacing(2) # 제목과 날짜 사이의 숨막힘을 방지할 2px 간격
+                if fp == saved_selection: target_item_to_select = child_item
 
-                # 3. 제목 영역 조립
-                title_layout = QHBoxLayout()
-                title_layout.setContentsMargins(0, 0, 0, 0)
-                icon_lbl = QLabel()
-                icon_lbl.setPixmap(qta.icon('fa5s.file-alt', color='#bdc3c7').pixmap(12, 12))
-                lbl_title = QLabel(title)
-                lbl_title.setStyleSheet(f"font-size: {self.config['s13']}px; color:rgba(255,255,255,0.7);")
-                lbl_title.setWordWrap(True) 
-                
-                title_layout.addWidget(icon_lbl, 0, Qt.AlignmentFlag.AlignTop) # 텍스트가 길어질 경우 아이콘은 위에 고정
-                title_layout.addWidget(lbl_title, 1, Qt.AlignmentFlag.AlignVCenter)
-                
-                # 4. 날짜 영역 조립
-                date_str = mod_date if mod_date else t.get("t3_no_data", "")
-                date_layout = QHBoxLayout()
-                date_layout.setContentsMargins(0, 0, 0, 0)
-                clock_lbl = QLabel()
-                clock_lbl.setPixmap(qta.icon('fa5s.clock', color='#7f8c8d').pixmap(10, 10))
-                lbl_date = QLabel(date_str)
-                lbl_date.setStyleSheet(f"color: rgba(255,255,255,0.5); font-size: {self.config['s10']}px;") 
-                
-                date_layout.addSpacing(18) # 들여쓰기
-                date_layout.addWidget(clock_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
-                date_layout.addWidget(lbl_date, 1, Qt.AlignmentFlag.AlignVCenter)
-                
-                # 5. 내부 상자에 제목과 날짜를 차례로 넣음 (서로 밀착됨)
-                inner_layout.addLayout(title_layout)
-                inner_layout.addLayout(date_layout)
-                
-                # 6. 최상위 영역에 조립된 내부 상자를 넣음 (통째로 가운데 정렬됨)
-                outer_layout.addWidget(inner_widget)
-
-                # 최소 높이를 46px 정도로 주어 가운데 정렬이 시각적으로 예쁘게 보이도록 보장
-                optimal_height = item_widget.sizeHint().height()
-                child_item.setSizeHint(0, QSize(200, max(40, optimal_height)))
+                item_widget = PreciseItemWidget(child_item, f.name, mod_date, self.config, qta.icon)
                 self.tree_meta_files.setItemWidget(child_item, 0, item_widget)
-            
-            # 기억해둔 이전 상태대로 복원
-            if folder_name in expanded_states:
-                root_item.setExpanded(expanded_states[folder_name])
-            else:
-                root_item.setExpanded(True)
-        
+
+            if folder_name in expanded_states: root_item.setExpanded(expanded_states[folder_name])
+            else: root_item.setExpanded(True)
+
         if target_item_to_select:
             self.tree_meta_files.setCurrentItem(target_item_to_select)
-        # [수정] 삭제 작업 중이 아닐 때만(auto_select_first=True) 첫 번째 파일을 임시 선택
         elif auto_select_first and self.tree_meta_files.topLevelItemCount() > 0:
             first_root = self.tree_meta_files.topLevelItem(0)
             if first_root.childCount() > 0: self.tree_meta_files.setCurrentItem(first_root.child(0))
-
+                
     def on_tree_select(self):
         if getattr(self, 'save_worker', None) and self.save_worker is not None:
             return
