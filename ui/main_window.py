@@ -46,6 +46,8 @@ class RenamerApp(QMainWindow):
         self.signals.version_checked.connect(self.on_version_checked)
         self.signals.release_notes_loaded.connect(self.on_release_notes_loaded)
         
+        self.signals.update_ready.connect(self.on_update_ready)
+
         self.signals.image_loaded.connect(self.route_image_loaded)
         
         self.is_processing = False
@@ -156,8 +158,40 @@ class RenamerApp(QMainWindow):
 
     def open_update_link(self):
         if getattr(self, 'latest_version_url', None):
-            webbrowser.open(self.latest_version_url)
+            if "download" in self.latest_version_url:
+                reply = QMessageBox.question(
+                    self, 
+                    "업데이트 확인" if self.lang == "ko" else "Update", 
+                    "새 버전이 있습니다. 자동으로 다운로드하고 업데이트하시겠습니까?" if self.lang == "ko" else "Do you want to automatically download and update to the new version?", 
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if reply == QMessageBox.StandardButton.Yes:
+                    self.start_auto_update()
+            else:
+                webbrowser.open(self.latest_version_url)
 
+    def start_auto_update(self):
+        from tasks.update_task import AutoUpdateTask
+        
+        self.btn_version.setEnabled(False)
+        self.progress_bar.show()
+        self.progress_bar.setValue(0)
+        self.lbl_status.setText("업데이트 준비 중..." if self.lang == "ko" else "Preparing update...")
+        
+        task = AutoUpdateTask(self.latest_version_url, self.signals)
+        threading.Thread(target=task.run, daemon=True).start()
+
+    def on_update_ready(self, script_path):
+        import subprocess
+        import platform
+        
+        if platform.system() == "Windows":
+            subprocess.Popen([script_path], shell=True)
+        else:
+            subprocess.Popen(["bash", script_path])
+            
+        self.close()
+        
     def open_issue_link(self):
         webbrowser.open("https://github.com/dongkkase/ComicZIP_Optimizer/issues")
 

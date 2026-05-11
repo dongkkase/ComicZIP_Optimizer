@@ -1,6 +1,11 @@
 import urllib.request
 import ssl
 import json
+import os
+import sys
+import stat
+import zipfile
+import platform
 from config import CURRENT_VERSION
 
 class VersionCheckTask:
@@ -55,3 +60,82 @@ class ReleaseNotesTask:
         except Exception as e:
             print(f"Release Notes Error: {e}")
             self.signals.release_notes_loaded.emit([])
+
+
+class AutoUpdateTask:
+    def __init__(self, download_url, signals): 
+        self.download_url = download_url
+        self.signals = signals
+
+    def run(self):
+        try:
+            self.signals.progress.emit(10, "업데이트 파일을 다운로드 중입니다...")
+            
+            temp_zip_path = "update_temp.zip"
+            req = urllib.request.Request(self.download_url, headers={'User-Agent': 'Mozilla/5.0'})
+            context = ssl._create_unverified_context()
+            
+            with urllib.request.urlopen(req, context=context) as response, open(temp_zip_path, 'wb') as out_file:
+                out_file.write(response.read())
+
+            self.signals.progress.emit(60, "업데이트 파일 압축 해제 중...")
+            extract_dir = "_update_temp"
+            with zipfile.ZipFile(temp_zip_path, 'r') as zip_ref:
+                zip_ref.extractall(extract_dir)
+
+            self.signals.progress.emit(90, "업데이트 스크립트 생성 중...")
+            
+            is_windows = platform.system() == "Windows"
+            is_frozen = getattr(sys, 'frozen', False)
+            
+            if is_windows:
+                script_path = "updater.bat"
+                if is_frozen:
+                    exe_name = os.path.basename(sys.executable)
+                    start_cmd = f'start "" "{exe_name}"'
+                else:
+                    exe_name = sys.executable
+                    start_cmd = f'start "" "{exe_name}" main.py'
+
+                script_content = f"""@echo off
+echo 업데이트 적용 중... 프로그램 종료 대기(3초)
+timeout /t 3 /nobreak > NUL
+xcopy /s /y "{extract_dir}\\*" .\\
+rmdir /s /q "{extract_dir}"
+del "{temp_zip_path}"
+{start_cmd}
+del "%~f0"
+"""
+                encoding = "euc-kr"
+            else:
+                script_path = "updater.sh"
+                if is_frozen:
+                    exe_name = sys.executable
+                    start_cmd = f'open "{exe_name}"'
+                else:
+                    exe_name = sys.executable
+                    start_cmd = f'"{exe_name}" main.py &'
+                    
+                script_content = f"""#!/bin/bash
+echo "업데이트 적용 중... 프로그램 종료 대기(3초)"
+sleep 3
+cp -Rf {extract_dir}/* ./
+rm -rf {extract_dir}
+rm -f {temp_zip_path}
+{start_cmd}
+rm -f "$0"
+"""
+                encoding = "utf-8"
+
+            with open(script_path, "w", encoding=encoding) as f:
+                f.write(script_content)
+
+            if not is_windows:
+                os.chmod(script_path, os.stat(script_path).st_mode | stat.S_IEXEC)
+
+            self.signals.progress.emit(100, "업데이트 준비 완료!")
+            self.signals.update_ready.emit(script_path)
+
+        except Exception as e:
+            print(f"AutoUpdate Error: {e}")
+            self.signals.progress.emit(0, f"업데이트 실패: {e}")
