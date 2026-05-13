@@ -322,6 +322,7 @@ def get_i18n():
             "tf_new_format": "새 형식:",
             "tf_case_sensitive": "대소문자 구분",
             "tf_use_regex": "정규식",
+            "tf_use_folder_name": "폴더명으로 이름 바꾸기",
             "tf_col_old_name": "이전 파일 이름",
             "tf_col_new_name": "새 파일 이름",
 
@@ -631,6 +632,7 @@ def get_i18n():
             "tf_new_format": "New format:",
             "tf_case_sensitive": "Case sensitive",
             "tf_use_regex": "Regex",
+            "tf_use_folder_name": "Rename with Folder Name",
             "tf_col_old_name": "Old Name",
             "tf_col_new_name": "New Name",
 
@@ -945,6 +947,7 @@ def get_i18n():
             "tf_new_format": "New format:",
             "tf_case_sensitive": "Case sensitive",
             "tf_use_regex": "Regex",
+            "tf_use_folder_name": "フォルダ名で名前変更",
             "tf_col_old_name": "Old Name",
             "tf_col_new_name": "New Name",
 

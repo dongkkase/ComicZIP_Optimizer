@@ -251,8 +251,12 @@ class MultiRenameDialog(QDialog):
         checkbox_layout = QHBoxLayout()
         self.chk_case = QCheckBox(self.i18n.get("tf_case_sensitive", "대소문자 구분"))
         self.chk_regex = QCheckBox(self.i18n.get("tf_use_regex", "정규식(Regex) 모드"))
+        # 다국어 처리 적용된 폴더명 이름 바꾸기 체크박스
+        self.chk_folder_name = QCheckBox(self.i18n.get("tf_use_folder_name", "폴더명으로 이름 바꾸기"))
+        
         checkbox_layout.addWidget(self.chk_case)
         checkbox_layout.addWidget(self.chk_regex)
+        checkbox_layout.addWidget(self.chk_folder_name)
         checkbox_layout.addStretch()
         grid.addLayout(checkbox_layout, 2, 1)
 
@@ -285,6 +289,8 @@ class MultiRenameDialog(QDialog):
             widget.stateChanged.connect(self.schedule_preview)
             
         self.chk_regex.stateChanged.connect(self.toggle_regex_mode)
+        # 폴더명 치환 모드 시그널 연결
+        self.chk_folder_name.stateChanged.connect(self.toggle_folder_name_mode)
         
         for widget in [self.sp_start, self.sp_digits]:
             widget.valueChanged.connect(self.schedule_preview)
@@ -321,7 +327,6 @@ class MultiRenameDialog(QDialog):
         
         self.table_view.setColumnWidth(0, 300); self.table_view.setColumnWidth(1, 300); self.table_view.setColumnWidth(2, 80)
         
-        # --- 배율에 따른 폰트 크기 강제 적용 ---
         self.table_view.setStyleSheet(f"font-size: {self.config['s11']}px;")
         self.table_view.horizontalHeader().setStyleSheet(f"font-size: {self.config['s11']}px;")
 
@@ -352,6 +357,32 @@ class MultiRenameDialog(QDialog):
         self.le_new.blockSignals(False)
         self.schedule_preview()
 
+    def toggle_folder_name_mode(self, state):
+        import re
+        import os
+        from PyQt6.QtCore import Qt
+        
+        if state == Qt.CheckState.Checked.value:
+            self._saved_new_text = self.le_new.text()
+            
+            if self.file_paths:
+                folder_name = os.path.basename(os.path.dirname(self.file_paths[0]))
+                current_text = self.le_new.text()
+                
+                var_symbol = r'\\' if self.chk_regex.isChecked() else r'%'
+                pattern = rf'^(.*?)({var_symbol}\d+)(.*)$'
+                
+                match = re.match(pattern, current_text)
+                if match:
+                    new_text = f"{folder_name} {match.group(2)}{match.group(3)}"
+                    self.le_new.setText(new_text)
+                else:
+                    suffix = r'\1' if self.chk_regex.isChecked() else '%1'
+                    self.le_new.setText(f"{folder_name} {suffix}")
+        else:
+            if hasattr(self, '_saved_new_text'):
+                self.le_new.setText(self._saved_new_text)
+    
     def auto_infer_patterns(self):
         if not self.file_paths: return
         

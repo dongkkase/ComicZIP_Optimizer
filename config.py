@@ -114,7 +114,8 @@ def load_config():
         "dup_check_folders": [],
         "font_family": "Default",
         "font_scale": 100,
-        "btn_primary": "#0078d7"
+        "btn_primary": "#0078d7",
+        "start_num": 0
     }
     try:
         if os.path.exists(CONFIG_FILE):
@@ -123,7 +124,7 @@ def load_config():
                 default_config["max_threads"] = min(default_config.get("max_threads", default_threads), safe_max)
     except: pass
     
-    # 🌟 추가된 부분: 불러온 설정을 바탕으로 폰트 크기를 딕셔너리에 캐싱
+    # 불러온 설정을 바탕으로 폰트 크기를 딕셔너리에 캐싱
     scale = default_config["font_scale"] / 100.0
     ff = default_config["font_family"]
     default_config["font_family_str"] = "'Jua', 'arial', 'Noto Sans KR', 'Segoe UI Emoji'" if ff == "Default" else f"'{ff}', 'Segoe UI Emoji'"

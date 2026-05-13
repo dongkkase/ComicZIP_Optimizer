@@ -997,7 +997,7 @@ class Tab3Metadata(QWidget):
         t = self.main_app.i18n[self.main_app.lang]
         saved_selection = self.current_meta_file
         
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.tree_meta_files.setCursor(Qt.CursorShape.PointingHandCursor)
 
         self.tree_meta_files.setIndentation(0) # 들여쓰기 너비를 0으로 설정
         self.tree_meta_files.setRootIsDecorated(False)

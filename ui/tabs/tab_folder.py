@@ -1674,12 +1674,6 @@ class TabFolder(QWidget):
         self.lbl_tree_status.setText(msg)
     # ----------------------------------------------
 
-    def showEvent(self, event):
-        super().showEvent(event)
-        if hasattr(self, 'main_optimize_btn') and self.main_optimize_btn:
-            self.main_optimize_btn.hide()
-        if hasattr(self, 'main_status_label') and self.main_status_label:
-            self.main_status_label.setText(_("folder_ready"))
 
     def hideEvent(self, event):
         super().hideEvent(event)
@@ -1803,6 +1797,15 @@ class TabFolder(QWidget):
         self.tree_view.setHeaderHidden(True)
         self.tree_view.setAnimated(True)
         self.tree_view.setIndentation(15)
+        
+        # 텍스트 말줄임표 처리 방지 및 가로 스크롤 활성화
+        self.tree_view.setTextElideMode(Qt.TextElideMode.ElideNone)
+        self.tree_view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        
+        # 마지막 열이 뷰포트 너비에 맞춰 강제로 늘어나는 기본 동작 해제 (가로 스크롤을 위해 필수)
+        self.tree_view.header().setStretchLastSection(False)
+        self.tree_view.header().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+
         self.tree_view.setStyle(QStyleFactory.create("Fusion"))
         self.tree_view.setStyleSheet("""
             QTreeView { border: none; background-color: transparent; outline: none; color: white; } 
@@ -2342,6 +2345,8 @@ class TabFolder(QWidget):
         QShortcut(QKeySequence("Shift+R"), self).activated.connect(self.action_multi_rename)
         QShortcut(QKeySequence("Ctrl+Z"), self).activated.connect(self.action_undo_rename)
 
+        QShortcut(QKeySequence("Ctrl+G"), self).activated.connect(self.show_goto_dialog)
+
     def hotkey_f3(self): # F2였던 메서드명을 논리에 맞게 변경
         if self.tree_view.hasFocus():
             self.rename_folder()
@@ -2452,10 +2457,255 @@ class TabFolder(QWidget):
             
         last_path = self.config.get("folder_last_path", "")
         if last_path and os.path.exists(last_path):
-            idx = self.dir_model.index(last_path)
-            self.tree_view.setCurrentIndex(idx)
-            self.tree_view.scrollTo(idx)
+            self.pending_scroll_path = last_path
+            # 프로그램 시작 직후 능동형 큐 스크롤 가동
+            QTimer.singleShot(200, lambda: self._start_queued_scroll(last_path))
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if hasattr(self, 'main_optimize_btn') and self.main_optimize_btn:
+            self.main_optimize_btn.hide()
+            
+        path = getattr(self, 'pending_scroll_path', None) or getattr(self, 'current_watched_folder', None)
+        if path:
+            self.pending_scroll_path = None
+            QTimer.singleShot(100, lambda: self._start_queued_scroll(path))
+
+    def _start_queued_scroll(self, path):
+        if not path or not os.path.exists(path): return
+        
+        qt_path = QDir.fromNativeSeparators(os.path.abspath(path))
+        
+        # 1. 루트(드라이브)부터 최종 목적지까지의 경로를 순서대로 큐에 담음
+        self._pending_expand_queue = []
+        curr = qt_path
+        while curr:
+            self._pending_expand_queue.insert(0, curr)
+            parent = QDir.fromNativeSeparators(os.path.dirname(curr))
+            if parent == curr or not parent: break
+            curr = parent
+            
+        # 2. 능동형 감시 타이머 시작 (Qt의 불확실한 시그널 누락 완벽 회피)
+        if hasattr(self, '_queue_timer') and self._queue_timer.isActive():
+            self._queue_timer.stop()
+            
+        self._queue_timer = QTimer(self)
+        self._queue_timer.timeout.connect(self._process_next_queue_step)
+        self._queue_timer.start(50) # 0.05초 단위의 아주 빠른 속도로 상태 검사
+        self._queue_retries = 100 # 각 폴더 스텝당 최대 5초 대기 (HDD 스핀업 고려)
+
+    def _process_next_queue_step(self):
+        if not hasattr(self, '_pending_expand_queue') or not self._pending_expand_queue:
+            self._queue_timer.stop()
+            return
+            
+        self._queue_retries -= 1
+        if self._queue_retries <= 0:
+            self._queue_timer.stop()
+            return
+
+        current_target = self._pending_expand_queue[0]
+        idx = self.dir_model.index(current_target)
+
+        if idx.isValid():
+            # 3. 목표 폴더가 유효(로딩 완료)해졌다면 큐에서 제거하고 전개
+            self._pending_expand_queue.pop(0)
             self.tree_view.expand(idx)
+            self._queue_retries = 100 # 다음 요소를 위해 타임아웃 초기화
+            
+            if not self._pending_expand_queue:
+                # 4. 목적지 최종 도달 완료
+                self._queue_timer.stop()
+                self.tree_view.setCurrentIndex(idx)
+                self.tree_view.setFocus()
+                QTimer.singleShot(50, lambda: self._do_final_scroll(idx))
+        else:
+            # 5. 아직 로딩 전이라면? 부모 폴더를 적극적으로 찔러서 로딩(fetchMore) 강제 유도!
+            parent_path = QDir.fromNativeSeparators(os.path.dirname(current_target))
+            # 드라이브 최상위(C:/ 등)인 경우 안전하게 빈 문자열(Root)을 부모로 취급
+            if parent_path == current_target or not parent_path:
+                parent_idx = self.dir_model.index(self.dir_model.rootPath())
+            else:
+                parent_idx = self.dir_model.index(parent_path)
+                if not parent_idx.isValid():
+                    parent_idx = self.dir_model.index(self.dir_model.rootPath())
+            
+            # Qt 내부 백그라운드 스레드에게 지금 당장 이 경로를 하드에서 읽어오라고 직접 명령
+            if parent_idx.isValid():
+                self.tree_view.expand(parent_idx)
+                if self.dir_model.canFetchMore(parent_idx):
+                    self.dir_model.fetchMore(parent_idx)
+
+    def _do_final_scroll(self, idx):
+        # 뷰포트 바깥에 숨겨진 영역을 먼저 렌더링 범위로 끌어온 뒤 중앙 정렬
+        self.tree_view.scrollTo(idx, QAbstractItemView.ScrollHint.EnsureVisible)
+        self.tree_view.scrollTo(idx, QAbstractItemView.ScrollHint.PositionAtCenter)
+        self.tree_view.horizontalScrollBar().setValue(0)
+
+    def _process_next_queue_step(self):
+        if not self._pending_expand_queue:
+            return # 큐가 비었으면 작업 종료
+            
+        current_target = self._pending_expand_queue[0]
+        idx = self.dir_model.index(current_target)
+        
+        if idx.isValid():
+            # 3. 현재 뎁스의 폴더가 로딩되어 있다면: 큐에서 빼고 폴더를 엽니다.
+            self._pending_expand_queue.pop(0)
+            self.tree_view.expand(idx)
+            
+            if not self._pending_expand_queue:
+                # 4. 큐가 완전히 비워졌다 = 최종 목적지에 도달했다!
+                self.tree_view.setCurrentIndex(idx)
+                self.tree_view.setFocus()
+                
+                # 렌더링에 필요한 최소한의 시간(50ms)만 준 뒤 최종 스크롤 확정
+                QTimer.singleShot(50, lambda: self._do_final_scroll(idx))
+            else:
+                # 다음 하위 폴더 처리를 위해 곧바로 재귀 호출 (이벤트 루프가 막히지 않게 타이머 사용)
+                QTimer.singleShot(10, self._process_next_queue_step)
+        else:
+            # 아직 로딩되지 않았다면? 
+            # 여기서 while문으로 기다리는 것이 아니라 그냥 함수를 '종료'해 버립니다!
+            # (백그라운드에서 로딩이 끝나면 아래의 _on_directory_loaded_step 가 알아서 깨워줍니다)
+            pass
+
+    def _on_directory_loaded_step(self, loaded_path):
+        # QFileSystemModel이 "폴더 하나 읽기 끝났어!" 라고 신호를 보낼 때마다
+        # 큐에 남은 작업이 있다면 다음 스텝을 밟아보라고 툭 쳐줍니다.
+        if hasattr(self, '_pending_expand_queue') and self._pending_expand_queue:
+            self._process_next_queue_step()
+
+    def _do_final_scroll(self, idx):
+        # 가려져 있던 UI가 펴지면서 발생하는 미세한 픽셀 오차를 방지하기 위해 EnsureVisible 후 Center
+        self.tree_view.scrollTo(idx, QAbstractItemView.ScrollHint.EnsureVisible)
+        self.tree_view.scrollTo(idx, QAbstractItemView.ScrollHint.PositionAtCenter)
+        self.tree_view.horizontalScrollBar().setValue(0)
+
+    def _start_path_scroll(self, path):
+        if not path or not os.path.exists(path): return
+        
+        self._target_scroll_path = QDir.fromNativeSeparators(os.path.abspath(path))
+        self._scroll_retries = 100  # 외부 HDD 절전모드 해제 및 스핀업 고려 (최대 10초 대기)
+        
+        if hasattr(self, '_scroll_timer') and self._scroll_timer.isActive():
+            self._scroll_timer.stop()
+            
+        self._scroll_timer = QTimer(self)
+        self._scroll_timer.timeout.connect(self._process_path_scroll)
+        self._scroll_timer.start(100) # 0.1초마다 백그라운드에서 로딩 완료 여부 조용히 감시
+
+    def _process_path_scroll(self):
+        target = getattr(self, '_target_scroll_path', None)
+        if not target:
+            self._scroll_timer.stop()
+            return
+            
+        idx = self.dir_model.index(target)
+        
+        # 1. 인덱스가 아직 로딩되지 않았을 때 (기다림 단계)
+        if not idx.isValid():
+            self._scroll_retries -= 1
+            if self._scroll_retries <= 0:
+                self._scroll_timer.stop()
+                return
+                
+            # 역추적하며 유효한 상위 폴더를 찾아 강제로 펼치며 하위 로딩 유도
+            curr = target
+            while curr:
+                p_idx = self.dir_model.index(curr)
+                if p_idx.isValid():
+                    self.tree_view.expand(p_idx)
+                    if self.dir_model.canFetchMore(p_idx):
+                        self.dir_model.fetchMore(p_idx)
+                    break
+                
+                parent = QDir.fromNativeSeparators(os.path.dirname(curr))
+                if parent == curr or not parent: break
+                curr = parent
+            return # 아직 로딩 중이므로 다음 감시 틱(100ms 후)으로 넘김
+
+        # 2. 인덱스 로딩이 100% 완료된 시점 (사용자 요구사항 완벽 충족)
+        self._scroll_timer.stop()
+        self._target_scroll_path = None
+        
+        # 최상위 부모부터 순서대로 폴더 열기
+        parents = []
+        p = idx.parent()
+        while p.isValid():
+            parents.insert(0, p)
+            p = p.parent()
+            
+        for p in parents:
+            self.tree_view.expand(p)
+            
+        # 목표 폴더 열기, 선택 및 확실한 활성화(포커스 지정)
+        self.tree_view.expand(idx)
+        self.tree_view.setCurrentIndex(idx)
+        self.tree_view.setFocus()
+        
+        # 레이아웃이 화면에 그려질 틈을 아주 약간 주고 단 한 번만 깔끔하게 스크롤 이동
+        def final_scroll():
+            self.tree_view.scrollTo(idx, QAbstractItemView.ScrollHint.PositionAtCenter)
+            self.tree_view.horizontalScrollBar().setValue(0)
+            
+        QTimer.singleShot(100, final_scroll)
+
+    def _on_dir_loaded_for_scroll(self, path):
+        # 폴더가 하나 로딩 완료될 때마다 목표에 도달했는지 확인
+        if getattr(self, '_target_scroll_path', None):
+            self._check_and_scroll()
+
+    def _check_and_scroll(self):
+        target = getattr(self, '_target_scroll_path', None)
+        if not target: return
+        
+        idx = self.dir_model.index(target)
+        
+        # 1. 목표 경로가 아직 로딩되지 않았을 때 (기다림 단계)
+        if not idx.isValid():
+            curr = target
+            while curr:
+                p_idx = self.dir_model.index(curr)
+                if p_idx.isValid():
+                    # 유효한 부모를 열어 로딩을 유도. 로딩이 끝나면 _on_dir_loaded_for_scroll이 자동으로 다시 불립니다.
+                    self.tree_view.expand(p_idx)
+                    if self.dir_model.canFetchMore(p_idx):
+                        self.dir_model.fetchMore(p_idx)
+                    break
+                parent = QDir.fromNativeSeparators(os.path.dirname(curr))
+                if parent == curr or not parent:
+                    root_idx = self.dir_model.index(self.dir_model.rootPath())
+                    self.tree_view.expand(root_idx)
+                    break
+                curr = parent
+            return # 로딩 신호가 올 때까지 함수 종료 및 대기
+
+        # 2. 모든 로딩이 끝난 시점 (사용자 요청 사항 완벽 적용)
+        self._target_scroll_path = None # 추적 종료
+        
+        parents = []
+        p = idx.parent()
+        while p.isValid():
+            parents.insert(0, p)
+            p = p.parent()
+            
+        for p in parents:
+            self.tree_view.expand(p)
+            
+        self.tree_view.expand(idx)
+        self.tree_view.setCurrentIndex(idx)
+        self.tree_view.setFocus()
+        
+        # 로딩이 100% 보장된 상태이므로 단 한 번의 깔끔한 스크롤만 수행
+        def final_scroll():
+            self.tree_view.scrollTo(idx, QAbstractItemView.ScrollHint.PositionAtCenter)
+            self.tree_view.horizontalScrollBar().setValue(0)
+            
+        QTimer.singleShot(100, final_scroll)
+
+    def save_current_layout_state(self):
+        state = self.table_view.horizontalHeader().saveState().toHex().data().decode()
 
     def save_current_layout_state(self):
         state = self.table_view.horizontalHeader().saveState().toHex().data().decode()
@@ -3329,6 +3579,66 @@ class TabFolder(QWidget):
     def open_selected_in_explorer(self):
         files = self.get_selected_files()
         if files: self.open_in_explorer(os.path.dirname(files[0]))
+
+    def show_goto_dialog(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("경로 이동")
+        dialog.resize(400, 100)
+        dialog.setStyleSheet("QDialog { background-color: #2b2b2b; color: white; } QLabel { color: white; }")
+        
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel("이동할 폴더 경로를 입력하세요:"))
+        
+        input_line = QLineEdit()
+        input_line.setText(self.current_watched_folder)
+        input_line.setStyleSheet("""
+            QLineEdit { background-color: #1e1e1e; color: white; border: 1px solid #555; border-radius: 4px; padding: 4px 10px; }
+            QLineEdit:focus { border: 1px solid #3498DB; }
+        """)
+        layout.addWidget(input_line)
+        
+        btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        btn_ok = btn_box.button(QDialogButtonBox.StandardButton.Ok)
+        btn_cancel = btn_box.button(QDialogButtonBox.StandardButton.Cancel)
+        
+        btn_ok.setText("확인")
+        btn_cancel.setText("취소")
+        
+        btn_primary_color = self.config.get("btn_primary", "#0078d7")
+        
+        btn_ok.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {btn_primary_color};
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 5px 15px;
+            }}
+            QPushButton:hover {{ background-color: #3a7ebf; }}
+        """)
+        
+        btn_cancel.setStyleSheet("""
+            QPushButton {{
+                background-color: #555555;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 5px 15px;
+            }}
+            QPushButton:hover {{ background-color: #666666; }}
+        """)
+        
+        btn_box.accepted.connect(dialog.accept)
+        btn_box.rejected.connect(dialog.reject)
+        layout.addWidget(btn_box)
+        
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            path = input_line.text().strip()
+            if os.path.exists(path) and os.path.isdir(path):
+                # 구버전 스크롤이나 새로고침 로직을 빼고 스마트 폴링 하나로 통일
+                self._start_queued_scroll(path)
+            else:
+                QMessageBox.warning(self, "경로 오류", "존재하지 않거나 유효하지 않은 폴더 경로입니다.")
 
     def send_to_tab1(self):
         files = self.get_selected_files()

@@ -13,7 +13,7 @@ from PyQt6.QtGui import QImage, QPixmap, QPainter, QPainterPath, QColor, QIntVal
 
 from ui.widgets import ArchiveTableWidget, Toast
 from utils import natural_keys
-from config import get_resource_path
+from config import get_resource_path, save_config
 from core.archive_utils import bg_load_image
 from tasks.load_task import FileLoadTask
 
@@ -134,7 +134,8 @@ class Tab2Renamer(QWidget):
         self.lbl_start_num = QLabel(t.get("tab2_start_num", "시작 번호:"))
         self.lbl_start_num.setObjectName("boldLabel")
         
-        self.le_start_num = QLineEdit("0")
+        saved_start_num = str(self.config.get("start_num", 0))
+        self.le_start_num = QLineEdit(saved_start_num)
         self.le_start_num.setFixedWidth(50)
         self.le_start_num.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.le_start_num.setValidator(QIntValidator(0, 999999))
@@ -159,11 +160,20 @@ class Tab2Renamer(QWidget):
                 val = 0
             new_val = max(0, val + delta)
             self.le_start_num.setText(str(new_val))
-            self.update_inner_preview_list()
 
         self.btn_minus_num.clicked.connect(lambda: change_num(-1))
         self.btn_plus_num.clicked.connect(lambda: change_num(1))
-        self.le_start_num.textChanged.connect(self.update_inner_preview_list)
+        
+        def on_start_num_changed(text):
+            try:
+                val = int(text or 0)
+            except ValueError:
+                val = 0
+            self.config["start_num"] = val
+            save_config(self.config)
+            self.update_inner_preview_list()
+
+        self.le_start_num.textChanged.connect(on_start_num_changed)
         
         self.chk_keep_name = QCheckBox(t.get("tab2_keep_name", "내부 파일명 유지"))
         self.chk_keep_name.setCursor(Qt.CursorShape.PointingHandCursor)
