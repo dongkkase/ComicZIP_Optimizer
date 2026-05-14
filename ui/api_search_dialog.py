@@ -643,6 +643,11 @@ class ApiSearchDialog(QDialog):
             self.lbl_result_count.setText("⚠️ API 호출 제한")
             return
 
+        # 검색어와 결과 제목의 유사도를 비교하여 내림차순 정렬
+        if isinstance(raw_results, list) and raw_results:
+            query_lower = self.current_query.lower()
+            raw_results.sort(key=lambda x: similar(query_lower, str(x.get("Title", "")).lower()), reverse=True)
+
         self.search_results = raw_results 
         count = len(self.search_results)
         

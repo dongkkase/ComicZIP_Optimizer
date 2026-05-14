@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QCheckBox, QDialogButtonBox, QStyledItemDelegate, QStackedWidget, QInputDialog, QToolButton, QStyleFactory,
     QComboBox, QStyle, QLineEdit, QFileDialog, QRubberBand, QTextBrowser, QProgressBar
 )
-from PyQt6.QtGui import QFileSystemModel, QAction, QPixmap, QPainter, QColor, QFont, QKeySequence, QShortcut, QImage, QPixmapCache
+from PyQt6.QtGui import QFileSystemModel, QAction, QPixmap, QPainter, QColor, QFont, QKeySequence, QShortcut, QImage, QPixmapCache, QLinearGradient
 from PyQt6.QtCore import Qt, QDir, QAbstractTableModel, QModelIndex, QSize, QByteArray, QItemSelectionModel, QItemSelection, QStandardPaths, QFileSystemWatcher, QTimer, QMimeData, QUrl, QThread, pyqtSignal, QRect, QPoint, QCoreApplication
 
 from config import get_resource_path, save_config
@@ -930,14 +930,13 @@ class ThumbnailDelegate(QStyledItemDelegate):
             self.anim_timer.stop()
 
     def paint(self, painter, option, index):
-        from PyQt6.QtGui import QPen, QPainterPath
-        from PyQt6.QtCore import QRectF
+        from PyQt6.QtGui import QPen, QPainterPath, QLinearGradient
+        from PyQt6.QtCore import QRectF, QRect
 
         if not index.isValid(): return
         
         row_data = index.model()._data[index.row()]
         
-        # 상위 위젯(TabFolder)을 역추적하여 안전하게 config 설정값을 가져옵니다.
         font_family = "Jua"
         p = self.parent()
         while p:
@@ -1013,7 +1012,7 @@ class ThumbnailDelegate(QStyledItemDelegate):
                                 QPixmapCache.insert(file_hash, pixmap)
                 
                 if option.state & QStyle.StateFlag.State_Selected:
-                    painter.fillRect(option.rect, QColor("#3a7ebf"))
+                    painter.fillRect(option.rect, QColor(0, 0, 0, 127))
                     
                 if not pixmap.isNull():
                     rect = option.rect
@@ -1063,13 +1062,15 @@ class ThumbnailDelegate(QStyledItemDelegate):
                 
         current_scale = self.current_scales.get(row, 1.0)
 
+        # 선택 박스를 8px 라운드 처리 (약간의 여백을 주어 가장자리가 잘리지 않게 함)
         if is_selected:
-            painter.fillRect(option.rect, QColor("#3a7ebf"))
-            painter.setPen(QColor("white"))
+            painter.setBrush(QColor("#3a7ebf"))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(option.rect.adjusted(2, 2, -2, -2), 8, 8)
         else:
             painter.setPen(QColor("#cccccc"))
             
-        rect = option.rect
+        rect = option.rect.adjusted(5, 5, -5, -5)
 
         if current_scale > 1.0:
             center = rect.center()
@@ -1078,72 +1079,104 @@ class ThumbnailDelegate(QStyledItemDelegate):
             painter.translate(-center)
         
         if self.view_mode == "thumbnail":
-            img_size = self.item_size - 40
-            if not pixmap.isNull():
+            img_size = int(self.item_size) - 10 
+            
+            if pixmap.isNull():
+                pw, ph = 100, 141
+            else:
                 pw, ph = pixmap.width(), pixmap.height()
-                if pw > 0 and ph > 0:
-                    ratio = min(img_size / pw, img_size / ph)
-                    nw, nh = int(pw * ratio), int(ph * ratio)
-                    x = rect.x() + (rect.width() - nw) // 2
-                    y = rect.y() + 5
-                    
-                    img_rect = QRect(x, y, nw, nh)
-                    stack_offset = 4
-                    
-                    painter.setPen(QPen(QColor(150, 150, 150, 100), 1))
-                    painter.setBrush(QColor(255, 255, 255, 153))
-                    painter.drawRoundedRect(img_rect.translated(stack_offset * 2, stack_offset * 2), 4, 4)
-                    painter.drawRoundedRect(img_rect.translated(stack_offset, stack_offset), 4, 4)
-                    
-                    path = QPainterPath()
-                    path.addRoundedRect(QRectF(img_rect), 4, 4)
-                    painter.save()
-                    painter.setClipPath(path)
-                    painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
-                    painter.drawPixmap(img_rect, pixmap)
-                    painter.restore()
-                    
-                    painter.setPen(QPen(QColor(150, 150, 150, 150), 1))
-                    painter.setBrush(Qt.BrushStyle.NoBrush)
-                    painter.drawRoundedRect(img_rect, 4, 4)
+                if pw == 0 or ph == 0: pw, ph = 100, 141
+                
+            ratio = min(img_size / pw, img_size / ph)
+            nw, nh = int(pw * ratio), int(ph * ratio)
             
-            font = QFont(font_family, 9)
+            stack_offset = 5
+            visual_w = nw + (stack_offset * 2)
+            visual_h = nh + (stack_offset * 2)
+            
+            x = rect.x() + (rect.width() - visual_w) // 2
+            y = rect.y() + (rect.height() - visual_h) // 2 
+            
+            img_rect = QRect(x, y, nw, nh)
+            
+            painter.setPen(QPen(QColor(0, 0, 0, 150), 1))
+            painter.setBrush(QColor(255, 255, 255, 80))
+            painter.drawRoundedRect(img_rect.translated(stack_offset * 2, stack_offset * 2), 4, 4)
+            painter.drawRoundedRect(img_rect.translated(stack_offset, stack_offset), 4, 4)
+            
+            path = QPainterPath()
+            path.addRoundedRect(QRectF(img_rect), 4, 4)
+            painter.save()
+            painter.setClipPath(path)
+            
+            if not pixmap.isNull():
+                painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+                painter.drawPixmap(img_rect, pixmap)
+            else:
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QColor("#2a2a2a"))
+                painter.drawRect(img_rect)
+            
+            # 하단 1px 빈틈 수정: bottom() 대신 y() + height()를 사용해 정확한 좌표 지정
+            grad_h = int(nh * 0.4) 
+            grad_rect = QRect(img_rect.x(), img_rect.y() + img_rect.height() - grad_h, nw, grad_h)
+            gradient = QLinearGradient(0, grad_rect.y(), 0, grad_rect.y() + grad_rect.height())
+            gradient.setColorAt(0.0, QColor(0, 0, 0, 0))
+            gradient.setColorAt(0.6, QColor(0, 0, 0, 180))
+            gradient.setColorAt(1.0, QColor(0, 0, 0, 240))
+            painter.fillRect(grad_rect, gradient)
+            
+            painter.restore() 
+            
+            painter.setPen(QPen(QColor(150, 150, 150, 150), 1))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(img_rect, 4, 4)
+
+            font = QFont(font_family, 10, QFont.Weight.Bold)
             painter.setFont(font)
-            
-            # 기존 img_size + 10 위치에서 10픽셀 아래로 조정하여 Margin Top 10px 효과 추가
-            text_rect = rect.adjusted(5, img_size + 20, -5, -5)
-            flags = Qt.AlignmentFlag.AlignHCenter.value | Qt.TextFlag.TextWordWrap.value
+            painter.setPen(QColor(255, 255, 255)) 
+            text_rect = grad_rect.adjusted(6, 0, -6, -6) 
+            flags = Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignHCenter | Qt.TextFlag.TextWordWrap.value
             painter.drawText(text_rect, flags, file_name)
             
         elif self.view_mode == "tile":
-            img_size = self.item_size - 10
-            if not pixmap.isNull():
+            img_size = int(self.item_size) - 10
+            
+            if pixmap.isNull():
+                pw, ph = 100, 141
+            else:
                 pw, ph = pixmap.width(), pixmap.height()
-                if pw > 0 and ph > 0:
-                    ratio = min(img_size / pw, img_size / ph)
-                    nw, nh = int(pw * ratio), int(ph * ratio)
-                    x = rect.x() + 5
-                    y = rect.y() + (rect.height() - nh) // 2
-                    
-                    img_rect = QRect(x, y, nw, nh)
-                    stack_offset = 4
-                    
-                    painter.setPen(QPen(QColor(150, 150, 150, 100), 1))
-                    painter.setBrush(QColor(255, 255, 255, 153))
-                    painter.drawRoundedRect(img_rect.translated(stack_offset * 2, stack_offset * 2), 4, 4)
-                    painter.drawRoundedRect(img_rect.translated(stack_offset, stack_offset), 4, 4)
-                    
-                    path = QPainterPath()
-                    path.addRoundedRect(QRectF(img_rect), 4, 4)
-                    painter.save()
-                    painter.setClipPath(path)
-                    painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
-                    painter.drawPixmap(img_rect, pixmap)
-                    painter.restore()
-                    
-                    painter.setPen(QPen(QColor(150, 150, 150, 150), 1))
-                    painter.setBrush(Qt.BrushStyle.NoBrush)
-                    painter.drawRoundedRect(img_rect, 4, 4)
+                if pw == 0 or ph == 0: pw, ph = 100, 141
+                
+            ratio = min(img_size / pw, img_size / ph)
+            nw, nh = int(pw * ratio), int(ph * ratio)
+            x = rect.x() + 5
+            y = rect.y() + (rect.height() - nh) // 2
+            
+            img_rect = QRect(x, y, nw, nh)
+            stack_offset = 4
+            
+            painter.setPen(QPen(QColor(0, 0, 0, 150), 1))
+            painter.setBrush(QColor(255, 255, 255, 80))
+            painter.drawRoundedRect(img_rect.translated(stack_offset * 2, stack_offset * 2), 4, 4)
+            painter.drawRoundedRect(img_rect.translated(stack_offset, stack_offset), 4, 4)
+            
+            if not pixmap.isNull():
+                path = QPainterPath()
+                path.addRoundedRect(QRectF(img_rect), 4, 4)
+                painter.save()
+                painter.setClipPath(path)
+                painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+                painter.drawPixmap(img_rect, pixmap)
+                painter.restore()
+            else:
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QColor("#2a2a2a"))
+                painter.drawRoundedRect(img_rect, 4, 4)
+                
+            painter.setPen(QPen(QColor(150, 150, 150, 150), 1))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(img_rect, 4, 4)
             
             font = QFont(font_family, 10, QFont.Weight.Bold)
             painter.setFont(font)
@@ -1154,16 +1187,42 @@ class ThumbnailDelegate(QStyledItemDelegate):
         painter.restore()
 
     def sizeHint(self, option, index):
+        import os
+        from PyQt6.QtCore import QSize
+        from PyQt6.QtGui import QImageReader
+        
         row_data = index.model()._data[index.row()]
         if row_data.get("is_group") or row_data.get("is_dup_folder") or row_data.get("is_dup_child"):
             width = self.parent().viewport().width() if hasattr(self.parent(), 'viewport') else 800
             return QSize(width - 20, 35)
 
-        # 확대 시 아이템이 잘리지 않도록 여백 영역을 조금 넓힘
         if self.view_mode == "thumbnail":
-            return QSize(self.item_size + 15, self.item_size + 40)
+            pw, ph = row_data.get("thumb_size", (0, 0))
+            if pw == 0 or ph == 0:
+                file_hash = row_data.get("hash", "")
+                if file_hash:
+                    thumb_path = os.path.join(getattr(self, 'thumb_dir', ''), f"{file_hash}.webp")
+                    if os.path.exists(thumb_path):
+                        reader = QImageReader(thumb_path)
+                        sz = reader.size()
+                        if sz.isValid():
+                            pw, ph = sz.width(), sz.height()
+                            row_data["thumb_size"] = (pw, ph) 
+                            
+            img_size = int(self.item_size) - 10
+            stack_offset = 8 
+            
+            if pw > 0 and ph > 0:
+                ratio = min(img_size / pw, img_size / ph)
+                nw = int(pw * ratio)
+                return QSize(nw + stack_offset + 22, int(self.item_size) + 25)
+                
+            fallback_nw = int(img_size / 1.414)
+            return QSize(fallback_nw + stack_offset + 22, int(self.item_size) + 25)
+            
         elif self.view_mode == "tile":
-            return QSize(self.item_size * 2 + 15, self.item_size + 15)
+            return QSize(int(self.item_size) * 2 + 25, int(self.item_size) + 25)
+            
         return super().sizeHint(option, index)
 
 # ==========================================
@@ -1357,6 +1416,69 @@ class LibraryTableModel(QAbstractTableModel):
         self.endResetModel()
 
 # ==========================================
+# 상세 패널 배경 위젯 (표지 블러 및 오버레이 처리)
+# ==========================================
+class DetailBackgroundWidget(QFrame):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.bg_pixmap = None
+        
+    def set_cover_image(self, pixmap):
+        self.bg_pixmap = pixmap
+        self.update()
+
+    def paintEvent(self, event):
+        from PyQt6.QtGui import QPainter, QColor, QLinearGradient
+        from PyQt6.QtCore import Qt
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        # 1. 기본 어두운 배경색
+        painter.fillRect(self.rect(), QColor("#1e1e1e"))
+        
+        # 2. 썸네일 이미지가 있으면 화면에 꽉 차게 그리고 블러 처리
+        if self.bg_pixmap and not self.bg_pixmap.isNull():
+            scaled = self.bg_pixmap.scaled(
+                self.size(),
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            crop_x = (scaled.width() - self.width()) // 2
+            crop_y = (scaled.height() - self.height()) // 2
+            cropped = scaled.copy(crop_x, crop_y, self.width(), self.height())
+            
+            blur_factor = 10
+            if self.width() > 0 and self.height() > 0:
+                small = cropped.scaled(
+                    max(1, self.width() // blur_factor), 
+                    max(1, self.height() // blur_factor), 
+                    Qt.AspectRatioMode.IgnoreAspectRatio, 
+                    Qt.TransformationMode.SmoothTransformation
+                )
+                blurred = small.scaled(
+                    self.width(), 
+                    self.height(), 
+                    Qt.AspectRatioMode.IgnoreAspectRatio, 
+                    Qt.TransformationMode.SmoothTransformation
+                )
+                
+                painter.setOpacity(0.6) # 이미지 투명도 조절
+                painter.drawPixmap(0, 0, blurred)
+                painter.setOpacity(1.0)
+                
+        # 3. 어둡게 덮는 오버레이 (상단에서 하단으로 갈수록 어두워지는 그라데이션)
+        gradient = QLinearGradient(0, 0, 0, (self.height() / 10) * 9)
+        gradient.setColorAt(0.0, QColor(20, 20, 20, 180))
+        gradient.setColorAt(0.5, QColor(15, 15, 15, 210))
+        gradient.setColorAt(1.0, QColor(10, 10, 10, 240))
+        
+        painter.fillRect(self.rect(), gradient)
+        
+        # 4. 테두리 (기존 패널 스타일과 동일하게)
+        painter.setPen(QColor("#444444"))
+        painter.drawRoundedRect(0, 0, self.width() - 1, self.height() - 1, 5, 5)
+
+# ==========================================
 # 탭 폴더 메인 클래스
 # ==========================================
 class TabFolder(QWidget):
@@ -1378,8 +1500,9 @@ class TabFolder(QWidget):
         self.file_data_cache = []
         self.file_data_map = {} 
         
-        self.current_sort_key = "name"
-        self.current_sort_order = Qt.SortOrder.AscendingOrder
+        self.current_sort_key = self.config.get("folder_sort_key", "name")
+        sort_order_int = self.config.get("folder_sort_order", 0) # 0: 오름차순, 1: 내림차순
+        self.current_sort_order = Qt.SortOrder.AscendingOrder if sort_order_int == 0 else Qt.SortOrder.DescendingOrder
         self.current_group_key = "none"
         
         self.folder_watcher = QFileSystemWatcher(self)
@@ -1950,7 +2073,8 @@ class TabFolder(QWidget):
         self.list_view.setResizeMode(QListView.ResizeMode.Adjust)
         self.list_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.list_view.setSelectionRectVisible(True)
-        self.list_view.setSpacing(10)
+        # 기존 10이었던 마진을 0으로 줄임
+        self.list_view.setSpacing(0)
         self.list_view.setWordWrap(True)
         self.list_view.setStyleSheet("QListView { border: none; background-color: transparent;  color: white; }")
         self.list_view.setDragEnabled(False)
@@ -1969,8 +2093,7 @@ class TabFolder(QWidget):
         self.view_stack.addWidget(self.list_view)
         right_top_layout.addWidget(self.view_stack)
 
-        self.right_bottom_panel = QFrame()
-        self.right_bottom_panel.setStyleSheet("QFrame { background-color: #2b2b2b; border-radius: 5px; border: 1px solid #444; }")
+        self.right_bottom_panel = DetailBackgroundWidget()
         right_bottom_layout = QHBoxLayout(self.right_bottom_panel)
         right_bottom_layout.setContentsMargins(15, 15, 15, 15)
         
@@ -2447,7 +2570,12 @@ class TabFolder(QWidget):
         if header_state_hex:
             self.table_view.horizontalHeader().restoreState(QByteArray.fromHex(header_state_hex.encode()))
             
+        if self.current_sort_key in self.table_model.active_columns:
+            idx = self.table_model.active_columns.index(self.current_sort_key)
+            self.table_view.horizontalHeader().setSortIndicator(idx, self.current_sort_order)
+            
         main_spl = self.config.get("folder_main_splitter", "")
+
         if main_spl:
             self.main_splitter.restoreState(QByteArray.fromHex(main_spl.encode()))
             
@@ -2828,6 +2956,11 @@ class TabFolder(QWidget):
         self.current_group_key = key
         self.apply_grouping_and_sorting()
 
+    def _save_sort_state(self):
+        self.config["folder_sort_key"] = self.current_sort_key
+        self.config["folder_sort_order"] = 0 if self.current_sort_order == Qt.SortOrder.AscendingOrder else 1
+        save_config(self.config)
+
     def set_sorting(self, key):
         if self.current_sort_key == key:
             self.toggle_sort_order()
@@ -2842,6 +2975,7 @@ class TabFolder(QWidget):
         else:
             self.table_view.horizontalHeader().clearIndicator()
             
+        self._save_sort_state()
         self.apply_grouping_and_sorting()
 
     def on_header_clicked(self, logicalIndex):
@@ -2853,6 +2987,7 @@ class TabFolder(QWidget):
             self.current_sort_order = Qt.SortOrder.AscendingOrder
         
         self.table_view.horizontalHeader().setSortIndicator(logicalIndex, self.current_sort_order)
+        self._save_sort_state()
         self.apply_grouping_and_sorting()
 
     def toggle_sort_order(self):
@@ -2860,6 +2995,7 @@ class TabFolder(QWidget):
         if self.current_sort_key in self.table_model.active_columns:
             idx = self.table_model.active_columns.index(self.current_sort_key)
             self.table_view.horizontalHeader().setSortIndicator(idx, self.current_sort_order)
+        self._save_sort_state()
         self.apply_grouping_and_sorting()
 
     def apply_grouping_and_sorting(self):
@@ -3054,10 +3190,17 @@ class TabFolder(QWidget):
         self.scroll_timer.start(100)
         self.start_dup_match()
         
-        if folder_path:
-            self.lbl_tree_status.setText(_("folder_status_sel").format(os.path.basename(folder_path), len(self.file_data_cache), self.format_size(total_size)))
+        # [수정] 폴더 스캔 및 UI 렌더링이 완료된 후 첫 번째 항목 자동 선택
+        if self.table_model.rowCount() > 0:
+            active_view = self.get_active_view()
+            first_idx = self.table_model.index(0, 0)
             
-        self.scroll_timer.start(100)
+            # SelectionModel을 통해 첫 번째 행 선택 (이 동작이 on_file_selection_changed를 호출함)
+            active_view.selectionModel().select(
+                first_idx, 
+                QItemSelectionModel.SelectionFlag.ClearAndSelect | QItemSelectionModel.SelectionFlag.Rows
+            )
+            active_view.setCurrentIndex(first_idx)
 
     def refresh_tree(self):
         idx = self.tree_view.currentIndex()
@@ -3207,6 +3350,7 @@ class TabFolder(QWidget):
         
         if not indexes:
             self.lbl_cover.clear()
+            self.right_bottom_panel.set_cover_image(None)
             self.info_browser.setHtml("")
             index = self.tree_view.currentIndex()
             if index.isValid():
@@ -3307,6 +3451,7 @@ class TabFolder(QWidget):
             
             if cached_pix is not None and not cached_pix.isNull():
                 self.lbl_cover.setPixmap(get_covered_pixmap(cached_pix))
+                self.right_bottom_panel.set_cover_image(cached_pix)
             elif os.path.exists(thumb_path):
                 if os.path.getsize(thumb_path) > 0:
                     from PyQt6.QtGui import QPixmap
@@ -3314,14 +3459,19 @@ class TabFolder(QWidget):
                     if not pixmap.isNull():
                         QPixmapCache.insert(file_hash, pixmap)
                         self.lbl_cover.setPixmap(get_covered_pixmap(pixmap))
+                        self.right_bottom_panel.set_cover_image(pixmap)
                     else:
                         self.lbl_cover.setText(_("folder_no_cover"))
+                        self.right_bottom_panel.set_cover_image(None)
                 else:
                     self.lbl_cover.setText(_("folder_no_cover"))
+                    self.right_bottom_panel.set_cover_image(None)
             else:
                 self.lbl_cover.setText(_("folder_no_cover"))
+                self.right_bottom_panel.set_cover_image(None)
         else:
             self.lbl_cover.setText(_("folder_no_cover"))
+            self.right_bottom_panel.set_cover_image(None)
 
         title = meta_dict.get("title") or os.path.basename(full_path)
         series = meta_dict.get("series") or _("info_no_series")
