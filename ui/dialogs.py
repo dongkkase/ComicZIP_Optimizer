@@ -633,9 +633,16 @@ class SettingsDialog(QDialog):
         self.cb_sound = QComboBox()
         self.cb_sound.setCursor(Qt.CursorShape.PointingHandCursor)
         
-        from config import get_executable_dir
+        from config import get_resource_path, get_executable_dir
         import os
-        sound_dir = os.path.join(get_executable_dir(), 'sounds')
+        
+        # 내부 번들링된 리소스 경로 우선 탐색
+        sound_dir = get_resource_path('sounds')
+        
+        # 내부에 없다면 실행 파일과 같은 위치의 외부 sounds 폴더 탐색 (커스텀 추가 지원)
+        if not os.path.exists(sound_dir):
+            sound_dir = os.path.join(get_executable_dir(), 'sounds')
+            
         sound_files = []
         
         if os.path.exists(sound_dir):
