@@ -3732,12 +3732,13 @@ class TabFolder(QWidget):
 
     def show_goto_dialog(self):
         dialog = QDialog(self)
-        dialog.setWindowTitle("경로 이동")
+        # self.i18n.get 대신 글로벌 번역 함수 _() 사용
+        dialog.setWindowTitle(_("fm_title"))
         dialog.resize(400, 100)
         dialog.setStyleSheet("QDialog { background-color: #2b2b2b; color: white; } QLabel { color: white; }")
         
         layout = QVBoxLayout(dialog)
-        layout.addWidget(QLabel("이동할 폴더 경로를 입력하세요:"))
+        layout.addWidget(QLabel(_("fm_dsc")))
         
         input_line = QLineEdit()
         input_line.setText(self.current_watched_folder)
@@ -3751,8 +3752,9 @@ class TabFolder(QWidget):
         btn_ok = btn_box.button(QDialogButtonBox.StandardButton.Ok)
         btn_cancel = btn_box.button(QDialogButtonBox.StandardButton.Cancel)
         
-        btn_ok.setText("확인")
-        btn_cancel.setText("취소")
+        # 공통 키워드 사용
+        btn_ok.setText(_("btn_ok"))
+        btn_cancel.setText(_("btn_cancel"))
         
         btn_primary_color = self.config.get("btn_primary", "#0078d7")
         
@@ -3785,10 +3787,9 @@ class TabFolder(QWidget):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             path = input_line.text().strip()
             if os.path.exists(path) and os.path.isdir(path):
-                # 구버전 스크롤이나 새로고침 로직을 빼고 스마트 폴링 하나로 통일
                 self._start_queued_scroll(path)
             else:
-                QMessageBox.warning(self, "경로 오류", "존재하지 않거나 유효하지 않은 폴더 경로입니다.")
+                QMessageBox.warning(self, _("fm_error"), _("fm_error_desc"))
 
     def send_to_tab1(self):
         files = self.get_selected_files()

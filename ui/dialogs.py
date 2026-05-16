@@ -78,6 +78,10 @@ class PreviewWorker(QThread):
         num_start = self.rule_data.get("num_start", 1)
         num_digits = self.rule_data.get("num_digits", 3)
         num_pos = self.rule_data.get("num_pos", 0)
+        
+        # [추가됨] 자리수 맞추기 옵션 값 가져오기
+        use_padding = self.rule_data.get("use_padding", False)
+        pad_digits = self.rule_data.get("pad_digits", 3)
 
         for i, old_path in enumerate(self.file_paths):
             if self.is_cancelled: return
@@ -95,20 +99,17 @@ class PreviewWorker(QThread):
                     if use_regex:
                         curr_name = re.sub(old_str, new_str, curr_name, flags=flags)
                     else:
-                        # --- [핵심 개선] 직관적인 %1, %2 매핑 엔진 ---
-                        # 1. 특수문자 이스케이프 
                         escaped_old = re.escape(old_str).replace(r'\%', '%')
                         
-                        # 2. %n 과 와일드카드(*, ?)를 분석하여 정규식 그룹으로 치환
                         pattern_parts = []
-                        var_map = {} # 정규식 그룹 순서 -> 사용자가 입력한 %n 숫자
+                        var_map = {} 
                         group_idx = 1
                         
                         tokens = re.split(r'(%\d+|\\\*|\\\?)', escaped_old)
                         for token in tokens:
                             if not token: continue
                             if re.match(r'%\d+', token):
-                                var_id = int(token[1:]) # '%2' -> 2
+                                var_id = int(token[1:]) 
                                 var_map[group_idx] = var_id
                                 pattern_parts.append(r'(.*?)')
                                 group_idx += 1
@@ -123,20 +124,21 @@ class PreviewWorker(QThread):
                                 
                         regex_pattern = f"^{''.join(pattern_parts)}$"
                         
-                        # 3. 매칭 수행
                         match = re.match(regex_pattern, curr_name, flags=flags)
                         if match:
-                            # %n 변수에 해당하는 값만 추출 (예: %2에 해당하는 값은 '12')
                             extracted_vars = {}
                             for g_idx, v_id in var_map.items():
                                 extracted_vars[v_id] = match.group(g_idx)
                                 
-                            # 4. 새 형식(new_str)에 추출된 값 대입
                             def build_new_str(m):
                                 var_id = int(m.group(1))
-                                return extracted_vars.get(var_id, m.group(0)) # 못 찾으면 원래 %n 텍스트 유지
+                                return extracted_vars.get(var_id, m.group(0)) 
                                 
                             curr_name = re.sub(r'%(\d+)', build_new_str, new_str)
+
+                # [추가됨] 숫자 자리수 맞추기 적용 (모든 숫자에 대해 0 패딩)
+                if use_padding:
+                    curr_name = re.sub(r'\d+', lambda m: m.group(0).zfill(pad_digits), curr_name)
 
                 # 순번 적용
                 if use_num:
@@ -147,7 +149,6 @@ class PreviewWorker(QThread):
             except Exception:
                 pass 
 
-            # 확장자 결합 및 충돌 검사
             new_name = f"{curr_name}{ext}"
             new_path = os.path.join(dir_name, new_name)
             status = status_ok
@@ -251,12 +252,21 @@ class MultiRenameDialog(QDialog):
         checkbox_layout = QHBoxLayout()
         self.chk_case = QCheckBox(self.i18n.get("tf_case_sensitive", "대소문자 구분"))
         self.chk_regex = QCheckBox(self.i18n.get("tf_use_regex", "정규식(Regex) 모드"))
-        # 다국어 처리 적용된 폴더명 이름 바꾸기 체크박스
         self.chk_folder_name = QCheckBox(self.i18n.get("tf_use_folder_name", "폴더명으로 이름 바꾸기"))
+        
+        # [추가됨] 숫자 자리수 맞추기 위젯
+        self.chk_pad = QCheckBox(self.i18n.get("tf_use_padding", "숫자 자리수 맞추기:"))
+        self.sp_pad = QSpinBox()
+        self.sp_pad.setRange(1, 4)
+        self.sp_pad.setValue(3)
+        self.sp_pad.setEnabled(False)
+        self.chk_pad.stateChanged.connect(lambda state: self.sp_pad.setEnabled(state == Qt.CheckState.Checked.value))
         
         checkbox_layout.addWidget(self.chk_case)
         checkbox_layout.addWidget(self.chk_regex)
         checkbox_layout.addWidget(self.chk_folder_name)
+        checkbox_layout.addWidget(self.chk_pad)
+        checkbox_layout.addWidget(self.sp_pad)
         checkbox_layout.addStretch()
         grid.addLayout(checkbox_layout, 2, 1)
 
@@ -285,14 +295,15 @@ class MultiRenameDialog(QDialog):
         
         for widget in [self.le_old, self.le_new]:
             widget.textChanged.connect(self.schedule_preview)
-        for widget in [self.chk_case, self.chk_num]:
+        # [수정됨] 새로 추가된 체크박스 이벤트 바인딩
+        for widget in [self.chk_case, self.chk_num, self.chk_pad]:
             widget.stateChanged.connect(self.schedule_preview)
             
         self.chk_regex.stateChanged.connect(self.toggle_regex_mode)
-        # 폴더명 치환 모드 시그널 연결
         self.chk_folder_name.stateChanged.connect(self.toggle_folder_name_mode)
         
-        for widget in [self.sp_start, self.sp_digits]:
+        # [수정됨] 스핀박스 변경 이벤트 바인딩 추가
+        for widget in [self.sp_start, self.sp_digits, self.sp_pad]:
             widget.valueChanged.connect(self.schedule_preview)
         self.cb_pos.currentIndexChanged.connect(self.schedule_preview)
 
@@ -339,15 +350,17 @@ class MultiRenameDialog(QDialog):
         self.le_new.blockSignals(True)
         
         if state == Qt.CheckState.Checked.value:
-            new_old = re.sub(r'%\d+', r'(\\d+)', old_text)
+            # 일반 -> 정규식 변환 시 애브리띵처럼 (.*) 포맷 사용
+            new_old = re.sub(r'%\d+', r'(.*)', old_text)
             new_new = re.sub(r'%(\d+)', r'\\\1', new_text)
         else:
+            # 정규식 -> 일반 복구
             counter = [1]
             def replace_group(match):
                 val = f"%{counter[0]}"
                 counter[0] += 1
                 return val
-            new_old = re.sub(r'\(\.\*\?\)|\(\\d\+\)', replace_group, old_text)
+            new_old = re.sub(r'\(\.\*\?\)|\(\.\*\)|\(\\d\+\)', replace_group, old_text)
             new_new = re.sub(r'\\(\d+)', r'%\1', new_text)
             
         self.le_old.setText(new_old)
@@ -382,67 +395,76 @@ class MultiRenameDialog(QDialog):
         else:
             if hasattr(self, '_saved_new_text'):
                 self.le_new.setText(self._saved_new_text)
-    
+
     def auto_infer_patterns(self):
+        import re
+        import os
+        import difflib
+        
         if not self.file_paths: return
         
         names = [os.path.basename(p) for p in self.file_paths]
         if len(names) < 1: return
 
-        import re
-        basenames = [os.path.splitext(n)[0] for n in names]
-        split_names = [re.split(r'(\d+)', b) for b in basenames]
-        
-        base_structure = split_names[0]
-        
-        is_uniform = True
-        if len(names) > 1:
-            for sn in split_names[1:]:
-                if len(sn) != len(base_structure):
-                    is_uniform = False
-                    break
-                for i in range(0, len(sn), 2): 
-                    if sn[i] != base_structure[i]:
-                        is_uniform = False
-                        break
-                        
-        if is_uniform and len(base_structure) > 1:
-            old_pattern = ""
-            new_pattern = ""
-            var_idx = 1
-            for i, part in enumerate(base_structure):
-                if i % 2 == 0: 
-                    old_pattern += part
-                    new_pattern += part
-                else:         
+        # 파일명을 언어(한글/영문 등), 숫자, 공백, 기호 단위로 스마트하게 쪼개기(Tokenize)
+        def tokenize(s):
+            # [^\d\W_]+ : 언어 문자 (영어, 한글, 일본어 등)
+            # \d+ : 숫자 덩어리
+            # \s+ : 공백 덩어리
+            # [^\w\s]+ : 특수기호 덩어리 (., -, [ 등)
+            # _ : 언더바
+            return [t for t in re.split(r'([^\d\W_]+|\d+|\s+|[^\w\s]+|_)', s) if t]
+
+        # 첫 번째 파일명을 기준으로 삼음
+        ref_tokens = tokenize(names[0])
+        common_mask = [True] * len(ref_tokens)
+
+        # 나머지 파일들과 비교하여 토큰(단어/기호) 단위로 완벽하게 동일한 부분만 남김
+        for name in names[1:]:
+            tokens = tokenize(name)
+            matcher = difflib.SequenceMatcher(None, ref_tokens, tokens)
+            blocks = matcher.get_matching_blocks()
+            
+            new_mask = [False] * len(ref_tokens)
+            for i, j, n in blocks:
+                for k in range(n):
+                    new_mask[i + k] = True
+                    
+            # 모든 파일에서 공통으로 등장하는 토큰만 True 유지
+            for i in range(len(ref_tokens)):
+                common_mask[i] = common_mask[i] and new_mask[i]
+
+        old_pattern = ""
+        new_pattern = ""
+        var_idx = 1
+        in_diff = False
+
+        # 분석된 Mask를 바탕으로 %1, %2 등의 변수와 고정 문자열 조립
+        for i in range(len(ref_tokens)):
+            if common_mask[i]:
+                if in_diff:
+                    in_diff = False
+                old_pattern += ref_tokens[i]
+                new_pattern += ref_tokens[i]
+            else:
+                if not in_diff:
                     old_pattern += f"%{var_idx}"
                     new_pattern += f"%{var_idx}"
                     var_idx += 1
-                    
-            self.le_old.setText(old_pattern)
-            self.le_new.setText(new_pattern)
-            return
-            
-        def get_common_prefix(strs):
-            if not strs: return ""
-            s1, s2 = min(strs), max(strs)
-            for i, c in enumerate(s1):
-                if c != s2[i]: return s1[:i]
-            return s1
+                    in_diff = True
 
-        prefix = get_common_prefix(basenames)
-        suffix = ""
-        if prefix:
-            rev = [b[len(prefix):][::-1] for b in basenames]
-            suf = get_common_prefix(rev)
-            suffix = suf[::-1]
-            
-        if prefix or suffix:
-            self.le_old.setText(f"{prefix}%1{suffix}")
-            self.le_new.setText(f"{prefix}%1{suffix}")
-        else:
-            self.le_old.setText("%1")
-            self.le_new.setText("%1")
+        # 만약 전체가 달라서 패턴이 빈 값이라면 기본값 처리
+        if not old_pattern:
+            old_pattern = "%1"
+            new_pattern = "%1"
+
+        # 정규식 모드가 켜져있다면 (.*) 포맷으로 치환
+        if self.chk_regex.isChecked():
+            old_pattern = re.sub(r'%\d+', r'(.*)', old_pattern)
+            new_pattern = re.sub(r'%(\d+)', r'\\\1', new_pattern)
+
+        self.le_old.setText(old_pattern)
+        self.le_new.setText(new_pattern)
 
     def schedule_preview(self):
         self.debounce_timer.start(100)
@@ -460,7 +482,9 @@ class MultiRenameDialog(QDialog):
             "use_num": self.chk_num.isChecked(),
             "num_start": self.sp_start.value(),
             "num_digits": self.sp_digits.value(),
-            "num_pos": self.cb_pos.currentIndex()
+            "num_pos": self.cb_pos.currentIndex(),
+            "use_padding": self.chk_pad.isChecked(), # [추가됨] 자리수 맞추기 상태
+            "pad_digits": self.sp_pad.value()        # [추가됨] 선택된 자리수
         }
 
         self.preview_thread = PreviewWorker(self.file_paths, rule_data, self.i18n)

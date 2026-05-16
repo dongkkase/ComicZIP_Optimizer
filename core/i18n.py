@@ -349,10 +349,18 @@ def get_i18n():
             "tf_num_pos": "위치:",
             "tf_pos_front": "앞(Front)",
             "tf_pos_back": "뒤(Back)",
+            "tf_use_padding": "숫자 자리수 맞추기:",
             "btn_ok": "확인",
 
             "font_family_lbl": "글꼴 (Font) :", 
             "font_size_lbl": "글꼴 크기 (Size) :",
+
+            "fm_title": "경로 이동",
+            "fm_dsc": "이동할 폴더 경로를 입력하세요.",
+            "fm_ok": "확인",
+            "fm_cancel": "취소",
+            "fm_error": "경로 오류",
+            "fm_error_desc": "존재하지 않거나 유효하지 않은 폴더 경로입니다.",
 
         },
         "en": {
@@ -659,10 +667,18 @@ def get_i18n():
             "tf_num_pos": "Position:",
             "tf_pos_front": "Front",
             "tf_pos_back": "Back",
+            "tf_use_padding": "Number Padding:",
             "btn_ok": "OK",
 
             "font_family_lbl": "Font Family :", 
             "font_size_lbl": "Font Size :",
+
+            "fm_title": "Move to path",
+            "fm_dsc": "Please enter the folder path to move to.",
+            "fm_ok": "OK",
+            "fm_cancel": "Cancel",
+            "fm_error": "Path error",
+            "fm_error_desc": "The folder path does not exist or is invalid.",
 
         },
         "ja": {
@@ -974,9 +990,17 @@ def get_i18n():
             "tf_num_pos": "位置:",
             "tf_pos_front": "前 (Front)",
             "tf_pos_back": "後 (Back)",
+            "tf_use_padding": "数字の桁数を合わせる:",
             "btn_ok": "確認",
             "font_family_lbl": "フォント (Font) :", 
             "font_size_lbl": "フォントサイズ (Size) :",
+
+            "fm_title": "パスを移動",
+            "fm_dsc": "移動するフォルダのパスを入力してください。",
+            "fm_ok": "確認",
+            "fm_cancel": "キャンセル",
+            "fm_error": "パスエラー",
+            "fm_error_desc": "存在しないフォルダまたは無効なフォルダへのパスです。",
 
         }
     }
