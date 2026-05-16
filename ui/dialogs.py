@@ -634,25 +634,40 @@ class SettingsDialog(QDialog):
         self.cb_sound.setCursor(Qt.CursorShape.PointingHandCursor)
         
         from config import get_executable_dir
+        import os
         sound_dir = os.path.join(get_executable_dir(), 'sounds')
         sound_files = []
+        
         if os.path.exists(sound_dir):
             for f in os.listdir(sound_dir):
                 if f.lower().endswith(('.mp3', '.wav')):
                     sound_files.append(f)
                     
-        default_sound = "Default.wav"
-        if default_sound in sound_files:
-            sound_files.remove(default_sound)
-            
+        default_file = "Default.wav"
+        if default_file in sound_files:
+            sound_files.remove(default_file)
+        
         sound_files.sort()
-        sound_files.insert(0, default_sound)
+        sound_files.insert(0, default_file)
         
-        self.cb_sound.addItems(sound_files)
+        for f in sound_files:
+            display_name = os.path.splitext(f)[0]
+            self.cb_sound.addItem(display_name, f)
         
-        curr_sound = self.config.get("completion_sound", default_sound)
-        if curr_sound in sound_files:
-            self.cb_sound.setCurrentText(curr_sound)
+        curr_sound_file = self.config.get("completion_sound", "Default.wav")
+        idx = self.cb_sound.findData(curr_sound_file)
+        if idx >= 0:
+            self.cb_sound.setCurrentIndex(idx)
+        else:
+            self.cb_sound.setCurrentIndex(0)
+            
+        def preview_sound(index):
+            if index >= 0:
+                filename = self.cb_sound.itemData(index)
+                from utils import play_sound_file
+                play_sound_file(filename)
+                
+        self.cb_sound.activated.connect(preview_sound)
             
         form_layout.addRow(self.i18n.get("sound_lbl", "완료 알림 소리:"), self.cb_sound)
         # ---------------------------------------------------
