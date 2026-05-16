@@ -115,7 +115,8 @@ def load_config():
         "font_family": "Default",
         "font_scale": 100,
         "btn_primary": "#0078d7",
-        "start_num": 0
+        "start_num": 0,
+        "completion_sound": "Default.wav",
     }
     try:
         if os.path.exists(CONFIG_FILE):

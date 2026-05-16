@@ -2,25 +2,43 @@
 import os
 import re
 import sys
+import ctypes
 from config import get_resource_path, get_executable_dir
 
 def play_complete_sound():
     try:
-        sound_path = get_resource_path('complete.wav')
+        config = load_config()
+        if not config.get("play_sound", True):
+            return
+            
+        sound_filename = config.get("completion_sound", "Default.wav")
+        
+        sound_path = get_resource_path(os.path.join('sounds', sound_filename))
         if not os.path.exists(sound_path):
-            sound_path = os.path.join(get_executable_dir(), 'sounds', 'complete.wav')
+            sound_path = os.path.join(get_executable_dir(), 'sounds', sound_filename)
+
+        # 구버전 호환용 처리
+        if not os.path.exists(sound_path) and sound_filename == "Default.wav":
+            sound_path = get_resource_path('Default.wav')
+            if not os.path.exists(sound_path):
+                sound_path = os.path.join(get_executable_dir(), 'sounds', 'Default.wav')
+
+        if not os.path.exists(sound_path):
+            return
 
         if sys.platform == 'win32':
-            import winsound
-            if os.path.exists(sound_path):
-                winsound.PlaySound(sound_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
-            else:
-                winsound.MessageBeep(winsound.MB_OK)
+            # Windows 환경에서 mp3, wav 모두 재생 가능한 mciSendString 활용
+            mciSendString = ctypes.windll.winmm.mciSendStringW
+            mciSendString(f'close All', None, 0, None)
+            mciSendString(f'open "{sound_path}" alias sound', None, 0, None)
+            mciSendString(f'play sound', None, 0, None)
         else:
-            # macOS / Linux: afplay(Mac) 또는 aplay(Linux) 사용
-            if os.path.exists(sound_path):
-                if sys.platform == 'darwin':
-                    os.system(f'afplay "{sound_path}" &')
+            # macOS / Linux
+            if sys.platform == 'darwin':
+                os.system(f'afplay "{sound_path}" &')
+            else:
+                if sound_path.lower().endswith('.mp3'):
+                    os.system(f'mpg123 "{sound_path}" &')
                 else:
                     os.system(f'aplay "{sound_path}" &')
     except Exception:

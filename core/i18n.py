@@ -57,7 +57,9 @@ def get_i18n():
             "tab_folder_settings": "폴더 탭 설정",
             "tab_api": "API 및 검색 설정",
             
-            "lang_lbl": "언어 (Language) :", "format_lbl": "변환 포맷 :",
+            "lang_lbl": "언어 (Language) :", 
+            "sound_lbl": "완료 알림 소리 :", 
+            "format_lbl": "변환 포맷 :",
             "play_sound": "작업 완료 알림음 재생", 
             "backup": "원본 백업 (bak 폴더 생성)",
             "flatten": "폴더 구조 평탄화 (하위 폴더 제거)",
@@ -379,7 +381,9 @@ def get_i18n():
             "tab_folder_settings": "Folder Tab Settings",
             "tab_api": "API & Search Settings",
             
-            "lang_lbl": "Language :", "format_lbl": "Output Format :",
+            "lang_lbl": "Language :", 
+            "sound_lbl": "Completion Sound :",
+            "format_lbl": "Output Format :",
             "play_sound": "Play completion sound",  
             "backup": "Backup Original (bak folder)",
             "flatten": "Flatten Folders (Remove Sub-folders)",
@@ -697,7 +701,9 @@ def get_i18n():
             "tab_folder_settings": "フォルダ タブ設定",
             "tab_api": "API 検索設定",
             
-            "lang_lbl": "言語 (Language) :", "format_lbl": "変換フォーマット :",
+            "lang_lbl": "言語 (Language) :", 
+            "sound_lbl":"完了通知音:",
+            "format_lbl": "変換フォーマット :",
             "play_sound": "作業完了時にアラームを鳴らす", 
             "backup": "元ファイルをバックアップ (bak フォルダを作成)",
             "flatten": "フォルダ構成をフラット化 (サブフォルダを削除)",

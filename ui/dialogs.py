@@ -629,6 +629,34 @@ class SettingsDialog(QDialog):
         
         form_layout.addRow(self.i18n.get("lang_lbl", "언어:"), self.cb_lang)
 
+        # ---------------- 알림 소리 설정 항목 추가 ----------------
+        self.cb_sound = QComboBox()
+        self.cb_sound.setCursor(Qt.CursorShape.PointingHandCursor)
+        
+        from config import get_executable_dir
+        sound_dir = os.path.join(get_executable_dir(), 'sounds')
+        sound_files = []
+        if os.path.exists(sound_dir):
+            for f in os.listdir(sound_dir):
+                if f.lower().endswith(('.mp3', '.wav')):
+                    sound_files.append(f)
+                    
+        default_sound = "Default.wav"
+        if default_sound in sound_files:
+            sound_files.remove(default_sound)
+            
+        sound_files.sort()
+        sound_files.insert(0, default_sound)
+        
+        self.cb_sound.addItems(sound_files)
+        
+        curr_sound = self.config.get("completion_sound", default_sound)
+        if curr_sound in sound_files:
+            self.cb_sound.setCurrentText(curr_sound)
+            
+        form_layout.addRow(self.i18n.get("sound_lbl", "완료 알림 소리:"), self.cb_sound)
+        # ---------------------------------------------------
+        
 
         # ---------------- 폰트 설정 항목 추가 (수정됨) ----------------
         from PyQt6.QtGui import QFontDatabase
@@ -1131,6 +1159,7 @@ class SettingsDialog(QDialog):
             "webp_conversion": self.chk_webp.isChecked(),
             "img_quality": self.slider_quality.value(),
             "max_threads": self.slider_threads.value(),
+            "play_sound": self.chk_sound.isChecked(),
             "play_sound": self.chk_sound.isChecked(),
             "viewer_path": self.le_viewer_path.text().strip(),
 

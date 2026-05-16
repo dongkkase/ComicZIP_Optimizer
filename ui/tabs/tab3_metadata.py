@@ -1596,7 +1596,9 @@ class Tab3Metadata(QWidget):
         self.tree_meta_files.setEnabled(True)
         
         if success: 
+            from utils import play_complete_sound
             Toast.show(self.main_app, t.get("t3_msg_save_single_done", ""))
+            play_complete_sound()
             self.refresh_tree() 
         else: 
             QMessageBox.warning(self, t.get("msg_failed", ""), t.get("t3_msg_save_failed_reason", "").format(msg=msg))
@@ -1652,6 +1654,11 @@ class Tab3Metadata(QWidget):
         
         msg = t.get("t3_msg_save_all_done", "").format(success_count=success_count, fail_count=fail_count)
         Toast.show(self.main_app, msg)
+        
+        if success_count > 0:
+            from utils import play_complete_sound
+            play_complete_sound()
+            
         self.refresh_tree()
 
     def action_search_api(self):
