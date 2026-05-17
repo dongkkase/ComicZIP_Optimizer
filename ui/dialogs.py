@@ -662,7 +662,12 @@ class SettingsDialog(QDialog):
             self.cb_sound.addItem(display_name, f)
         
         curr_sound_file = self.config.get("completion_sound", "Default.wav")
-        idx = self.cb_sound.findData(curr_sound_file)
+        idx = -1
+        for i in range(self.cb_sound.count()):
+            if self.cb_sound.itemData(i) == curr_sound_file:
+                idx = i
+                break
+                
         if idx >= 0:
             self.cb_sound.setCurrentIndex(idx)
         else:
@@ -1183,6 +1188,7 @@ class SettingsDialog(QDialog):
             "max_threads": self.slider_threads.value(),
             "play_sound": self.chk_sound.isChecked(),
             "play_sound": self.chk_sound.isChecked(),
+            "completion_sound": self.cb_sound.currentData(),
             "viewer_path": self.le_viewer_path.text().strip(),
 
             "dup_check_folders": dup_folders,

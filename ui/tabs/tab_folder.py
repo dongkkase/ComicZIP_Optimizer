@@ -17,8 +17,9 @@ from PyQt6.QtWidgets import (
     QTableView, QListView, QLabel, QPushButton, QSlider, QFrame, QMenu, QMessageBox,
     QHeaderView, QAbstractItemView, QSizePolicy, QDialog, QListWidget, QListWidgetItem, 
     QCheckBox, QDialogButtonBox, QStyledItemDelegate, QStackedWidget, QInputDialog, QToolButton, QStyleFactory,
-    QComboBox, QStyle, QLineEdit, QFileDialog, QRubberBand, QTextBrowser, QProgressBar
+    QComboBox, QStyle, QLineEdit, QFileDialog, QRubberBand, QTextBrowser, QProgressBar, QScrollArea, QLayout, QGridLayout
 )
+
 from PyQt6.QtGui import QFileSystemModel, QAction, QPixmap, QPainter, QColor, QFont, QKeySequence, QShortcut, QImage, QPixmapCache, QLinearGradient
 from PyQt6.QtCore import Qt, QDir, QAbstractTableModel, QModelIndex, QSize, QByteArray, QItemSelectionModel, QItemSelection, QStandardPaths, QFileSystemWatcher, QTimer, QMimeData, QUrl, QThread, pyqtSignal, QRect, QPoint, QCoreApplication
 
@@ -42,6 +43,123 @@ def _(key):
     # 현재 언어의 딕셔너리에서 키를 찾고, 없으면 한국어에서 찾고, 그래도 없으면 키값 자체를 반환
     return _TRANSLATIONS.get(_CURRENT_LANG, _TRANSLATIONS["ko"]).get(key, key)
 
+class GlowCard(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+    def paintEvent(self, event):
+        from PyQt6.QtGui import QPainter, QRadialGradient, QColor, QPainterPath
+        painter = QPainter(self)
+
+        try:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+            w, h = self.width(), self.height()
+
+            # 카드 배경 (둥근 모서리)
+            path = QPainterPath()
+            path.addRoundedRect(0, 0, w, h, 12, 12)
+            painter.setClipPath(path)
+
+            # 기본 배경색
+            painter.fillPath(path, QColor(40, 40, 40, 210))
+
+            # 우측 상단 빛 효과
+            glow = QRadialGradient(w, 0, w * 0.7)   # 중심점(우상단), 반경
+            glow.setColorAt(0.0, QColor(255, 255, 255, 5)) # 밝은 중심
+            glow.setColorAt(0.5, QColor(255, 255, 255, 0))
+            glow.setColorAt(1.0, QColor(255, 255, 255, 0))  # 투명하게 사라짐
+            painter.fillPath(path, glow)
+
+            # 테두리
+            painter.setClipping(False)
+            from PyQt6.QtGui import QPen
+            painter.setPen(QPen(QColor(255, 255, 255, 20), 1))
+            painter.drawRoundedRect(0, 0, w - 1, h - 1, 12, 12)
+        finally:
+            painter.end()
+
+# ==========================================
+# [추가됨] 태그 자동 줄바꿈을 위한 FlowLayout
+# ==========================================
+class FlowLayout(QLayout):
+    def __init__(self, parent=None, margin=0, spacing=-1):
+        super().__init__(parent)
+        if parent is not None:
+            self.setContentsMargins(margin, margin, margin, margin)
+        self.itemList = []
+        self.setSpacing(spacing)
+
+    def __del__(self):
+        item = self.takeAt(0)
+        while item: item = self.takeAt(0)
+
+    def addItem(self, item):
+        self.itemList.append(item)
+
+    def count(self):
+        return len(self.itemList)
+
+    def itemAt(self, index):
+        if 0 <= index < len(self.itemList): return self.itemList[index]
+        return None
+
+    def takeAt(self, index):
+        if 0 <= index < len(self.itemList): return self.itemList.pop(index)
+        return None
+
+    def expandingDirections(self):
+        from PyQt6.QtCore import Qt
+        return Qt.Orientation(0)
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, width):
+        height = self._doLayout(from_rect=QRect(0, 0, width, 0), testOnly=True)
+        return height
+
+    def setGeometry(self, rect):
+        super().setGeometry(rect)
+        self._doLayout(rect, False)
+
+    def sizeHint(self):
+        return self.minimumSize()
+
+    def minimumSize(self):
+        from PyQt6.QtCore import QSize
+        size = QSize()
+        for item in self.itemList:
+            size = size.expandedTo(item.minimumSize())
+        margins = self.contentsMargins()
+        size += QSize(margins.left() + margins.right(), margins.top() + margins.bottom())
+        return size
+
+    def _doLayout(self, from_rect, testOnly):
+        from PyQt6.QtCore import QRect, QPoint
+        x, y = from_rect.x(), from_rect.y()
+        lineHeight = 0
+        spacing = self.spacing()
+        
+        for item in self.itemList:
+            wid = item.widget()
+            spaceX = spacing
+            spaceY = spacing
+            nextX = x + item.sizeHint().width() + spaceX
+            
+            if nextX - spaceX > from_rect.right() and lineHeight > 0:
+                x = from_rect.x()
+                y = y + lineHeight + spaceY
+                nextX = x + item.sizeHint().width() + spaceX
+                lineHeight = 0
+                
+            if not testOnly:
+                item.setGeometry(QRect(QPoint(x, y), item.sizeHint()))
+                
+            x = nextX
+            lineHeight = max(lineHeight, item.sizeHint().height())
+            
+        return y + lineHeight - from_rect.y()
 
 # ==========================================
 # [추가됨] 중복 검사용 B폴더 스캔 스레드
@@ -1604,12 +1722,16 @@ class TabFolder(QWidget):
     def eventFilter(self, obj, event):
         from PyQt6.QtCore import QEvent, Qt
         
-        if obj is self.table_view and event.type() == QEvent.Type.Resize:
-            if hasattr(self, 'dim_overlay'):
-                self.dim_overlay.resize(self.table_view.size())
-                
-        # 헤더 영역의 마우스 커서 동적 변경
-        if hasattr(self, 'table_view'):
+        try:
+            # C++ 객체가 메모리에서 이미 삭제되었는지 확인
+            if not hasattr(self, 'table_view') or self.table_view is None:
+                return super().eventFilter(obj, event)
+
+            if obj is self.table_view and event.type() == QEvent.Type.Resize:
+                if hasattr(self, 'dim_overlay'):
+                    self.dim_overlay.resize(self.table_view.size())
+                    
+            # 헤더 영역의 마우스 커서 동적 변경
             header = self.table_view.horizontalHeader()
             
             # [핵심] header 자체뿐만 아니라 이벤트가 실제로 발생하는 viewport()까지 반드시 검사
@@ -1666,7 +1788,11 @@ class TabFolder(QWidget):
                             cursor = Qt.CursorShape.PointingHandCursor
                         header.setCursor(cursor)
                         if header.viewport(): header.viewport().setCursor(cursor)
-                            
+        
+        except RuntimeError:
+            # 객체가 이미 삭제된 상태에서 이벤트가 들어오는 경우 무시
+            return False
+            
         return super().eventFilter(obj, event)
     
     # --- [추가됨] 백그라운드 스레드 제어 메서드 ---
@@ -2093,27 +2219,181 @@ class TabFolder(QWidget):
         self.view_stack.addWidget(self.list_view)
         right_top_layout.addWidget(self.view_stack)
 
+        # ---------------- 네이티브 디자인 레이아웃 적용 (우측 하단 패널) ----------------
+        # from ui.widgets import DetailBackgroundWidget
         self.right_bottom_panel = DetailBackgroundWidget()
-        right_bottom_layout = QHBoxLayout(self.right_bottom_panel)
-        right_bottom_layout.setContentsMargins(15, 15, 15, 15)
-        
-        self.lbl_cover = QLabel(_("folder_cover_img"))
-        self.lbl_cover.setFixedSize(220, 310) 
-        self.lbl_cover.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_cover.setStyleSheet("border: 1px solid #555; background-color: #1a1a1a; border-radius: 10px;")
-        right_bottom_layout.addWidget(self.lbl_cover, alignment=Qt.AlignmentFlag.AlignTop)
+        self.right_bottom_panel.setObjectName("RightBottomPanel")
 
-        self.info_browser = QTextBrowser()
-        self.info_browser.setOpenExternalLinks(True) 
-        self.info_browser.setStyleSheet("QTextBrowser { background-color: transparent; border: none; color: white; }")
-        right_bottom_layout.addWidget(self.info_browser, 1)
+        outer = QHBoxLayout(self.right_bottom_panel)
+        outer.setContentsMargins(28, 22, 28, 22)
+        outer.setSpacing(28)
+
+        # ── 커버 이미지 컬럼 ─────────────────────────────────────────
+        cover_col = QVBoxLayout()
+        cover_col.setContentsMargins(0, 0, 0, 0)
+        cover_col.setSpacing(0)
+
+        self.lbl_cover = QLabel(_("folder_cover_img"))
+        # self.lbl_cover = CoverLabel(_("folder_cover_img"))
+
+        self.lbl_cover.setFixedSize(220, 310)
+        self.lbl_cover.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_cover.setStyleSheet(
+            "background-color: #1a1a1a; border: 1px solid #3a3a3a;"
+            "border-radius: 10px; color: #666666;"
+        )
+        cover_col.addWidget(self.lbl_cover)
+        cover_col.addStretch()
+        outer.addLayout(cover_col)
+
+        # ── 우측 전체: 스크롤 ────────────────────────────────────────
+        self.info_scroll = QScrollArea()
+        self.info_scroll.setWidgetResizable(True)
+        self.info_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.info_scroll.setStyleSheet(
+            "QScrollArea { background-color: transparent; border: none; }"
+        )
+        self.info_scroll.viewport().setStyleSheet("background-color: transparent;")
+
+        self.info_content = QWidget()
+        self.info_content.setObjectName("info_content")
+        self.info_content.setStyleSheet("QWidget#info_content { background-color: transparent; }")
+
+        self.info_layout = QVBoxLayout(self.info_content)
+        self.info_layout.setContentsMargins(0, 0, 0, 0)
+        self.info_layout.setSpacing(10)
+
+        # 시리즈명
+        self.lbl_series_info = QLabel()
+        self.lbl_series_info.setStyleSheet(
+            f"color: #E8A020; font-size: {self.config['s16']}px; font-weight: bold; background: transparent;margin-bottom:-3px"
+        )
+        self.lbl_series_info.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+
+        # 제목
+        self.lbl_info_title = QLabel()
+        self.lbl_info_title.setStyleSheet(
+            f"color: #FFFFFF; font-size: {self.config['s30']}px; font-weight: bold; background: transparent;"
+        )
+        self.lbl_info_title.setWordWrap(True)
+        self.lbl_info_title.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+
+
+
+        # 태그 FlowLayout
+        self.tag_container = QWidget()
+        self.tag_container.setStyleSheet("background: transparent;")
+        self.tag_container.setContentsMargins(0, 0, 0, 0)
+        self.tag_layout = FlowLayout(self.tag_container, margin=0, spacing=6)
+
+        self.info_layout.addWidget(self.lbl_series_info)
+        self.info_layout.addWidget(self.lbl_info_title)
+        self.info_layout.addSpacing(0)
+        self.info_layout.addWidget(self.tag_container)
+
+        # ── 단일 큰 카드: 메타(좌) + 줄거리&추가정보(우) ────────────
+        # big_card = QWidget()
+        big_card = GlowCard()
+        big_card.setObjectName("big_card")
+        big_card.setStyleSheet(
+            "QWidget#big_card {"
+            "  background-color: rgba(40, 40, 40, 0.75);"
+            "  border: 1px solid rgba(255,255,255,0.08);"
+            "  border-radius: 12px;"
+            "  margin-top:0px;"
+            "}"
+        )
+
+        card_hbox = QHBoxLayout(big_card)
+        card_hbox.setContentsMargins(0, 0, 0, 0)
+        card_hbox.setSpacing(0)
+
+        # 좌: 메타 1열 리스트
+        meta_widget = QWidget()
+        meta_widget.setObjectName("meta_widget")
+        meta_widget.setStyleSheet("QWidget#meta_widget { background: transparent; }")
+        meta_vbox = QVBoxLayout(meta_widget)
+        meta_vbox.setContentsMargins(15, 10, 15, 10)
+        meta_vbox.setSpacing(0)
+
+        self.meta_grid_widget = QWidget()
+        self.meta_grid_widget.setStyleSheet("background: transparent;")
+        self.meta_grid_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)  # ← 추가
+        self.meta_grid = QGridLayout(self.meta_grid_widget)
+        self.meta_grid.setContentsMargins(0, 0, 0, 0)
+        self.meta_grid.setHorizontalSpacing(16)
+        self.meta_grid.setVerticalSpacing(0)
+        self.meta_grid.setColumnStretch(0, 1)
+
+        meta_vbox.addWidget(self.meta_grid_widget)
+        meta_vbox.addStretch()
+
+        # 세로 구분선
+        vline = QWidget()
+        vline.setFixedWidth(1)
+        vline.setStyleSheet("background-color: rgba(255,255,255,0.05);")
+
+        # 우: 줄거리 + 추가정보
+        right_widget = QWidget()
+        right_widget.setObjectName("right_widget")
+        right_widget.setStyleSheet("QWidget#right_widget { background: transparent; }")
+        right_vbox = QVBoxLayout(right_widget)
+        right_vbox.setContentsMargins(20, 18, 20, 18)
+        right_vbox.setSpacing(8)
+
+        # 줄거리 헤더
+        self.summary_title_widget = QWidget()
+        self.summary_title_widget.setStyleSheet("background: transparent;")
+        self.summary_title_layout = QHBoxLayout(self.summary_title_widget)
+        self.summary_title_layout.setContentsMargins(0, 0, 0, 0)
+        self.summary_title_layout.setSpacing(6)
+
+        self.lbl_summary_icon = QLabel()
+        self.lbl_summary_title = QLabel(_("col_summary"))
+        self.lbl_summary_title.setStyleSheet(
+            f"color: #E8A020; font-weight: bold; font-size: {self.config['s12']}px; background: transparent;"
+        )
+        self.summary_title_layout.addWidget(self.lbl_summary_icon)
+        self.summary_title_layout.addWidget(self.lbl_summary_title)
+        self.summary_title_layout.addStretch()
+
+        # 줄거리 본문
+        self.lbl_summary = QLabel()
+        self.lbl_summary.setStyleSheet(
+            f"color: #cccccc; font-size: {self.config['s12']}px; background: transparent; line-height: 1.6;"
+        )
+        self.lbl_summary.setWordWrap(True)
+        self.lbl_summary.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self.lbl_summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+
+        right_vbox.addWidget(self.summary_title_widget)
+        right_vbox.addWidget(self.lbl_summary)
+
+        # 추가정보 동적 레이아웃 (스토리아크 / 등장인물 / 링크)
+        self.extra_layout = QVBoxLayout()
+        self.extra_layout.setContentsMargins(0, 10, 0, 0)
+        self.extra_layout.setSpacing(1)
+        right_vbox.addLayout(self.extra_layout)
+        right_vbox.addStretch()
+
+        card_hbox.addWidget(meta_widget, 5)
+        card_hbox.addWidget(vline)
+        card_hbox.addWidget(right_widget, 6)
+
+        self.info_layout.addWidget(big_card, 1)
+        self.info_layout.addStretch()
+
+        self.info_scroll.setWidget(self.info_content)
+        outer.addWidget(self.info_scroll, 1)
 
         self.right_splitter.addWidget(self.right_top_panel)
         self.right_splitter.addWidget(self.right_bottom_panel)
         self.right_splitter.setStretchFactor(0, 3)
         self.right_splitter.setStretchFactor(1, 1)
-        
+
         self.right_bottom_panel.hide()
+        # ------------------------------------------------
+
 
         self.main_splitter.addWidget(self.left_panel)
         self.main_splitter.addWidget(self.right_splitter)
@@ -2132,9 +2412,9 @@ class TabFolder(QWidget):
         self.progress_bar.setFixedHeight(12)
         self.progress_bar.setFixedWidth(150)
         self.progress_bar.setTextVisible(False)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar { border: 1px solid #444; border-radius: 6px; background-color: #2b2b2b; }
-            QProgressBar::chunk { background-color: #3498DB; border-radius: 5px; }
+        self.progress_bar.setStyleSheet(f"""
+            QProgressBar {{ border: 1px solid #444; border-radius: 6px; background-color: #2b2b2b; }}
+            QProgressBar::chunk {{ background-color: #3498DB; border-radius: 5px; }}
         """)
         self.progress_bar.hide()
         bottom_bar.addWidget(self.progress_bar)
@@ -2461,14 +2741,23 @@ class TabFolder(QWidget):
     def setup_hotkeys(self):
         QShortcut(QKeySequence("F5"), self).activated.connect(self.refresh_tree)
         QShortcut(QKeySequence("Ctrl+A"), self).activated.connect(self.select_all_files)
+        # F1~F3은 탭 전송으로 통일
         QShortcut(QKeySequence("F1"), self).activated.connect(self.send_to_tab1)
         QShortcut(QKeySequence("F2"), self).activated.connect(self.send_to_tab2)
-        QShortcut(QKeySequence("F3"), self).activated.connect(self.hotkey_f3)
+        QShortcut(QKeySequence("F3"), self).activated.connect(self.send_to_tab3)
         QShortcut(QKeySequence("Del"), self).activated.connect(self.delete_selected)
-        QShortcut(QKeySequence("Shift+R"), self).activated.connect(self.action_multi_rename)
+        # Shift+R 핫키를 포커스에 따라 다르게 작동하도록 연결
+        QShortcut(QKeySequence("Shift+R"), self).activated.connect(self.hotkey_shift_r)
         QShortcut(QKeySequence("Ctrl+Z"), self).activated.connect(self.action_undo_rename)
 
         QShortcut(QKeySequence("Ctrl+G"), self).activated.connect(self.show_goto_dialog)
+
+    def hotkey_shift_r(self):
+        # 탐색기 패널에 포커스가 있으면 폴더 이름 변경, 리스트에 있으면 다중 파일 이름 변경
+        if self.tree_view.hasFocus():
+            self.rename_folder()
+        else:
+            self.action_multi_rename()
 
     def hotkey_f3(self): # F2였던 메서드명을 논리에 맞게 변경
         if self.tree_view.hasFocus():
@@ -3344,15 +3633,41 @@ class TabFolder(QWidget):
                 if path: paths.append(path)
         return paths
 
+    def clear_tags(self):
+        if hasattr(self, 'tag_layout'):
+            while self.tag_layout.count():
+                item = self.tag_layout.takeAt(0)
+                widget = item.widget()
+                if widget:
+                    widget.deleteLater()
+
     def on_file_selection_changed(self):
         view = self.get_active_view()
         indexes = [idx for idx in view.selectionModel().selectedIndexes() if idx.column() == 0]
         
         if not indexes:
             self.lbl_cover.clear()
-            self.right_bottom_panel.set_cover_image(None)
-            self.info_browser.setHtml("")
+            self.lbl_cover.setText(_("folder_cover_img"))
+            if hasattr(self.right_bottom_panel, 'set_cover_image'):
+                self.right_bottom_panel.set_cover_image(None)
+                
+            self.lbl_series_info.setText("")
+            self.lbl_info_title.setText("")
+            self.clear_tags()
+            
+            for i in reversed(range(self.meta_grid.count())):
+                w = self.meta_grid.itemAt(i).widget()
+                if w: w.deleteLater()
+                
+            self.lbl_summary.setText("")
+            
+            while self.extra_layout.count():
+                item = self.extra_layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+            
             index = self.tree_view.currentIndex()
+
             if index.isValid():
                 folder_path = self.dir_model.filePath(index)
                 self.lbl_tree_status.setText(_("folder_status_sel").format(os.path.basename(folder_path), len(self.file_data_cache), "0 B"))
@@ -3374,7 +3689,7 @@ class TabFolder(QWidget):
         if len(sizes) >= 2 and sizes[1] == 0:
             total = sum(sizes)
             if total > 0:
-                self.right_splitter.setSizes([int(total * 0.7), int(total * 0.3)])
+                self.right_splitter.setSizes([int(total * 0.65), int(total * 0.35)])
             else:
                 self.right_splitter.setSizes([700, 300])
         
@@ -3402,6 +3717,7 @@ class TabFolder(QWidget):
                             self.extract_thread.progress_updated.disconnect()
                         except TypeError: pass
                         
+                    from core.parser import MemoryExtractThread
                     self.extract_thread = MemoryExtractThread([(full_path, True, False, thumb_path)], seven_zip_path)
                     self.extract_thread.data_extracted.connect(self.on_metadata_extracted)
                     self.extract_thread.start()
@@ -3412,26 +3728,22 @@ class TabFolder(QWidget):
 
     def update_info_panel(self, full_path, meta_dict):
         from PyQt6.QtCore import Qt
-        
-        # 🌟 표지 이미지 라벨 컨테이너 자체가 항상 상단에 붙도록 정렬
+        import qtawesome as qta
+
         self.lbl_cover.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
-        
-        # 🌟 background-size: cover (Top 정렬) 및 border-radius 10px 적용 헬퍼 함수
+
+        # ── 커버 이미지 ───────────────────────────────────────────────
         def get_covered_pixmap(pm, w=220, h=310, radius=10):
             from PyQt6.QtGui import QPixmap, QPainter, QPainterPath
-            
-            # 1. 비율 유지하며 꽉 차게 확대/축소 (Expanding)
-            scaled = pm.scaled(w, h, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
-            
-            # 2. X축은 중앙, Y축은 상단(0)을 기준으로 자름 (Top 정렬)
+            scaled = pm.scaled(
+                w, h,
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation
+            )
             crop_x = (scaled.width() - w) // 2
-            crop_y = 0 
-            cropped = scaled.copy(crop_x, crop_y, w, h)
-            
-            # 3. 테두리 모서리 둥글게 10px 마스크 적용
+            cropped = scaled.copy(crop_x, 0, w, h)
             rounded = QPixmap(w, h)
             rounded.fill(Qt.GlobalColor.transparent)
-            
             painter = QPainter(rounded)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             path = QPainterPath()
@@ -3439,123 +3751,259 @@ class TabFolder(QWidget):
             painter.setClipPath(path)
             painter.drawPixmap(0, 0, cropped)
             painter.end()
-            
             return rounded
 
         row = self.file_data_map.get(full_path)
         if row:
             file_hash = row.get("hash", "")
             thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.webp")
-            
             cached_pix = QPixmapCache.find(file_hash) if file_hash else None
-            
             if cached_pix is not None and not cached_pix.isNull():
                 self.lbl_cover.setPixmap(get_covered_pixmap(cached_pix))
-                self.right_bottom_panel.set_cover_image(cached_pix)
-            elif os.path.exists(thumb_path):
-                if os.path.getsize(thumb_path) > 0:
-                    from PyQt6.QtGui import QPixmap
-                    pixmap = QPixmap(thumb_path)
-                    if not pixmap.isNull():
-                        QPixmapCache.insert(file_hash, pixmap)
-                        self.lbl_cover.setPixmap(get_covered_pixmap(pixmap))
+                if hasattr(self.right_bottom_panel, 'set_cover_image'):
+                    self.right_bottom_panel.set_cover_image(cached_pix)
+            elif os.path.exists(thumb_path) and os.path.getsize(thumb_path) > 0:
+                from PyQt6.QtGui import QPixmap
+                pixmap = QPixmap(thumb_path)
+                if not pixmap.isNull():
+                    QPixmapCache.insert(file_hash, pixmap)
+                    self.lbl_cover.setPixmap(get_covered_pixmap(pixmap))
+                    if hasattr(self.right_bottom_panel, 'set_cover_image'):
                         self.right_bottom_panel.set_cover_image(pixmap)
-                    else:
-                        self.lbl_cover.setText(_("folder_no_cover"))
-                        self.right_bottom_panel.set_cover_image(None)
                 else:
                     self.lbl_cover.setText(_("folder_no_cover"))
-                    self.right_bottom_panel.set_cover_image(None)
+                    if hasattr(self.right_bottom_panel, 'set_cover_image'):
+                        self.right_bottom_panel.set_cover_image(None)
             else:
                 self.lbl_cover.setText(_("folder_no_cover"))
-                self.right_bottom_panel.set_cover_image(None)
+                if hasattr(self.right_bottom_panel, 'set_cover_image'):
+                    self.right_bottom_panel.set_cover_image(None)
         else:
             self.lbl_cover.setText(_("folder_no_cover"))
-            self.right_bottom_panel.set_cover_image(None)
+            if hasattr(self.right_bottom_panel, 'set_cover_image'):
+                self.right_bottom_panel.set_cover_image(None)
 
+        # ── 시리즈 / 제목 ─────────────────────────────────────────────
         title = meta_dict.get("title") or os.path.basename(full_path)
         series = meta_dict.get("series") or _("info_no_series")
         series_group = meta_dict.get("series_group") or ""
         series_info = f"{series} / {series_group}" if series_group else series
-        
+        self.lbl_series_info.setText(series_info)
+        self.lbl_info_title.setText(title)
+
+        # ── 태그 뱃지 ─────────────────────────────────────────────────
+        self.clear_tags()
+        genre_raw = meta_dict.get("genre") or ""
+        tags_raw  = meta_dict.get("tags")  or ""
+        tag_list  = []
+        if genre_raw and genre_raw != "-":
+            tag_list.extend([g.strip() for g in genre_raw.split(',') if g.strip()])
+        if tags_raw and tags_raw != "-":
+            tag_list.extend([t.strip() for t in tags_raw.split(',') if t.strip()])
+        seen, combined_tags = set(), []
+        for t in tag_list:
+            if t not in seen:
+                seen.add(t)
+                combined_tags.append(t)
+
+        fs = self.config.get('s11', 11)
+        for tag in combined_tags:
+            lbl = QLabel(f"{tag}")
+            lbl.setStyleSheet(f"""
+                QLabel {{
+                    background-color: rgba(255,255,255,0.08);
+                    color: rgba(210,210,210,0.95);
+                    border: 1px solid rgba(255,255,255,0.05);
+                    border-radius: 5px;
+                    padding: 3px 3px;
+                    font-size: {fs}px;
+                }}
+            """)
+            self.tag_layout.addWidget(lbl)
+
+        # ── 메타 그리드 — 1열 리스트, 행마다 [아이콘+라벨 | 값] ──────
+        for i in reversed(range(self.meta_grid.count())):
+            w = self.meta_grid.itemAt(i).widget()
+            if w:
+                w.deleteLater()
+
         creators_list = []
         writer = meta_dict.get("writer")
-        if writer: creators_list.append(writer)
+        if writer:
+            creators_list.append(writer)
         for role in ['penciller', 'inker', 'colorist', 'letterer', 'cover_artist', 'editor']:
-            val = meta_dict.get(role)
-            if val: creators_list.append(val)
+            v = meta_dict.get(role)
+            if v:
+                creators_list.append(v)
         creators = " / ".join(creators_list) if creators_list else "-"
-        if meta_dict.get("creators"): creators = meta_dict.get("creators")
-        
-        publisher = meta_dict.get("publisher") or "-"
-        imprint = meta_dict.get("imprint") or ""
-        pub_full = f"{publisher} / {imprint}" if imprint else publisher
+        if meta_dict.get("creators"):
+            creators = meta_dict.get("creators")
 
-        genre = meta_dict.get("genre") or "-"
+        publisher    = meta_dict.get("publisher") or "-"
+        imprint      = meta_dict.get("imprint") or ""
+        pub_full     = f"{publisher} / {imprint}" if imprint else publisher
         volume_count = meta_dict.get("volume_count") or meta_dict.get("volume") or "-"
-        page_count = meta_dict.get("page_count") or "-"
-        format_val = meta_dict.get("format") or "-"
-        manga = meta_dict.get("manga") or "-"
-        rating = meta_dict.get("rating") or "-"
-        age_rating = meta_dict.get("age_rating") or "-"
-        
+        page_count   = meta_dict.get("page_count") or "-"
+        format_val   = meta_dict.get("format") or "-"
+        manga        = meta_dict.get("manga") or "-"
+        rating       = meta_dict.get("rating") or "-"
+        age_rating   = meta_dict.get("age_rating") or "-"
+
         publish_date = meta_dict.get("publish_date")
         if not publish_date:
-            y, m, d = meta_dict.get("year", ""), meta_dict.get("month", ""), meta_dict.get("day", "")
+            y = meta_dict.get("year", "")
+            m = meta_dict.get("month", "")
+            d = meta_dict.get("day", "")
             publish_date = f"{y}-{m}-{d}".strip('-') or "-"
 
-        summary = meta_dict.get("summary") or _("info_no_summary")
-        characters = meta_dict.get("characters") or "-"
-        teams = meta_dict.get("teams") or "-"
-        locations = meta_dict.get("locations") or "-"
-        story_arc = meta_dict.get("story_arc") or "-"
-        tags = meta_dict.get("tags") or "-"
-        notes = meta_dict.get("notes") or "-"
-        
-        link = meta_dict.get("web") or "-"
-        link_html = f'<a href="{link}" style="color: #3498DB; text-decoration: none;">{link}</a>' if link != "-" else "-"
+        fs_lbl = self.config.get('s11', 11)
+        fs_val = self.config.get('s12', 12)
 
-        info_html = f"""
-        <div style="font-family: {self.config['font_family_str']}">
-            <h2 style="margin: 0px 0px 0px 0px; color: #ffffff; font-size: {self.config['s18']}pt;">{title}</h2>
-            <h4 style="margin: 0px 0px 25px 0px; color: #cccccc; font-size: {self.config['s14']}pt; font-weight: normal;">{series_info}</h4>
-            
-            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:10px;font-size: {self.config['s12']}px;">
-                <tr>
-                    <td width="45%" valign="top" style="padding-right: 20px;">
-                        <table width="100%" cellpadding="4" cellspacing="0" border="0">
-                            <tr><td width="80" valign="top" style="color: #aaaaaa;">{_('col_creators')}</td><td valign="top" style="color: #ffffff;">{creators}</td></tr>
-                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_publisher')}</td><td valign="top" style="color: #ffffff;">{pub_full}</td></tr>
-                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_genre')}</td><td valign="top" style="color: #ffffff;">{genre}</td></tr>
-                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_page_count')}</td><td valign="top" style="color: #ffffff;">{page_count}</td></tr>
-                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_vol_count')}</td><td valign="top" style="color: #ffffff;">{volume_count}</td></tr>
-                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_format')}/{_('col_manga')}</td><td valign="top" style="color: #ffffff;">{format_val} / {manga}</td></tr>
-                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_rating')}</td><td valign="top" style="color: #ffffff;">{rating}</td></tr>
-                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_age_rating')}</td><td valign="top" style="color: #ffffff;">{age_rating}</td></tr>
-                            <tr><td valign="top" style="color: #aaaaaa;">{_('col_pub_date')}</td><td valign="top" style="color: #ffffff;">{publish_date}</td></tr>
-                        </table>
-                    </td>
-                    <td width="55%" valign="top">
-                        <div style="color: #aaaaaa; margin-bottom: 4px;">{_('col_summary')}</div>
-                        <div style="margin-bottom: 15px; color: #dddddd; line-height: 1.2;">{summary}</div>
-                        
-                        <div style="color: #aaaaaa; margin-bottom: 4px;">{_('info_arc_team_loc')}</div>
-                        <div style="margin-bottom: 15px; color: #dddddd;">{story_arc} / {teams} / {locations}</div>
-                        
-                        <div style="color: #aaaaaa; margin-bottom: 4px;">{_('col_characters')}</div>
-                        <div style="margin-bottom: 15px; color: #dddddd;">{characters}</div>
-                        
-                        <div style="color: #aaaaaa; margin-bottom: 4px;">{_('col_tags')}</div>
-                        <div style="margin-bottom: 15px; color: #dddddd;">{tags}</div>
-                        
-                        <div style="color: #aaaaaa; margin-bottom: 4px;">{_('col_web')}</div>
-                        <div style="margin-bottom: 15px;">{link_html}</div>
-                    </td>
-                </tr>
-            </table>
-        </div>
-        """
-        self.info_browser.setHtml(info_html)
+        # 평점 값: 별 아이콘 + 숫자 (목표 이미지처럼)
+        rating_str = str(rating)
+
+        grid_items = [
+            ('fa5s.user-edit',    _('col_creators'),                   creators),
+            ('fa5s.building',     _('col_publisher'),                   pub_full),
+            ('fa5s.file-alt',     _('col_page_count'),                  str(page_count)),
+            ('fa5s.layer-group',  _('col_vol_count'),                   str(volume_count)),
+            ('fa5s.book-open',    f"{_('col_format')}/{_('col_manga')}", f"{format_val} / {manga}"),
+            ('fa5s.star',         _('col_rating'),                      rating_str),
+            ('fa5s.child',        _('col_age_rating'),                  str(age_rating)),
+            ('fa5s.calendar-alt', _('col_pub_date'),                    str(publish_date)),
+        ]
+
+        for row_i, (icon_name, lbl_text, val_text) in enumerate(grid_items):
+            cell_col = QVBoxLayout()
+            cell_col.setContentsMargins(0, 0, 0, 0)
+            cell_col.setSpacing(0)
+
+            row_w = QWidget()
+            row_w.setStyleSheet("background: transparent;")
+            row_h = QHBoxLayout(row_w)
+            row_h.setContentsMargins(0, 7, 0, 7)
+            row_h.setSpacing(10)
+
+            i_lbl = QLabel()
+            i_lbl.setPixmap(qta.icon(icon_name, color='#ffffff').pixmap(13, 13))  # 아이콘 흰색
+            i_lbl.setFixedWidth(16)
+            i_lbl.setStyleSheet("background: transparent;padding-left:5px")
+
+            k_lbl = QLabel(lbl_text)
+            k_lbl.setFixedWidth(90)
+            k_lbl.setStyleSheet(
+                f"color: #dadcde; font-size: {fs_lbl}px; font-weight: bold; background: transparent;"  # bold 추가
+            )
+
+            if icon_name == 'fa5s.star' and val_text not in ("-", ""):
+                val_widget = QWidget()
+                val_widget.setStyleSheet("background: transparent;")
+                val_h = QHBoxLayout(val_widget)
+                val_h.setContentsMargins(0, 0, 0, 0)
+                val_h.setSpacing(4)
+                star_lbl = QLabel()
+                star_lbl.setPixmap(qta.icon('fa5s.star', color='#F5A623').pixmap(12, 12))
+                star_lbl.setStyleSheet("background: transparent;")
+                num_lbl = QLabel(val_text)
+                num_lbl.setStyleSheet(
+                    f"color: #cccccc; font-size: {fs_val}px; font-weight: 500; background: transparent;"  # ← #cccccc
+                )
+                val_h.addWidget(star_lbl)
+                val_h.addWidget(num_lbl)
+                val_h.addStretch()
+                row_h.addWidget(i_lbl)
+                row_h.addWidget(k_lbl)
+                row_h.addWidget(val_widget, 1)
+            else:
+                v_lbl = QLabel(val_text)
+                v_lbl.setStyleSheet(
+                    f"color: #bbbbbb; font-size: {fs_val}px;background: transparent;"  # ← #cccccc
+                )
+                v_lbl.setWordWrap(True)
+                v_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+                row_h.addWidget(i_lbl)
+                row_h.addWidget(k_lbl)
+                row_h.addWidget(v_lbl, 1)
+
+            cell_col.addWidget(row_w)
+
+            if row_i < len(grid_items) - 1:
+                sep = QWidget()
+                sep.setFixedHeight(1)
+                sep.setStyleSheet("background-color: rgba(255,255,255,0.07);")
+                cell_col.addWidget(sep)
+
+            wrapper = QWidget()
+            wrapper.setStyleSheet("background: transparent;")
+            wrapper.setLayout(cell_col)
+            wrapper.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+            self.meta_grid.addWidget(wrapper, row_i, 0)
+
+        # ── 줄거리 ────────────────────────────────────────────────────
+        self.lbl_summary_icon.setPixmap(
+            qta.icon('fa5s.play-circle', color='#E8A020').pixmap(13, 13)
+        )
+        summary = meta_dict.get("summary") or _("info_no_summary")
+        self.lbl_summary.setText(summary)
+
+        # ── 추가정보 (스토리아크 / 등장인물 / 링크) ───────────────────
+        while self.extra_layout.count():
+            item = self.extra_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        characters = meta_dict.get("characters") or "-"
+        teams      = meta_dict.get("teams")      or "-"
+        locations  = meta_dict.get("locations")  or "-"
+        story_arc  = meta_dict.get("story_arc")  or "-"
+        link       = meta_dict.get("web")        or "-"
+        link_html  = (
+            f'<a href="{link}" style="color:#3498DB;text-decoration:none;">{link}</a>'
+            if link != "-" else "-"
+        )
+
+        extra_items = [
+            ('fa5s.map-marker-alt', _('info_arc_team_loc'),
+            f"{story_arc} / {teams} / {locations}"),
+            ('fa5s.user-friends', _('col_characters'), characters),
+            ('fa5s.link',         _('col_web'),        link_html),
+        ]
+
+        for icon_name, lbl_text, val_text in extra_items:
+            is_link = icon_name == 'fa5s.link'  # ← 링크 여부 판별
+
+            w = QWidget()
+            w.setStyleSheet("background: transparent;")
+            ly = QHBoxLayout(w)
+            ly.setContentsMargins(0, 4, 0, 4)
+            ly.setSpacing(8)
+
+            icon_color = '#E8A020' if is_link else '#ffffff'  # ← 링크면 주황, 아니면 흰색
+            i_lbl = QLabel()
+            i_lbl.setPixmap(qta.icon(icon_name, color=icon_color).pixmap(13, 13))
+            i_lbl.setFixedWidth(16)
+            i_lbl.setStyleSheet("background: transparent;")
+
+            k_lbl = QLabel(lbl_text)
+            k_lbl.setFixedWidth(90)
+            lbl_color = '#E8A020' if is_link else '#dadcde'   # ← 링크면 주황, 아니면 #dadcde
+            k_lbl.setStyleSheet(
+                f"color: {lbl_color}; font-size: {fs_lbl}px; font-weight: bold; background: transparent;"
+            )
+
+            v_lbl = QLabel(val_text)
+            val_color = '#3498DB' if is_link else '#cccccc'   # ← 링크값은 파란색, 나머지 #ccc
+            v_lbl.setStyleSheet(
+                f"color: {val_color}; font-size: {fs_val}px; background: transparent;"
+            )
+            v_lbl.setWordWrap(True)
+            v_lbl.setOpenExternalLinks(True)
+            v_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+
+            ly.addWidget(i_lbl)
+            ly.addWidget(k_lbl)
+            ly.addWidget(v_lbl, 1)
+            self.extra_layout.addWidget(w)
 
     def show_tree_context_menu(self, position):
         index = self.tree_view.indexAt(position)
@@ -3563,19 +4011,38 @@ class TabFolder(QWidget):
         path = self.dir_model.filePath(index)
         menu = QMenu()
         
+        # 단축키 표시용 헬퍼 함수
+        def add_menu_action(text, shortcut, slot):
+            from PyQt6.QtGui import QAction
+            action = QAction(text, self)
+            if shortcut:
+                action.setShortcut(shortcut)
+            action.triggered.connect(slot)
+            menu.addAction(action)
+            return action
+        
         custom_favs = self.config.get("folder_favorites", [])
         is_fav = any(f["path"] == path for f in custom_favs)
         
         if is_fav:
-            menu.addAction(_("action_fav_rem"), lambda: self.remove_from_favorites(path))
+            add_menu_action(_("action_fav_rem"), None, lambda: self.remove_from_favorites(path))
         else:
-            menu.addAction(_("action_fav_add"), lambda: self.add_to_favorites(path))
+            add_menu_action(_("action_fav_add"), None, lambda: self.add_to_favorites(path))
             
         menu.addSeparator()
-        menu.addAction(_("action_open_exp"), lambda: self.open_in_explorer(path))
-        menu.addAction(_("action_ren_folder"), lambda: self.rename_folder(index))
-        menu.addAction(_("action_del_folder"), self.delete_selected)
-        menu.addAction(_("action_refresh"), self.refresh_tree)
+        add_menu_action(_("action_open_exp"), None, lambda: self.open_in_explorer(path))
+        add_menu_action(_("action_ren_folder"), "Shift+R", lambda: self.rename_folder(index))
+        
+        # F1~F3 메뉴 기능 추가
+        menu.addSeparator()
+        add_menu_action(_("action_flatten_structure"), "F1", self.send_to_tab1)
+        add_menu_action(_("action_inner_ren"), "F2", self.send_to_tab2)
+        add_menu_action(_("action_meta_edit"), "F3", self.send_to_tab3)
+        
+        menu.addSeparator()
+        add_menu_action(_("action_del_folder"), "Del", self.delete_selected)
+        add_menu_action(_("action_refresh"), "F5", self.refresh_tree)
+        
         menu.exec(self.tree_view.viewport().mapToGlobal(position))
 
     def show_list_context_menu(self, position):
@@ -3792,19 +4259,34 @@ class TabFolder(QWidget):
                 QMessageBox.warning(self, _("fm_error"), _("fm_error_desc"))
 
     def send_to_tab1(self):
-        files = self.get_selected_files()
+        if self.tree_view.hasFocus():
+            idx = self.tree_view.currentIndex()
+            files = [self.dir_model.filePath(idx)] if idx.isValid() else []
+        else:
+            files = self.get_selected_files()
+            
         if files and hasattr(self.main_window, 'tab1'):
             self.main_window.tabs.setCurrentWidget(self.main_window.tab1)
             self.main_window.process_paths(files)
 
     def send_to_tab2(self):
-        files = self.get_selected_files()
+        if self.tree_view.hasFocus():
+            idx = self.tree_view.currentIndex()
+            files = [self.dir_model.filePath(idx)] if idx.isValid() else []
+        else:
+            files = self.get_selected_files()
+            
         if files and hasattr(self.main_window, 'tab2'):
             self.main_window.tabs.setCurrentWidget(self.main_window.tab2)
             if hasattr(self.main_window.tab2, 'process_paths'): self.main_window.tab2.process_paths(files)
 
     def send_to_tab3(self):
-        files = self.get_selected_files()
+        if self.tree_view.hasFocus():
+            idx = self.tree_view.currentIndex()
+            files = [self.dir_model.filePath(idx)] if idx.isValid() else []
+        else:
+            files = self.get_selected_files()
+            
         if files and hasattr(self.main_window, 'tab3'):
             self.main_window.tabs.setCurrentWidget(self.main_window.tab3)
             if hasattr(self.main_window.tab3, 'process_paths'): self.main_window.tab3.process_paths(files)

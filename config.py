@@ -131,7 +131,7 @@ def load_config():
     default_config["font_family_str"] = "'Jua', 'arial', 'Noto Sans KR', 'Segoe UI Emoji'" if ff == "Default" else f"'{ff}', 'Segoe UI Emoji'"
     
     # 공통 사이즈 동적 생성 (s10, s11, s12, s14, s15)
-    for size in [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]:
+    for size in [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 28, 30]:
         default_config[f"s{size}"] = int(size * scale)
         
     return default_config

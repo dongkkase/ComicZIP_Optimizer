@@ -163,6 +163,10 @@ class Tab3Metadata(QWidget):
         """)
         self.tree_meta_files.itemSelectionChanged.connect(self.on_tree_select)
         self.tree_meta_files.delete_pressed.connect(self.remove_selected)
+
+        self.tree_meta_files.itemExpanded.connect(self._on_item_expanded)
+        self.tree_meta_files.itemCollapsed.connect(self._on_item_collapsed)
+
         self.tree_meta_files.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.tree_meta_files.verticalScrollBar().setSingleStep(15)
 
@@ -1121,7 +1125,10 @@ class Tab3Metadata(QWidget):
                 spacer_item.setSizeHint(0, QSize(0, 10))
                 self.tree_meta_files.addTopLevelItem(spacer_item)
 
-            root_item.setIcon(0, qta.icon('fa5s.folder-open', color='#F39C12'))
+            is_expanded = expanded_states.get(folder_name, True)
+            icon_name = 'fa5s.folder-open' if is_expanded else 'fa5s.folder'
+            root_item.setIcon(0, qta.icon(icon_name, color='#F39C12'))
+            
             self.tree_meta_files.addTopLevelItem(root_item)
 
             
@@ -1146,7 +1153,15 @@ class Tab3Metadata(QWidget):
         elif auto_select_first and self.tree_meta_files.topLevelItemCount() > 0:
             first_root = self.tree_meta_files.topLevelItem(0)
             if first_root.childCount() > 0: self.tree_meta_files.setCurrentItem(first_root.child(0))
-                
+
+    def _on_item_expanded(self, item):
+        if item.parent() is None: 
+            item.setIcon(0, qta.icon('fa5s.folder-open', color='#F39C12'))
+
+    def _on_item_collapsed(self, item):
+        if item.parent() is None: 
+            item.setIcon(0, qta.icon('fa5s.folder', color='#F39C12'))
+
     def on_tree_select(self):
         if getattr(self, 'save_worker', None) and self.save_worker is not None:
             return
