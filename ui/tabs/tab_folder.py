@@ -26,6 +26,8 @@ from PyQt6.QtCore import Qt, QDir, QAbstractTableModel, QModelIndex, QSize, QByt
 from config import get_resource_path, save_config
 from core.library_db import db
 
+from collections import defaultdict
+
 # ==========================================
 # [핵심 수정] i18n.py 구조에 맞춘 완벽한 다국어 처리 로직
 # ==========================================
@@ -1075,6 +1077,22 @@ class ThumbnailDelegate(QStyledItemDelegate):
             flags = Qt.AlignmentFlag.AlignLeft.value | Qt.AlignmentFlag.AlignVCenter.value
             painter.drawText(option.rect.adjusted(10, 0, -10, -5), flags, text)
             
+            # 누락 권수 뱃지 텍스트 렌더링
+            missing = row_data.get("missing", [])
+            if missing:
+                if len(missing) > 5:
+                    missing_str = f"  ⚠️ 누락: {', '.join(missing[:4])} ... (총 {len(missing)}권/화)"
+                else:
+                    missing_str = f"  ⚠️ 누락: {', '.join(missing)}"
+                    
+                fm = painter.fontMetrics()
+                text_width = fm.horizontalAdvance(text)
+                
+                painter.setPen(QColor("#E74C3C"))
+                font_missing = QFont(font_family, 10, QFont.Weight.Bold)
+                painter.setFont(font_missing)
+                painter.drawText(option.rect.adjusted(10 + text_width + 10, 0, -10, -5), flags, missing_str)
+            
             painter.setPen(QColor("#555555"))
             painter.drawLine(option.rect.left() + 5, option.rect.bottom() - 2, option.rect.right() - 5, option.rect.bottom() - 2)
             painter.restore()
@@ -1597,6 +1615,135 @@ class DetailBackgroundWidget(QFrame):
         painter.drawRoundedRect(0, 0, self.width() - 1, self.height() - 1, 5, 5)
 
 # ==========================================
+# 누락 권수 백그라운드 검사 스레드 (초고속 최적화)
+# ==========================================
+
+# [속도 개선 핵심] 정규식을 클래스 외부에 미리 컴파일하여 반복 파싱 비용(렉)을 0으로 만듦
+RE_TRASH_1 = re.compile(r'(?i)\b(1080p|720p|480p|1440p|4k|2k|x264|x265)\b')
+RE_TRASH_2 = re.compile(r'\[19\d{2}\]|\[20\d{2}\]|\(19\d{2}\)|\(20\d{2}\)')
+RE_TRASH_3 = re.compile(r'(?i)\bv\d+\b')
+RE_KO_SINGLE = re.compile(r'(\d+)\s*(?:권|화|장|편|부)', re.IGNORECASE)
+RE_EN_SINGLE = re.compile(r'(?i)(?:vol|chapter|ch|제|#)\s*\.?\s*0*(\d+)')
+RE_RANGE = re.compile(r'(?<!\d)0*(\d+)\s*[~-]\s*0*(\d+)\s*(?:권|화|장|편|부)?(?!\d)', re.IGNORECASE)
+RE_DIGITS = re.compile(r'\d+')
+
+class MissingCheckThread(QThread):
+    finished_signal = pyqtSignal(list, bool)
+
+    def __init__(self, dup_folders, file_data_cache, is_toast=False):
+        super().__init__()
+        self.dup_folders = dup_folders
+        self.file_data_cache = file_data_cache
+        self.is_toast = is_toast
+        
+        # 동적 생성되는 시리즈명 삭제 정규식의 캐싱
+        self.series_regex_cache = {}
+
+    def extract_vol_numbers(self, name, series_name=""):
+        vols = set()
+        
+        # 1. 컴파일된 정규식으로 고속 치환
+        clean_name = RE_TRASH_1.sub('', name)
+        clean_name = RE_TRASH_2.sub('', clean_name)
+        clean_name = RE_TRASH_3.sub('', clean_name)
+        
+        # 2. 명시적 권수 표기 (한국어)
+        ko_single = RE_KO_SINGLE.search(clean_name)
+        if ko_single:
+            vols.add(int(ko_single.group(1)))
+            return vols
+            
+        # 3. 명시적 권수 표기 (영어)
+        en_single = RE_EN_SINGLE.search(clean_name)
+        if en_single:
+            vols.add(int(en_single.group(1)))
+            return vols
+
+        # 4. 범위 형태의 합본 파일
+        range_match = RE_RANGE.search(clean_name)
+        if range_match:
+            start, end = int(range_match.group(1)), int(range_match.group(2))
+            if start <= end and end - start < 150: 
+                vols.update(range(start, end + 1))
+                return vols
+            
+        # 5. 최후의 수단: 시리즈명을 도려내고 남은 마지막 숫자 추출 (캐시 활용)
+        if series_name:
+            if series_name not in self.series_regex_cache:
+                safe_series = r'\s*'.join(re.escape(word) for word in series_name.split())
+                self.series_regex_cache[series_name] = re.compile(f'(?i){safe_series}')
+                
+            name_no_series = self.series_regex_cache[series_name].sub('', clean_name)
+        else:
+            name_no_series = clean_name
+            
+        digits = RE_DIGITS.findall(name_no_series)
+        if digits:
+            vols.add(int(digits[-1]))
+            
+        return vols
+
+    def run(self):
+        import os, re
+        from collections import defaultdict
+        from core.library_db import db
+        from core.parser import extract_core_title
+
+        # [최적화] 누락 판단을 위한 로직 재설계
+        series_map = defaultdict(list)
+        
+        # 데이터를 시리즈별로 분류하는 과정 (기존과 동일)
+        # ... (process_record 호출 부분은 이전과 동일하므로 생략 가능하나, 
+        #      안전을 위해 아래 로직 전체를 덮어쓰세요)
+        
+        def process_record(fp, name, db_series):
+            if not fp or not name: return
+            series_name = db_series
+            if not series_name:
+                ext_title = extract_core_title(os.path.splitext(name)[0]).strip()
+                series_name = ext_title if ext_title else os.path.basename(os.path.dirname(fp))
+            series_map[series_name].append({"name": name, "folder_path": os.path.dirname(fp), "series_name": series_name})
+
+        # (데이터 수집 루프는 이전 답변의 process_record 호출부와 동일)
+        if self.dup_folders:
+            for folder in self.dup_folders:
+                if not os.path.exists(folder): continue
+                for record in db.get_target_index(folder):
+                    fp, name, db_series = (record[0], record[2], record[6]) if not isinstance(record, dict) else (record.get("full_path"), record.get("name"), record.get("series"))
+                    process_record(fp, name, db_series)
+        else:
+            for row in self.file_data_cache:
+                if row.get("is_folder"): continue
+                process_record(row.get("full_path"), row.get("name"), row.get("series") or row.get("full_meta", {}).get("series"))
+
+        missing_data = []
+        for s_name, items in series_map.items():
+            possessed_vols = set() # [중요] 모든 파일을 뒤져서 보유한 '모든 번호'를 저장
+            folder_paths = set()
+            
+            for item in items:
+                v_nums = self.extract_vol_numbers(item["name"], item["series_name"])
+                possessed_vols.update(v_nums) # 합본 파일의 모든 번호를 Set에 추가
+                folder_paths.add(item["folder_path"])
+                    
+            if possessed_vols:
+                min_v, max_v = min(possessed_vols), max(possessed_vols)
+                # 시리즈 전체를 훑어 누락된 번호만 필터링
+                missing = [str(i) for i in range(min_v, max_v + 1) if i not in possessed_vols]
+                
+                # 너무 과도한 누락 방지 (라이브러리 오인식 방지)
+                if missing and (max_v - min_v) < 150:
+                    missing_data.append({
+                        "series": s_name,
+                        "missing": missing,
+                        "folder_path": next(iter(folder_paths))
+                    })
+                        
+        missing_data.sort(key=lambda x: x["series"])
+        self.finished_signal.emit(missing_data, self.is_toast)
+
+
+# ==========================================
 # 탭 폴더 메인 클래스
 # ==========================================
 class TabFolder(QWidget):
@@ -2063,6 +2210,12 @@ class TabFolder(QWidget):
         """)
         for i in range(1, 4): self.tree_view.hideColumn(i)
         left_layout.addWidget(self.tree_view)
+
+        self.btn_check_missing = QPushButton(_("tf_btn_check_missing"))
+        self.btn_check_missing.setStyleSheet(toggle_btn_style)
+        self.btn_check_missing.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_check_missing.clicked.connect(self.show_missing_volumes_dialog)
+        left_layout.addWidget(self.btn_check_missing)
 
         self.right_splitter = QSplitter(Qt.Orientation.Vertical)
         self.right_splitter.setStyleSheet(splitter_style)
@@ -3339,17 +3492,50 @@ class TabFolder(QWidget):
         display_data = []
         
         if self.current_group_key != "none":
-            # [최적화] 극심한 프리징을 유발하는 원인 2: O(N^2) 그룹 카운팅 병목을 Counter(O(N))로 해결
+            from collections import defaultdict
+            import re
+            
             group_counts = Counter((safe_get(r, self.current_group_key) or _("folder_unknown")) for r in data)
             
+            # 그룹별로 속한 파일 데이터 모으기
+            group_rows = defaultdict(list)
+            for r in data:
+                g_val = safe_get(r, self.current_group_key) or _("folder_unknown")
+                group_rows[g_val].append(r)
+                
+            # 파일명에서 실제 권/화 번호만 영리하게 추출하는 함수
+            def extract_vol_number(name):
+                name = re.sub(r'(?i)\b(1080p|720p|480p|1440p|4k|2k|x264|x265)\b', '', name)
+                name = re.sub(r'\[19\d{2}\]|\[20\d{2}\]|\(19\d{2}\)|\(20\d{2}\)', '', name)
+                match = re.search(r'(?i)(?:vol|v|권|화|제|chapter|ch|#)\s*\.?\s*0*(\d+)', name)
+                if match: return int(match.group(1))
+                digits = re.findall(r'\d+', name)
+                if digits: return int(digits[-1])
+                return None
+
             current_group = object()
             for row in data:
-                g_val = safe_get(row, self.current_group_key)
-                if not g_val: g_val = _("folder_unknown")
+                g_val = safe_get(row, self.current_group_key) or _("folder_unknown")
                 
                 if g_val != current_group:
                     count = group_counts[g_val]
-                    display_data.append({"is_group": True, "name": g_val, "count": count})
+                    
+                    # 그룹 내 파일들의 번호를 수집하여 누락 확인
+                    vols = set()
+                    for gr in group_rows[g_val]:
+                        if gr.get("is_folder"): continue
+                        v_num = extract_vol_number(gr.get("name", ""))
+                        if v_num is not None:
+                            vols.add(v_num)
+                    
+                    missing = []
+                    if vols:
+                        min_v, max_v = min(vols), max(vols)
+                        # 오탐지를 막기 위해 첫권과 끝권의 차이가 150권 이하일 때만 검사
+                        if max_v - min_v < 150: 
+                            missing = [str(i) for i in range(min_v, max_v) if i not in vols]
+
+                    display_data.append({"is_group": True, "name": g_val, "count": count, "missing": missing})
                     current_group = g_val
                 display_data.append(row)
         else:
@@ -3454,6 +3640,16 @@ class TabFolder(QWidget):
     def on_scan_progress(self, count):
         self.lbl_tree_status.setText(_("folder_scanning").format(count))
 
+    def _show_missing_toast_delayed(self):
+        # 폴더 진입 시 이전 캐시를 비우고 분석 시작
+        self._cached_missing_data = None 
+        self._waiting_for_dialog = False
+        
+        dup_folders = self.config.get("dup_check_folders", [])
+        self.toast_check_thread = MissingCheckThread(dup_folders, getattr(self, 'file_data_cache', []), is_toast=True)
+        self.toast_check_thread.finished_signal.connect(self._on_missing_data_ready)
+        self.toast_check_thread.start()
+            
     def on_scan_finished(self, file_data_cache, total_size):
         self.is_syncing = False
         self.sync_total_tasks = 0
@@ -3471,6 +3667,8 @@ class TabFolder(QWidget):
             row["size"] = self.format_size(row["raw_size"])
 
         self.apply_grouping_and_sorting()
+
+        QTimer.singleShot(1000, self._show_missing_toast_delayed)
 
         folder_path = self.current_watched_folder
         if folder_path:
@@ -4053,7 +4251,6 @@ class TabFolder(QWidget):
         
         menu = QMenu()
         
-        # 단축키를 우측에 깔끔하게 정렬해주는 헬퍼 함수
         def add_menu_action(text, shortcut, slot):
             action = QAction(text, self)
             if shortcut:
@@ -4064,19 +4261,21 @@ class TabFolder(QWidget):
 
         add_menu_action(_("action_view"), None, self.open_viewer)
         
-        # 사용자가 i18n에서 "(F1)" 등의 텍스트를 제거하면 원문만 깔끔하게 나오고 우측에 단축키가 정렬됩니다.
         add_menu_action(_("action_flatten_structure"), "F1", self.send_to_tab1)
         add_menu_action(_("action_inner_ren"), "F2", self.send_to_tab2)
         add_menu_action(_("action_meta_edit"), "F3", self.send_to_tab3)
         
         add_menu_action(_("action_update_files"), None, self.force_update_selected_files)
         menu.addSeparator()
+        
+        # 새롭게 추가된 기능: 책 제목 기반 시리즈 분류
+        add_menu_action(_("action_group_by_series"), None, self.action_group_by_series)
+        menu.addSeparator()
+
         add_menu_action(_("action_del_files"), "Del", self.delete_selected)
         
-        # [수정] 여러 파일 이름 바꾸기 (Shift+R)
         add_menu_action(_("tf_menu_rename_multi"), "Shift+R", self.action_multi_rename)
         
-        # [수정] 실행 취소 (Undo)
         history_file = os.path.join(os.getcwd(), "rename_history.json")
         if os.path.exists(history_file):
             add_menu_action(_("tf_undo_rename"), "Ctrl+Z", self.action_undo_rename)
@@ -4291,6 +4490,197 @@ class TabFolder(QWidget):
             self.main_window.tabs.setCurrentWidget(self.main_window.tab3)
             if hasattr(self.main_window.tab3, 'process_paths'): self.main_window.tab3.process_paths(files)
 
+    def get_missing_volumes_data(self):
+        import os, re
+        from collections import defaultdict
+        from core.library_db import db
+        from core.parser import extract_core_title
+        
+        def extract_vol_number(name):
+            name = re.sub(r'(?i)\b(1080p|720p|480p|1440p|4k|2k|x264|x265)\b', '', name)
+            name = re.sub(r'\[19\d{2}\]|\[20\d{2}\]|\(19\d{2}\)|\(20\d{2}\)', '', name)
+            match = re.search(r'(?i)(?:vol|v|권|화|제|chapter|ch|#)\s*\.?\s*0*(\d+)', name)
+            if match: return int(match.group(1))
+            digits = re.findall(r'\d+', name)
+            if digits: return int(digits[-1])
+            return None
+
+        series_map = defaultdict(list)
+        dup_folders = self.config.get("dup_check_folders", [])
+        
+        # [핵심] 1. 설정에 등록된 '중복 검사 대상 폴더(메인 라이브러리)'의 전체 DB 인덱스를 활용
+        if dup_folders:
+            for folder in dup_folders:
+                if not os.path.exists(folder): continue
+                records = db.get_target_index(folder)
+                if not records: continue
+                
+                for record in records:
+                    if isinstance(record, dict):
+                        fp = record.get("full_path", "")
+                        name = record.get("name", "")
+                    else:
+                        fp = record[0]
+                        name = record[2]
+                        
+                    if not fp or not name: continue
+                    
+                    series_name = extract_core_title(os.path.splitext(name)[0]).strip()
+                    if not series_name: 
+                        series_name = os.path.basename(os.path.dirname(fp))
+                        
+                    series_map[series_name].append({
+                        "name": name,
+                        "folder_path": os.path.dirname(fp)
+                    })
+        else:
+            # 2. 설정된 메인 라이브러리가 없다면 기존처럼 현재 화면의 데이터를 활용 (Fallback)
+            for row in getattr(self, 'file_data_cache', []):
+                if row.get("is_folder") or row.get("is_dup_folder") or row.get("is_dup_child"): continue
+                
+                series_name = row.get("series") or row.get("full_meta", {}).get("series", "")
+                if not series_name:
+                    series_name = extract_core_title(os.path.splitext(row.get("name", ""))[0]).strip()
+                if not series_name:
+                    series_name = os.path.basename(os.path.dirname(row.get("full_path", "")))
+                    
+                if series_name:
+                    series_map[series_name].append({
+                        "name": row.get("name", ""),
+                        "folder_path": os.path.dirname(row.get("full_path", ""))
+                    })
+
+        missing_data = []
+        for s_name, items in series_map.items():
+            vols = set()
+            folder_paths = set()
+            for item in items:
+                v_num = extract_vol_number(item["name"])
+                if v_num is not None: vols.add(v_num)
+                folder_paths.add(item["folder_path"])
+                    
+            if vols:
+                min_v, max_v = min(vols), max(vols)
+                # 오탐지 방지: 첫 권과 끝 권의 차이가 150 이하일 때만 검사
+                if max_v - min_v < 150:
+                    missing = [str(i) for i in range(min_v, max_v) if i not in vols]
+                    if missing:
+                        missing_data.append({
+                            "series": s_name,
+                            "missing": missing,
+                            "folder_path": list(folder_paths)[0] 
+                        })
+                        
+        # UI에서 찾기 쉽도록 시리즈 이름 가나다 순으로 정렬
+        missing_data.sort(key=lambda x: x["series"])
+        return missing_data
+
+    def show_missing_volumes_dialog(self):
+        # 1. 이미 토스트 알림용으로 분석된 데이터가 있다면 즉시 팝업 표시 (로딩 0초)
+        if getattr(self, '_cached_missing_data', None) is not None:
+            self._build_and_show_missing_dialog(self._cached_missing_data)
+            return
+
+        # 2. 만약 폴더에 들어오자마자 빛의 속도로 버튼을 눌러서 백그라운드 분석이 덜 끝났다면 대기
+        if hasattr(self, 'toast_check_thread') and self.toast_check_thread.isRunning():
+            self.btn_check_missing.setEnabled(False)
+            self.btn_check_missing.setText(_("tf_btn_check_missing") + " (분석 중...)")
+            self._waiting_for_dialog = True 
+            return
+
+        # 3. 예외 상황 (스레드 단독 실행)
+        if hasattr(self, 'missing_check_thread') and self.missing_check_thread.isRunning():
+            return
+            
+        self.btn_check_missing.setEnabled(False)
+        self.btn_check_missing.setText(_("tf_btn_check_missing") + " (분석 중...)")
+        
+        dup_folders = self.config.get("dup_check_folders", [])
+        self.missing_check_thread = MissingCheckThread(dup_folders, getattr(self, 'file_data_cache', []), is_toast=False)
+        self.missing_check_thread.finished_signal.connect(self._on_missing_data_ready)
+        self.missing_check_thread.start()
+
+    def _on_missing_data_ready(self, missing_data, is_toast):
+        # 백그라운드 분석이 완료되면 무조건 캐시에 결과 저장
+        self._cached_missing_data = missing_data
+        
+        if is_toast:
+            if missing_data:
+                try:
+                    from ui.widgets import Toast
+                    Toast.show(self.main_window, _("tf_toast_missing").format(len(missing_data)))
+                except Exception: pass
+                
+            # 유저가 로딩 중에 버튼을 눌러서 기다리고 있었다면 팝업 즉시 호출
+            if getattr(self, '_waiting_for_dialog', False):
+                self._waiting_for_dialog = False
+                self.btn_check_missing.setEnabled(True)
+                self.btn_check_missing.setText(_("tf_btn_check_missing"))
+                self._build_and_show_missing_dialog(missing_data)
+            return
+
+        self.btn_check_missing.setEnabled(True)
+        self.btn_check_missing.setText(_("tf_btn_check_missing"))
+        self._build_and_show_missing_dialog(missing_data)
+        
+    def _build_and_show_missing_dialog(self, missing_data):
+        if not missing_data:
+            QMessageBox.information(self, _("tf_dlg_missing_title"), "누락된 권수가 없습니다.")
+            return
+            
+        dialog = QDialog(self)
+        dialog.setWindowTitle(_("tf_dlg_missing_title"))
+        dialog.resize(550, 450)
+        dialog.setStyleSheet("QDialog { background-color: #2b2b2b; color: white; }")
+        
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel(_("tf_dlg_missing_desc")))
+        
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: 1px solid #444; background: #1e1e1e; }")
+        content = QWidget()
+        content.setStyleSheet("background: transparent;")
+        content_layout = QVBoxLayout(content)
+        
+        for item in missing_data:
+            row_w = QWidget()
+            row_w.setStyleSheet("border-bottom: 1px solid #333;")
+            row_ly = QHBoxLayout(row_w)
+            row_ly.setContentsMargins(5, 5, 5, 5)
+            
+            lbl_s = QLabel(f"<b>{item['series']}</b>")
+            lbl_s.setStyleSheet("color: #E8A020; border: none;")
+            lbl_s.setFixedWidth(150)
+            
+            missing_str = ", ".join(item['missing'])
+            if len(item['missing']) > 8:
+                missing_str = ", ".join(item['missing'][:8]) + f" ... (총 {len(item['missing'])}권)"
+            lbl_m = QLabel(f"누락: {missing_str}")
+            lbl_m.setStyleSheet("color: #E74C3C; border: none;")
+            lbl_m.setWordWrap(True)
+            
+            btn_go = QPushButton(_("tf_btn_move"))
+            btn_go.setStyleSheet("background-color: #3498DB; color: white; border-radius: 4px; padding: 4px 12px; border: none;")
+            btn_go.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_go.clicked.connect(lambda checked, path=item['folder_path']: self._goto_missing_folder(path, dialog))
+            
+            row_ly.addWidget(lbl_s)
+            row_ly.addWidget(lbl_m, 1)
+            row_ly.addWidget(btn_go)
+            content_layout.addWidget(row_w)
+            
+        content_layout.addStretch()
+        scroll.setWidget(content)
+        layout.addWidget(scroll)
+        
+        dialog.exec()
+        
+    def _goto_missing_folder(self, folder_path, dialog):
+        dialog.accept()
+        self._start_queued_scroll(folder_path)
+        self.set_grouping("path")
+
     def check_nas_folder_mtime(self):
         # 내가 프로그램 내부에서 파일을 지웠을 때는 NAS 폴링 변화 감지 무시
         if getattr(self, '_internal_action_lock', False): return
@@ -4304,3 +4694,68 @@ class TabFolder(QWidget):
                 self.refresh_list(force_update=False)
         except Exception:
             pass
+
+    def action_group_by_series(self):
+        import os
+        import shutil
+        import re
+        from core.parser import extract_core_title
+        
+        selected_files = self.get_selected_files()
+        if not selected_files: return
+        
+        success_count = 0
+        
+        # 파일 조작 시 자동 새로고침 및 UI 충돌을 방지하기 위해 락 활성화
+        self._internal_action_lock = True
+        
+        for fp in selected_files:
+            base_name = os.path.basename(fp)
+            name_no_ext = os.path.splitext(base_name)[0]
+            
+            core_title = extract_core_title(name_no_ext).strip()
+            if not core_title:
+                core_title = name_no_ext
+            
+            # 폴더명에 사용할 수 없는 특수문자 안전하게 치환
+            core_title = re.sub(r'[\\/:*?"<>|]', '_', core_title)
+            
+            current_dir = os.path.dirname(fp)
+            current_folder_name = os.path.basename(current_dir)
+            
+            # 현재 파일이 위치한 폴더명이 이미 책 제목과 같다면 이동 생략
+            if current_folder_name.lower() == core_title.lower():
+                continue
+                
+            target_dir = os.path.join(current_dir, core_title)
+            target_path = os.path.join(target_dir, base_name)
+            
+            if not os.path.exists(target_dir):
+                try:
+                    os.makedirs(target_dir, exist_ok=True)
+                except Exception: 
+                    continue
+                
+            if not os.path.exists(target_path):
+                try:
+                    shutil.move(fp, target_path)
+                    success_count += 1
+                    
+                    # 이동 완료 후 현재 메모리 맵에서 해당 데이터 제거
+                    if fp in self.file_data_map:
+                        del self.file_data_map[fp]
+                except Exception as e:
+                    print(f"Move error: {e}")
+                    
+        self._internal_action_lock = False
+        
+        # 이동 성공한 항목이 있다면 UI 상태 업데이트
+        if success_count > 0:
+            self.file_data_cache = [row for row in self.file_data_cache if row.get("full_path") in self.file_data_map]
+            self.apply_grouping_and_sorting()
+            
+            try:
+                from ui.widgets import Toast
+                Toast.show(self.main_window, _("msg_series_grouped").format(success_count))
+            except Exception:
+                pass

@@ -61,6 +61,9 @@ class PreviewWorker(QThread):
         self.is_cancelled = False
 
     def run(self):
+        import re
+        import os
+        
         result_data = []
         seen_new_paths = set()
         invalid_chars = re.compile(r'[\\/:*?"<>|]')
@@ -79,7 +82,6 @@ class PreviewWorker(QThread):
         num_digits = self.rule_data.get("num_digits", 3)
         num_pos = self.rule_data.get("num_pos", 0)
         
-        # [추가됨] 자리수 맞추기 옵션 값 가져오기
         use_padding = self.rule_data.get("use_padding", False)
         pad_digits = self.rule_data.get("pad_digits", 3)
 
@@ -90,7 +92,14 @@ class PreviewWorker(QThread):
             old_name = os.path.basename(old_path)
             name_no_ext, ext = os.path.splitext(old_name)
             
-            curr_name = name_no_ext
+            # 1. 사용자가 입력한 형식에 '.cbz' 등의 확장자가 포함되어 있다면, 
+            # 이름과 확장자를 분리하지 않고 파일명 전체를 대상으로 변환을 시도합니다.
+            if ext and ((old_str and ext.lower() in old_str.lower()) or (new_str and ext.lower() in new_str.lower())):
+                curr_name = old_name
+                curr_ext = ""
+            else:
+                curr_name = name_no_ext
+                curr_ext = ext
             
             try:
                 flags = 0 if case_sens else re.IGNORECASE
@@ -99,57 +108,67 @@ class PreviewWorker(QThread):
                     if use_regex:
                         curr_name = re.sub(old_str, new_str, curr_name, flags=flags)
                     else:
-                        escaped_old = re.escape(old_str).replace(r'\%', '%')
-                        
-                        pattern_parts = []
-                        var_map = {} 
-                        group_idx = 1
-                        
-                        tokens = re.split(r'(%\d+|\\\*|\\\?)', escaped_old)
-                        for token in tokens:
-                            if not token: continue
-                            if re.match(r'%\d+', token):
-                                var_id = int(token[1:]) 
-                                var_map[group_idx] = var_id
-                                pattern_parts.append(r'(.*?)')
-                                group_idx += 1
-                            elif token == r'\*':
-                                pattern_parts.append(r'(.*?)')
-                                group_idx += 1
-                            elif token == r'\?':
-                                pattern_parts.append(r'(.)')
-                                group_idx += 1
-                            else:
-                                pattern_parts.append(token)
-                                
-                        regex_pattern = f"^{''.join(pattern_parts)}$"
-                        
-                        match = re.match(regex_pattern, curr_name, flags=flags)
-                        if match:
-                            extracted_vars = {}
-                            for g_idx, v_id in var_map.items():
-                                extracted_vars[v_id] = match.group(g_idx)
-                                
-                            def build_new_str(m):
-                                var_id = int(m.group(1))
-                                return extracted_vars.get(var_id, m.group(0)) 
-                                
-                            curr_name = re.sub(r'%(\d+)', build_new_str, new_str)
+                        has_wildcard = bool(re.search(r'%\d+|\*|\?', old_str))
+                        if not has_wildcard:
+                            escaped_old = re.escape(old_str)
+                            curr_name = re.sub(escaped_old, lambda m: new_str, curr_name, flags=flags)
+                        else:
+                            pattern_str = ""
+                            var_map = {}
+                            group_idx = 1
+                            
+                            tokens = re.split(r'(%\d+|\*|\?)', old_str)
+                            for token in tokens:
+                                if not token: continue
+                                if re.match(r'%\d+', token):
+                                    var_map[group_idx] = int(token[1:])
+                                    pattern_str += r'(.*?)'
+                                    group_idx += 1
+                                elif token == '*':
+                                    pattern_str += r'(.*?)'
+                                    group_idx += 1
+                                elif token == '?':
+                                    pattern_str += r'(.)'
+                                    group_idx += 1
+                                else:
+                                    pattern_str += re.escape(token)
+                                    
+                            regex_pattern = f"^{pattern_str}$"
+                            match = re.match(regex_pattern, curr_name, flags=flags)
+                            
+                            if match:
+                                extracted_vars = {}
+                                for g_idx, v_id in var_map.items():
+                                    extracted_vars[v_id] = match.group(g_idx)
+                                    
+                                def build_new_str(m):
+                                    var_id = int(m.group(1))
+                                    return extracted_vars.get(var_id, m.group(0))
+                                    
+                                curr_name = re.sub(r'%(\d+)', build_new_str, new_str)
+                else:
+                    if new_str:
+                        def build_new_from_empty(m):
+                            return name_no_ext
+                        curr_name = re.sub(r'%(\d+)', build_new_from_empty, new_str)
 
-                # [추가됨] 숫자 자리수 맞추기 적용 (모든 숫자에 대해 0 패딩)
+                # 2. 숫자 자리수 맞추기 (단순 zfill 문자 채우기가 아닌 실제 정수화 후 0 패딩 처리)
                 if use_padding:
-                    curr_name = re.sub(r'\d+', lambda m: m.group(0).zfill(pad_digits), curr_name)
+                    def pad_match(m):
+                        val_int = int(m.group(0))  # 001과 같은 데이터를 실제 1로 변환
+                        return f"{val_int:0{pad_digits}d}" # 사용자가 지정한 자리수에 맞춰 새롭게 0을 채움
+                    curr_name = re.sub(r'\d+', pad_match, curr_name)
 
-                # 순번 적용
+                # 3. 순번 적용
                 if use_num:
                     num_str = f"{num_start + i:0{num_digits}d}"
                     if num_pos == 0: curr_name = f"{num_str}_{curr_name}"
                     else: curr_name = f"{curr_name}_{num_str}"
 
-            except Exception:
-                pass 
+            except Exception as e:
+                print(f"[Rename Error] {e}")
 
-            new_name = f"{curr_name}{ext}"
+            new_name = f"{curr_name}{curr_ext}"
             new_path = os.path.join(dir_name, new_name)
             status = status_ok
             
@@ -163,7 +182,7 @@ class PreviewWorker(QThread):
             result_data.append((old_name, new_name, status, old_path))
             
         self.preview_ready.emit(result_data)
-
+        
 class RenameWorker(QThread):
     progress = pyqtSignal(int, int)
     finished_batch = pyqtSignal(dict, list)

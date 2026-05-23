@@ -364,6 +364,19 @@ def get_i18n():
             "fm_error": "경로 오류",
             "fm_error_desc": "존재하지 않거나 유효하지 않은 폴더 경로입니다.",
 
+            "action_group_by_series": "책 제목 기반 시리즈 분류",
+            "msg_series_grouped": "{}개의 파일을 시리즈 폴더로 이동했습니다.",
+
+            "tf_missing_vols": "  ⚠️ 누락: {}",
+            "tf_missing_vols_more": "  ⚠️ 누락: {} ... (총 {}권/화)",
+            "tf_global_missing_alert": "⚠️ 누락된 시리즈가 {}건 있습니다. (클릭하여 확인)",
+
+            "tf_btn_check_missing": "누락 권수 확인",
+            "tf_toast_missing": "⚠️ 누락된 권/화가 있는 시리즈가 {}건 있습니다.",
+            "tf_dlg_missing_title": "누락 권수 확인",
+            "tf_dlg_missing_desc": "다음 시리즈들에 누락된 권/화가 발견되었습니다:",
+            "tf_btn_move": "이동",
+
         },
         "en": {
             "title": f"ComicZIP Optimizer v{CURRENT_VERSION}",
@@ -683,6 +696,19 @@ def get_i18n():
             "fm_cancel": "Cancel",
             "fm_error": "Path error",
             "fm_error_desc": "The folder path does not exist or is invalid.",
+
+            "action_group_by_series": "Group by Series Title",
+            "msg_series_grouped": "Moved {} files to series folders.",
+
+            "tf_missing_vols": "  ⚠️ Missing: {}",
+            "tf_missing_vols_more": "  ⚠️ Missing: {} ... (Total {})",
+            "tf_global_missing_alert": "⚠️ {} series have missing volumes. (Click to view)",
+
+            "tf_btn_check_missing": "Check Missing Volumes",
+            "tf_toast_missing": "⚠️ {} series have missing volumes.",
+            "tf_dlg_missing_title": "Missing Volumes",
+            "tf_dlg_missing_desc": "Missing volumes were found in the following series:",
+            "tf_btn_move": "Move",
 
         },
         "ja": {
@@ -1007,6 +1033,20 @@ def get_i18n():
             "fm_cancel": "キャンセル",
             "fm_error": "パスエラー",
             "fm_error_desc": "存在しないフォルダまたは無効なフォルダへのパスです。",
+
+            "action_group_by_series": "タイトルに基づくシリーズ分類",
+            "msg_series_grouped": "{}個のファイルをシリーズフォルダに移動しました。",
+
+            "tf_missing_vols": "  ⚠️ 抜け: {}",
+            "tf_missing_vols_more": "  ⚠️ 抜け: {} ... (計 {})",
+            "tf_global_missing_alert": "⚠️ 抜けのあるシリーズが {} 件あります。(クリックして確認)",
+
+            "tf_btn_check_missing": "抜け巻確認",
+            "tf_toast_missing": "⚠️ 抜け巻があるシリーズが {} 件あります。",
+            "tf_dlg_missing_title": "抜け巻確認",
+            "tf_dlg_missing_desc": "以下のシリーズに抜け巻が見つかりました：",
+            "tf_btn_move": "移動",
+
 
         }
     }

@@ -59,7 +59,7 @@ class RichTextDelegate(QStyledItemDelegate):
             painter.save()
             textRect = style.subElementRect(QStyle.SubElement.SE_ItemViewItemText, options)
             
-            # 🌟 수정됨: 수직 중앙 정렬을 위한 Y축 오프셋 동적 계산
+            # 수정됨: 수직 중앙 정렬을 위한 Y축 오프셋 동적 계산
             y_offset = (textRect.height() - doc.size().height()) / 2
             painter.translate(textRect.left(), textRect.top() + y_offset)
             
@@ -96,7 +96,7 @@ class RichTextDelegate(QStyledItemDelegate):
             option_text.setTabStopDistance(30.0)
             doc.setDefaultTextOption(option_text)
             
-            # 🌟 FIX: 아이템에 명시적으로 설정된 sizeHint가 있다면 그 높이를 존중하도록 수정
+            # FIX: 아이템에 명시적으로 설정된 sizeHint가 있다면 그 높이를 존중하도록 수정
             base_hint = super().sizeHint(option, index)
             doc_height = int(doc.size().height())
             
@@ -124,7 +124,7 @@ class Tab1Organizer(QWidget):
         if fp not in self.org_data: return
         lang = self.main_app.lang
         
-        # 🌟 버그 수정: 버튼 텍스트가 아닌, 전달받은 인수("vol" 또는 "ch")로 정확히 판별
+        # 버그 수정: 버튼 텍스트가 아닌, 전달받은 인수("vol" 또는 "ch")로 정확히 판별
         is_chap = (target_unit == "ch")
         
         for vol in self.org_data[fp]['volumes']:
@@ -210,7 +210,7 @@ class Tab1Organizer(QWidget):
         
         self.tree_org.setTextElideMode(Qt.TextElideMode.ElideNone)
         
-        # 🌟 긴 파일명이 오면 잘리지 않고 여러 줄로 표시되도록 줄바꿈 허용
+        # 긴 파일명이 오면 잘리지 않고 여러 줄로 표시되도록 줄바꿈 허용
         self.tree_org.setWordWrap(True)
         
         self.tree_org.itemChanged.connect(self.on_item_changed)
@@ -348,7 +348,7 @@ class Tab1Organizer(QWidget):
         items_to_add = []
         root_widgets_to_set = []
         
-        # 🌟 폰트 비율에 따른 동적 높이 사전 계산
+        # 폰트 비율에 따른 동적 높이 사전 계산
         s11 = getattr(self, 'config', {}).get("s11", 11)
         font_family = getattr(self, 'config', {}).get("font_family", "Default")
         
@@ -367,7 +367,7 @@ class Tab1Organizer(QWidget):
             
             root_item.setCheckState(0, Qt.CheckState.Checked if data.get('checked', True) else Qt.CheckState.Unchecked)
             
-            # 🌟 동적 계산된 높이를 트리의 Row Height로 지정 (수정된 Delegate가 이 값을 존중함)
+            # 동적 계산된 높이를 트리의 Row Height로 지정 (수정된 Delegate가 이 값을 존중함)
             root_item.setSizeHint(0, QSize(0, row_height)) 
             
             root_item.setText(0, f"📦 {data['clean_title']}||{data['name']}") 
@@ -410,7 +410,7 @@ class Tab1Organizer(QWidget):
             btn_ch = QPushButton(btn_ch_text)
             btn_ch.clicked.connect(lambda _, key=fp: self.batch_change_unit(key, "ch"))
             
-            # 🌟 테두리와 높이를 명확히 지정
+            # 테두리와 높이를 명확히 지정
             le_path.setStyleSheet(f"padding: 5px; font-size: {s11}px; border: 1px solid #555; border-radius: 4px; background-color: #3a3a3a; color: white;")
             le_path.setMinimumHeight(widget_height)
             
