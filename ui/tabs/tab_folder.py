@@ -1618,14 +1618,24 @@ class DetailBackgroundWidget(QFrame):
 # 누락 권수 백그라운드 검사 스레드 (초고속 최적화)
 # ==========================================
 
-# [속도 개선 핵심] 정규식을 클래스 외부에 미리 컴파일하여 반복 파싱 비용(렉)을 0으로 만듦
-RE_TRASH_1 = re.compile(r'(?i)\b(1080p|720p|480p|1440p|4k|2k|x264|x265)\b')
+# [속도/정밀도 개선 핵심 정규식]
+RE_TRASH_1 = re.compile(r'(?i)\b(1080p|720p|480p|1440p|4k|2k|x264|x265|\d{3,4}x\d{3,4})\b')
 RE_TRASH_2 = re.compile(r'\[19\d{2}\]|\[20\d{2}\]|\(19\d{2}\)|\(20\d{2}\)')
 RE_TRASH_3 = re.compile(r'(?i)\bv\d+\b')
-RE_KO_SINGLE = re.compile(r'(\d+)\s*(?:권|화|장|편|부)', re.IGNORECASE)
-RE_EN_SINGLE = re.compile(r'(?i)(?:vol|chapter|ch|제|#)\s*\.?\s*0*(\d+)')
-RE_RANGE = re.compile(r'(?<!\d)0*(\d+)\s*[~-]\s*0*(\d+)\s*(?:권|화|장|편|부)?(?!\d)', re.IGNORECASE)
-RE_DIGITS = re.compile(r'\d+')
+
+# 범위 매칭 (물결표는 키보드~, 전각～, 일본식〜 모두 커버하여 무조건 범위로 인정)
+RE_RANGE_TILDE = re.compile(r'(\d+)\s*(?:권|화|장|편|부|vol|ch|ep)?\s*[~～〜]\s*(\d+)\s*(?:권|화|장|편|부|vol|ch|ep)?', re.IGNORECASE)
+
+# 대시(-)는 13권-56(에피소드)과 13-56화(범위)를 엄격히 구분하기 위해 우측이나 양쪽에 명시적 단위가 있을 때만 범위로 인정
+RE_RANGE_DASH_1 = re.compile(r'(\d+)\s*-\s*(\d+)\s*(권|화|장|편|부|vol|ch|ep)', re.IGNORECASE)
+RE_RANGE_DASH_2 = re.compile(r'(\d+)\s*(권|화|장|편|부|vol|ch|ep)\s*-\s*(\d+)\s*\2', re.IGNORECASE)
+
+# 단일 명시 매칭 (13권 - 56 처럼 우측 단위가 없으면 메인 번호 13만 잡고 즉시 종료)
+RE_KO_SINGLE = re.compile(r'(\d+)(?:[-_.]\d+)?\s*(권|화|장|편|부)', re.IGNORECASE)
+RE_EN_SINGLE = re.compile(r'(?i)(?:vol|chapter|ch|제|#)\s*\.?\s*0*(\d+)(?:[-_.]\d+)?')
+
+# 최후의 숫자 추출
+RE_DIGITS = re.compile(r'(\d+)(?:[-_.]\d+)?')
 
 class MissingCheckThread(QThread):
     finished_signal = pyqtSignal(list, bool)
@@ -1635,39 +1645,46 @@ class MissingCheckThread(QThread):
         self.dup_folders = dup_folders
         self.file_data_cache = file_data_cache
         self.is_toast = is_toast
-        
-        # 동적 생성되는 시리즈명 삭제 정규식의 캐싱
         self.series_regex_cache = {}
 
     def extract_vol_numbers(self, name, series_name=""):
         vols = set()
         
-        # 1. 컴파일된 정규식으로 고속 치환
         clean_name = RE_TRASH_1.sub('', name)
         clean_name = RE_TRASH_2.sub('', clean_name)
         clean_name = RE_TRASH_3.sub('', clean_name)
         
-        # 2. 명시적 권수 표기 (한국어)
-        ko_single = RE_KO_SINGLE.search(clean_name)
-        if ko_single:
-            vols.add(int(ko_single.group(1)))
-            return vols
-            
-        # 3. 명시적 권수 표기 (영어)
-        en_single = RE_EN_SINGLE.search(clean_name)
-        if en_single:
-            vols.add(int(en_single.group(1)))
-            return vols
-
-        # 4. 범위 형태의 합본 파일
-        range_match = RE_RANGE.search(clean_name)
-        if range_match:
-            start, end = int(range_match.group(1)), int(range_match.group(2))
-            if start <= end and end - start < 150: 
+        # 1. 범위 형태 최우선 처리 (찾으면 얼리 리턴)
+        for rm in RE_RANGE_TILDE.finditer(clean_name):
+            start, end = int(rm.group(1)), int(rm.group(2))
+            if start <= end and end - start < 250: 
                 vols.update(range(start, end + 1))
                 return vols
+                
+        for rm in RE_RANGE_DASH_1.finditer(clean_name):
+            start, end = int(rm.group(1)), int(rm.group(2))
+            if start <= end and end - start < 250: 
+                vols.update(range(start, end + 1))
+                return vols
+                
+        for rm in RE_RANGE_DASH_2.finditer(clean_name):
+            start, end = int(rm.group(1)), int(rm.group(3))
+            if start <= end and end - start < 250: 
+                vols.update(range(start, end + 1))
+                return vols
+
+        # 2. 명시적 단위가 있는 단일 번호 처리 (찾으면 메인 번호 1개만 넣고 얼리 리턴)
+        km = RE_KO_SINGLE.search(clean_name)
+        if km:
+            vols.add(int(km.group(1)))
+            return vols
             
-        # 5. 최후의 수단: 시리즈명을 도려내고 남은 마지막 숫자 추출 (캐시 활용)
+        em = RE_EN_SINGLE.search(clean_name)
+        if em:
+            vols.add(int(em.group(1)))
+            return vols
+            
+        # 3. 최후의 수단: 시리즈명을 제거하고 남은 맨 마지막 숫자 하나만 수집
         if series_name:
             if series_name not in self.series_regex_cache:
                 safe_series = r'\s*'.join(re.escape(word) for word in series_name.split())
@@ -1684,64 +1701,81 @@ class MissingCheckThread(QThread):
         return vols
 
     def run(self):
-        import os, re
-        from collections import defaultdict
         from core.library_db import db
         from core.parser import extract_core_title
-
-        # [최적화] 누락 판단을 위한 로직 재설계
-        series_map = defaultdict(list)
         
-        # 데이터를 시리즈별로 분류하는 과정 (기존과 동일)
-        # ... (process_record 호출 부분은 이전과 동일하므로 생략 가능하나, 
-        #      안전을 위해 아래 로직 전체를 덮어쓰세요)
+        series_map = defaultdict(list)
         
         def process_record(fp, name, db_series):
             if not fp or not name: return
-            series_name = db_series
-            if not series_name:
-                ext_title = extract_core_title(os.path.splitext(name)[0]).strip()
-                series_name = ext_title if ext_title else os.path.basename(os.path.dirname(fp))
-            series_map[series_name].append({"name": name, "folder_path": os.path.dirname(fp), "series_name": series_name})
+            
+            # [핵심 수정] 기존에 잘못 분류된 '회장님은 메이드 사마 56' 같은 파편화 시리즈를 
+            # 메인 엔진(extract_core_title)을 통해 강제로 깎아내어 원래 시리즈로 뭉치게 만듭니다.
+            if db_series:
+                series_name = extract_core_title(db_series).strip()
+                if not series_name: series_name = db_series
+            else:
+                series_name = extract_core_title(os.path.splitext(name)[0]).strip()
+                if not series_name:
+                    series_name = os.path.basename(os.path.dirname(fp))
+            
+            series_map[series_name].append({
+                "name": name,
+                "folder_path": os.path.dirname(fp),
+                "series_name": series_name
+            })
 
-        # (데이터 수집 루프는 이전 답변의 process_record 호출부와 동일)
         if self.dup_folders:
             for folder in self.dup_folders:
                 if not os.path.exists(folder): continue
-                for record in db.get_target_index(folder):
-                    fp, name, db_series = (record[0], record[2], record[6]) if not isinstance(record, dict) else (record.get("full_path"), record.get("name"), record.get("series"))
+                records = db.get_target_index(folder)
+                if not records: continue
+                
+                for record in records:
+                    if isinstance(record, dict):
+                        fp = record.get("full_path", "")
+                        name = record.get("name", "")
+                        db_series = record.get("series", "")
+                        if not db_series:
+                            db_series = record.get("full_meta", {}).get("series", "")
+                    else:
+                        fp = record[0]
+                        name = record[2]
+                        db_series = record[6] if len(record) > 6 else ""
+                        
                     process_record(fp, name, db_series)
         else:
             for row in self.file_data_cache:
-                if row.get("is_folder"): continue
-                process_record(row.get("full_path"), row.get("name"), row.get("series") or row.get("full_meta", {}).get("series"))
+                if row.get("is_folder") or row.get("is_dup_folder") or row.get("is_dup_child"): continue
+                
+                fp = row.get("full_path", "")
+                name = row.get("name", "")
+                db_series = row.get("series", "") or row.get("full_meta", {}).get("series", "")
+                
+                process_record(fp, name, db_series)
 
         missing_data = []
         for s_name, items in series_map.items():
-            possessed_vols = set() # [중요] 모든 파일을 뒤져서 보유한 '모든 번호'를 저장
+            vols = set()
             folder_paths = set()
-            
             for item in items:
                 v_nums = self.extract_vol_numbers(item["name"], item["series_name"])
-                possessed_vols.update(v_nums) # 합본 파일의 모든 번호를 Set에 추가
+                vols.update(v_nums)
                 folder_paths.add(item["folder_path"])
                     
-            if possessed_vols:
-                min_v, max_v = min(possessed_vols), max(possessed_vols)
-                # 시리즈 전체를 훑어 누락된 번호만 필터링
-                missing = [str(i) for i in range(min_v, max_v + 1) if i not in possessed_vols]
-                
-                # 너무 과도한 누락 방지 (라이브러리 오인식 방지)
-                if missing and (max_v - min_v) < 150:
-                    missing_data.append({
-                        "series": s_name,
-                        "missing": missing,
-                        "folder_path": next(iter(folder_paths))
-                    })
+            if vols:
+                min_v, max_v = min(vols), max(vols)
+                if max_v - min_v < 250:
+                    missing = [str(i) for i in range(min_v, max_v) if i not in vols]
+                    if missing:
+                        missing_data.append({
+                            "series": s_name,
+                            "missing": missing,
+                            "folder_path": next(iter(folder_paths)) 
+                        })
                         
         missing_data.sort(key=lambda x: x["series"])
         self.finished_signal.emit(missing_data, self.is_toast)
-
 
 # ==========================================
 # 탭 폴더 메인 클래스
