@@ -5,7 +5,7 @@ from pathlib import Path
 
 def clean_display_title(text):
     cleaned = str(text)
-    cleaned = re.sub(r'[\[\(](번외편?|외전|스핀오프|특별편?|단편|합본)[\]\)]', r' \1 ', cleaned) 
+    cleaned = re.sub(r'[\[\(](번외편?|외전|스핀오프|특별편?|단편(?!선)|합본)[\]\)]', r' \1 ', cleaned) 
     cleaned = re.sub(r'[\[\(].*?[\]\)]', ' ', cleaned) 
     cleaned = re.sub(r'\.(zip|cbz|cbr|rar|7z)$', '', cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r'\d{4}-\d{2}-\d{2}', '', cleaned)
@@ -30,7 +30,7 @@ def extract_core_title(text):
     cleaned = re.sub(r'지원\s사격|지원사격|완결은\s무료', '', cleaned)
     cleaned = re.sub(r'\s외\s\d+편', '', cleaned)
     cleaned = re.sub(r'19\)|19금|19\+|15\)|15금|15\+|N새글|고화질|저화질|무료|워터마크없음|워터마크|고화질판|저화질판|단권|연재본|화질보정|확인불가', '', cleaned)
-    cleaned = re.sub(r'스캔 단면|스캔단면|스캔 양면|스캔양면|스캔본|스캔판|단편 만화|단편만화|단편|단행본', '', cleaned)
+    cleaned = re.sub(r'스캔 단면|스캔단면|스캔 양면|스캔양면|스캔본|스캔판|단편 만화|단편만화|단편(?!선)|단행본', '', cleaned)
     cleaned = re.sub(r'번외편?|외전|스핀오프|특별편?|합본', '', cleaned)
     cleaned = re.sub(r'권\~', '', cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r'\d+\s*[~-]\s*\d+', ' ', cleaned)
@@ -150,17 +150,20 @@ def format_leaf_name(parent_core, leaf_name, index, total_items, lang='ko'):
     is_hash = len(leaf_clean) > 25 and bool(re.match(r'^[a-fA-F0-9\-_]+$', leaf_clean))
     if is_hash or not re.search(r'[가-힣a-zA-Z]', leaf_clean):
         clean_for_nums = re.sub(r'[\[\(].*?[\]\)]', '', leaf_clean)
+        clean_for_nums = re.sub(r'\d+(?:\.\d+)?\s*(?:px|p|pt|mb|gb|kb|k)(?![a-zA-Z])', '', clean_for_nums, flags=re.IGNORECASE)
         nums = re.findall(r'\d+(?:\.\d+)?', clean_for_nums)
+        base = re.sub(r'^[._\-\s]+', '', parent_core)
+        
         if nums and not is_hash:
             target_num = nums[-1]
         else:
-            target_num = str(index + 1)
+            return base.strip()
+            
         padded_num = pad_match(target_num)
-        
-        base = re.sub(r'^[._\-\s]+', '', parent_core)
         return f"{base} v{padded_num}".strip() if lang == 'en' else f"{base} {padded_num}권".strip()
 
     clean_no_brackets = re.sub(r'[\[\(].*?[\]\)]', '', leaf_clean)
+    clean_for_nums = re.sub(r'\d+(?:\.\d+)?\s*(?:px|p|pt|mb|gb|kb|k)(?![a-zA-Z])', '', clean_no_brackets, flags=re.IGNORECASE)
     vol_match = re.search(r'(?:제|v|vol\.?\s*)?(\d+(?:\.\d+)?(?:[~-]\d+(?:\.\d+)?)?)\s*(권|화|장|편|부)', leaf_clean, re.IGNORECASE)
     
     target_num = None
@@ -169,11 +172,12 @@ def format_leaf_name(parent_core, leaf_name, index, total_items, lang='ko'):
         target_num = vol_match.group(1)
         target_unit = vol_match.group(2)
     else:
-        nums = re.findall(r'\d+(?:\.\d+)?', clean_no_brackets)
+        nums = re.findall(r'\d+(?:\.\d+)?', clean_for_nums)
         if nums:
             target_num = nums[-1]
         else:
-            all_nums = re.findall(r'\d+(?:\.\d+)?', leaf_clean)
+            leaf_clean_no_px = re.sub(r'\d+(?:\.\d+)?\s*(?:px|p|pt|mb|gb|kb|k)(?![a-zA-Z])', '', leaf_clean, flags=re.IGNORECASE)
+            all_nums = re.findall(r'\d+(?:\.\d+)?', leaf_clean_no_px)
             if all_nums:
                 target_num = all_nums[-1]
 
@@ -186,7 +190,7 @@ def format_leaf_name(parent_core, leaf_name, index, total_items, lang='ko'):
         special_suffix = " Special" if lang == 'en' else " 특별편"
     elif re.search(r'외전|side\s*story|번외', leaf_clean, re.IGNORECASE):
         special_suffix = " Side Story" if lang == 'en' else " 외전"
-    elif re.search(r'단편|short', leaf_clean, re.IGNORECASE):
+    elif re.search(r'단편(?!선)|short', leaf_clean, re.IGNORECASE):
         special_suffix = " Short Story" if lang == 'en' else " 단편"
     elif re.search(r'한정판|limited', leaf_clean, re.IGNORECASE):
         special_suffix = " Limited Edition" if lang == 'en' else " 한정판"
@@ -195,9 +199,12 @@ def format_leaf_name(parent_core, leaf_name, index, total_items, lang='ko'):
 
     if not target_num:
         if special_suffix:
-            return f"{base_name}{special_suffix}".strip()
+            if special_suffix in [" 단편", " Short Story"]:
+                return base_name.strip()
+            else:
+                return f"{base_name}{special_suffix}".strip()
         else:
-            target_num = str(index + 1)
+            return base_name.strip()
             
     padded_num = pad_match(target_num)
     
@@ -219,6 +226,9 @@ def format_leaf_name(parent_core, leaf_name, index, total_items, lang='ko'):
     if leaf_core_check and parent_core_check and get_similarity(leaf_core_check, parent_core_check) >= 0.5:
         base_name = re.sub(r'^[._\-\s]+', '', parent_core)
     else:
+        if leaf_core_check and re.search(r'[가-힣a-zA-Z]', leaf_core_check) and not re.match(r'^(제|v|vol|ch|chapter|part|권|화|장|편|부)\.?\s*\d*$', leaf_core_check, re.IGNORECASE):
+            base_name = leaf_core_check
+            
         pattern = r'(.*?)(?:[\s\-_]+)0*' + re.escape(val_str) + r'(?:\.0+)?$'
         match = re.search(pattern, base_name)
         if match:
@@ -241,4 +251,3 @@ def format_leaf_name(parent_core, leaf_name, index, total_items, lang='ko'):
         return f"{base_name} {unit_str}{special_suffix}".strip()
     else:
         return f"{base_name} {unit_str}".strip()
-

@@ -4,11 +4,6 @@ import traceback
 import os
 
 os.environ["QT_LOGGING_RULES"] = "qt.gui.icc.warning=false"
-os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
-os.environ["QT_SCALE_FACTOR_ROUNDING_POLICY"] = "PassThrough"
-
-if sys.platform == 'win32':
-    os.environ["QT_FONT_DPI"] = "96"
 
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QSharedMemory, Qt
@@ -31,8 +26,8 @@ def register_custom_fonts(app):
     config = load_config()
     # 설정된 배율(scale) 가져오기
     scale = config.get("font_scale", 100) / 100.0
-    # 기본 10pt에 배율 적용
-    base_size = int(10 * scale)
+    # 폰트 크기를 pt 대신 px 단위로 고정하여 창 이동 시 크기 계산 오차로 인한 진동 방지
+    base_pixel_size = int(13 * scale)
 
     font_files = {
         "Jua":        "Jua-Regular.ttf",
@@ -58,7 +53,8 @@ def register_custom_fonts(app):
         family = ff
 
     if family:
-        font = QFont(family, base_size) # 계산된 base_size 적용
+        font = QFont(family)
+        font.setPixelSize(base_pixel_size)
         # 부드러운 렌더링 핵심 설정
         font.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
         font.setStyleStrategy(

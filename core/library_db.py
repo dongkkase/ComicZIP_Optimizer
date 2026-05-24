@@ -160,6 +160,19 @@ class LibraryDB:
             finally: 
                 if 'conn' in locals(): conn.close()
 
+    def remove_target_index_bulk(self, paths):
+        if not paths: return
+        with self.lock:
+            try:
+                conn = self.get_connection()
+                cursor = conn.cursor()
+                cursor.executemany("DELETE FROM dup_target_index WHERE full_path = ?", [(p,) for p in paths])
+                conn.commit()
+            except Exception as e:
+                print(f"DB remove_target_index_bulk 오류: {e}")
+            finally:
+                if 'conn' in locals(): conn.close()
+
     # --- [신규] 중복 매칭 결과 캐시 (dup_cache) 메서드 ---
     def save_dup_match(self, a_path, match_data):
         with self.lock:

@@ -25,6 +25,9 @@ from PyQt6.QtCore import Qt, QDir, QAbstractTableModel, QModelIndex, QSize, QByt
 
 from config import get_resource_path, save_config
 from core.library_db import db
+from .tab_folder_threads import DupScanThread, IndexSyncThread, DupMatchThread, MemoryExtractThread, FolderScanThread, MissingCheckThread
+from .tab_folder_models import CustomHeaderView, CustomTableView, ThumbnailDelegate, ColumnSelectDialog, LibraryTableModel
+from .tab_folder_ui import GlowCard, FlowLayout, DimOverlay, DetailBackgroundWidget
 
 from collections import defaultdict
 
@@ -45,1737 +48,8 @@ def _(key):
     # 현재 언어의 딕셔너리에서 키를 찾고, 없으면 한국어에서 찾고, 그래도 없으면 키값 자체를 반환
     return _TRANSLATIONS.get(_CURRENT_LANG, _TRANSLATIONS["ko"]).get(key, key)
 
-class GlowCard(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
 
-    def paintEvent(self, event):
-        from PyQt6.QtGui import QPainter, QRadialGradient, QColor, QPainterPath
-        painter = QPainter(self)
 
-        try:
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-            w, h = self.width(), self.height()
-
-            # 카드 배경 (둥근 모서리)
-            path = QPainterPath()
-            path.addRoundedRect(0, 0, w, h, 12, 12)
-            painter.setClipPath(path)
-
-            # 기본 배경색
-            painter.fillPath(path, QColor(40, 40, 40, 210))
-
-            # 우측 상단 빛 효과
-            glow = QRadialGradient(w, 0, w * 0.7)   # 중심점(우상단), 반경
-            glow.setColorAt(0.0, QColor(255, 255, 255, 5)) # 밝은 중심
-            glow.setColorAt(0.5, QColor(255, 255, 255, 0))
-            glow.setColorAt(1.0, QColor(255, 255, 255, 0))  # 투명하게 사라짐
-            painter.fillPath(path, glow)
-
-            # 테두리
-            painter.setClipping(False)
-            from PyQt6.QtGui import QPen
-            painter.setPen(QPen(QColor(255, 255, 255, 20), 1))
-            painter.drawRoundedRect(0, 0, w - 1, h - 1, 12, 12)
-        finally:
-            painter.end()
-
-# ==========================================
-# [추가됨] 태그 자동 줄바꿈을 위한 FlowLayout
-# ==========================================
-class FlowLayout(QLayout):
-    def __init__(self, parent=None, margin=0, spacing=-1):
-        super().__init__(parent)
-        if parent is not None:
-            self.setContentsMargins(margin, margin, margin, margin)
-        self.itemList = []
-        self.setSpacing(spacing)
-
-    def __del__(self):
-        item = self.takeAt(0)
-        while item: item = self.takeAt(0)
-
-    def addItem(self, item):
-        self.itemList.append(item)
-
-    def count(self):
-        return len(self.itemList)
-
-    def itemAt(self, index):
-        if 0 <= index < len(self.itemList): return self.itemList[index]
-        return None
-
-    def takeAt(self, index):
-        if 0 <= index < len(self.itemList): return self.itemList.pop(index)
-        return None
-
-    def expandingDirections(self):
-        from PyQt6.QtCore import Qt
-        return Qt.Orientation(0)
-
-    def hasHeightForWidth(self):
-        return True
-
-    def heightForWidth(self, width):
-        height = self._doLayout(from_rect=QRect(0, 0, width, 0), testOnly=True)
-        return height
-
-    def setGeometry(self, rect):
-        super().setGeometry(rect)
-        self._doLayout(rect, False)
-
-    def sizeHint(self):
-        return self.minimumSize()
-
-    def minimumSize(self):
-        from PyQt6.QtCore import QSize
-        size = QSize()
-        for item in self.itemList:
-            size = size.expandedTo(item.minimumSize())
-        margins = self.contentsMargins()
-        size += QSize(margins.left() + margins.right(), margins.top() + margins.bottom())
-        return size
-
-    def _doLayout(self, from_rect, testOnly):
-        from PyQt6.QtCore import QRect, QPoint
-        x, y = from_rect.x(), from_rect.y()
-        lineHeight = 0
-        spacing = self.spacing()
-        
-        for item in self.itemList:
-            wid = item.widget()
-            spaceX = spacing
-            spaceY = spacing
-            nextX = x + item.sizeHint().width() + spaceX
-            
-            if nextX - spaceX > from_rect.right() and lineHeight > 0:
-                x = from_rect.x()
-                y = y + lineHeight + spaceY
-                nextX = x + item.sizeHint().width() + spaceX
-                lineHeight = 0
-                
-            if not testOnly:
-                item.setGeometry(QRect(QPoint(x, y), item.sizeHint()))
-                
-            x = nextX
-            lineHeight = max(lineHeight, item.sizeHint().height())
-            
-        return y + lineHeight - from_rect.y()
-
-# ==========================================
-# [추가됨] 중복 검사용 B폴더 스캔 스레드
-# ==========================================
-class DupScanThread(QThread):
-    scan_finished = pyqtSignal(list)
-    progress_updated = pyqtSignal(int, int) # 매칭된 압축파일 수, 전체 스캔한 파일 수
-
-    def __init__(self, dup_folders, target_exts):
-        super().__init__()
-        self.dup_folders = dup_folders
-        self.target_exts = tuple(target_exts)
-        self.is_cancelled = False
-
-    def cancel(self):
-        self.is_cancelled = True
-
-    def run(self):
-        from core.library_db import db
-        b_cache = []
-        match_count = 0
-        total_scanned = 0
-
-        for folder in self.dup_folders:
-            if self.is_cancelled: return
-            if not os.path.exists(folder): continue
-            
-            target_records = db.get_target_index(folder)
-            db_paths = {record["full_path"]: record for record in target_records} if target_records else {}
-            new_records = []
-            current_physical_paths = set()
-
-            def fast_scan(scan_path):
-                nonlocal match_count, total_scanned
-                if self.is_cancelled: return
-                try:
-                    with os.scandir(scan_path) as it:
-                        for entry in it:
-                            if self.is_cancelled: return
-                            
-                            if entry.is_dir(follow_symlinks=False):
-                                fast_scan(entry.path)
-                            elif entry.is_file(follow_symlinks=False):
-                                total_scanned += 1
-                                name = entry.name
-                                
-                                if name.lower().endswith(self.target_exts):
-                                    fp = entry.path
-                                    current_physical_paths.add(fp)
-                                    size = entry.stat().st_size
-                                    
-                                    b_cache.append({
-                                        "name": name,
-                                        "path": scan_path,
-                                        "full_path": fp,
-                                        "size": size,
-                                        "name_no_ext": os.path.splitext(name)[0].lower()
-                                    })
-                                    
-                                    if fp not in db_paths:
-                                        new_records.append((fp, folder, name, size))
-                                        
-                                    match_count += 1
-                                
-                                if total_scanned % 500 == 0:
-                                    self.progress_updated.emit(match_count, total_scanned)
-                except Exception: pass
-
-            fast_scan(folder)
-            
-            if new_records:
-                db.save_target_index(new_records)
-                
-            if len(db_paths) > len(current_physical_paths) or any(p not in current_physical_paths for p in db_paths):
-                try: db.clear_dup_cache()
-                except Exception: pass
-                    
-        self.progress_updated.emit(match_count, total_scanned)
-        self.scan_finished.emit(b_cache)
-
-class IndexSyncThread(QThread):
-    def __init__(self, dup_folders, target_exts):
-        super().__init__()
-        self.dup_folders = dup_folders
-        self.target_exts = tuple(target_exts)
-
-    def run(self):
-        from core.library_db import db
-        b_folder_changed = False
-
-        for folder in self.dup_folders:
-            if not os.path.exists(folder): continue
-            
-            target_records = db.get_target_index(folder)
-            db_paths = {record["full_path"] for record in target_records} if target_records else set()
-
-            new_records = []
-            current_physical_paths = set()
-
-            def fast_sync_scan(scan_path):
-                try:
-                    with os.scandir(scan_path) as it:
-                        for entry in it:
-                            if entry.is_dir(follow_symlinks=False):
-                                fast_sync_scan(entry.path)
-                            elif entry.is_file(follow_symlinks=False):
-                                name = entry.name
-                                if name.lower().endswith(self.target_exts):
-                                    fp = entry.path
-                                    current_physical_paths.add(fp)
-                                    
-                                    if fp not in db_paths:
-                                        size = entry.stat().st_size
-                                        new_records.append((fp, folder, name, size))
-                except Exception: pass
-
-            fast_sync_scan(folder)
-            
-            if new_records:
-                b_folder_changed = True
-                db.save_target_index(new_records)
-                
-            if len(db_paths) > len(current_physical_paths) or any(p not in current_physical_paths for p in db_paths):
-                b_folder_changed = True
-
-        if b_folder_changed:
-            try:
-                db.clear_dup_cache()
-                print("[LOG] 백그라운드 인덱스 동기화: 대상 폴더 변경 감지로 매칭 캐시 초기화됨.")
-            except Exception: pass
-
-class DupMatchThread(QThread):
-    match_finished = pyqtSignal(dict)
-    match_progress = pyqtSignal(int, int)
-
-    def __init__(self, a_files, b_cache):
-        super().__init__()
-        self.a_files = a_files
-        self.b_cache = b_cache
-        self.is_cancelled = False
-
-    def cancel(self):
-        self.is_cancelled = True
-
-    def extract_series_and_nums(self, name):
-        from core.parser import extract_core_title
-        
-        core_title = extract_core_title(name).lower()
-        
-        bundle_pattern = r'(?:v|vol|c|ch|chapter|제)?\.?\s*(\d+(?:\.\d+)?)\s*[~-]\s*(\d+(?:\.\d+)?)\s*(?:권|화|장|편|부)?'
-        bundle_match = re.search(bundle_pattern, name, re.IGNORECASE)
-        if bundle_match:
-            return core_title, [float(bundle_match.group(1)), float(bundle_match.group(2))], True
-
-        if re.search(r'완결|합본|전권|시리즈|\(완\)', name):
-            return core_title, [], True
-            
-        ko_single = re.search(r'(\d+(?:\.\d+)?)\s*(?:권|화|장|편|부)', name, re.IGNORECASE)
-        if ko_single:
-            return core_title, [float(ko_single.group(1))], False
-
-        en_single = re.search(r'(?:v|vol|c|ch|chapter|제)\.?\s*(\d+(?:\.\d+)?)', name, re.IGNORECASE)
-        if en_single:
-            return core_title, [float(en_single.group(1))], False
-            
-        clean_name = re.sub(r'\[.*?\]|\(.*?\)', '', name)
-        nums = re.findall(r'\d+(?:\.\d+)?', clean_name)
-        if nums:
-            return core_title, [float(nums[-1])], False
-            
-        return core_title, [], False
-
-    # 동의어 사전: 번역어/표기 변형 정규화
-    SYNONYMS = {
-        '블랙': '검은', 'black': '검은',
-        '화이트': '흰', 'white': '흰',
-        '레드': '빨간', 'red': '빨간',
-        '블루': '파란', 'blue': '파란',
-        '그린': '녹색', 'green': '녹색',
-        'love': '사랑',
-        'hell': '지옥',
-        'hero': '영웅', 'heroes': '영웅',
-        'king': '왕',
-        'god': '신',
-        'dark': '어둠', '다크': '어둠',
-        'new': '새로운',
-        'super': '슈퍼',
-        'dragon': '드래곤',
-        'hunter': '헌터',
-        'master': '마스터',
-        'legend': '전설',
-        'world': '세계',
-        'sword': '검',
-    }
-
-
-    def normalize(self, text):
-        text = text.lower()
-        for k, v in self.SYNONYMS.items():
-            text = re.sub(r'\b' + re.escape(k) + r'\b', v, text)
-        return text
-
-
-    # 요청하신 불용어 리스트 추가   
-    STOPWORDS = [
-        '만화책', '만화', '코믹스', 'e북', 'ebook', '완결', '합본', 
-        '웹툰', '단행본', '시리즈', '총집편', '풀컬러', 'in', 'the', 'of', 'a', 'an', '미완'
-    ]
-
-    def get_char_and_bigrams(self, text):
-        text = text.lower()
-        
-        # 1. 불용어 완벽 제거 (일반 단어 훼손을 막기 위해 단어 앞뒤 맥락 고려)
-        for word in self.STOPWORDS:
-            if re.match(r'^[a-z]+$', word):
-                text = re.sub(r'\b' + re.escape(word) + r'\b', '', text)
-            else:
-                text = re.sub(r'(?<![가-힣a-z])' + re.escape(word) + r'(?![가-힣a-z])', '', text)
-
-        # 2. 동의어 치환
-        for k, v in self.SYNONYMS.items():
-            text = re.sub(r'\b' + re.escape(k) + r'\b', v, text)
-            
-        # 3. [핵심] 숫자 및 기호 완벽 제거 
-        # (화수/권수는 이미 number_match로 별도 검증하므로, 순수 제목 비교 시 숫자가 남으면 오탐률만 높아집니다)
-        char_only = re.sub(r'[^가-힣a-z]', '', text)
-        
-        # 예외 처리: '1984' 처럼 숫자로만 이루어진 제목인 경우만 숫자를 살림
-        if not char_only:
-            char_only = re.sub(r'[^a-z0-9가-힣]', '', text)
-            
-        # 2글자 묶음 생성
-        bigrams = set(char_only[i:i+2] for i in range(len(char_only)-1))
-        return char_only, bigrams
-
-    def check_similarity_fast(self, a_char, b_char, a_bigrams, b_bigrams):
-        if not a_char or not b_char: return False, 0.0
-
-        # 1. 고속 필터링: 2글자 묶음 교집합이 하나도 없으면 완전 다른 제목이므로 즉시 스킵
-        if a_bigrams and b_bigrams and len(a_bigrams & b_bigrams) == 0:
-            return False, 0.0
-
-        # 2. 문자열 비교 연산
-        import difflib
-        sm = difflib.SequenceMatcher(None, a_char, b_char)
-        
-        # 전체 길이 대비 일치율 (예: A와 B의 전체 길이가 비슷할수록 높음)
-        standard_ratio = sm.ratio() 
-        
-        # 짧은 제목이 긴 제목에 얼마나 포함되는지 비율 (예: '원피스'가 '원피스 풀컬러판'에 100% 포함됨)
-        match_len = sum(triple.size for triple in sm.get_matching_blocks())
-        min_len = min(len(a_char), len(b_char))
-        contained_ratio = match_len / min_len if min_len > 0 else 0.0
-
-        # 3. 최종 점수 계산 (두 비율의 평균)
-        score = (standard_ratio + contained_ratio) / 2.0
-        
-        # 짧은 제목이 긴 제목에 거의 그대로 포함된다면 합격선으로 보정
-        if contained_ratio >= 0.9: 
-            score = max(score, 0.75) 
-
-            # 단, 단어 자체가 너무 짧으면서 전체 일치율이 처참하다면 우연의 일치로 간주하여 페널티
-            # (예: '마도' 2글자가 포함되었다고 무조건 75%를 주지 않음)
-            if min_len <= 3 and standard_ratio < 0.4:
-                score = score * 0.8 
-
-        return score >= 0.70, round(score * 100, 1)
-
-    # [수정됨] run 메서드
-    def run(self):
-        import time 
-        from core.library_db import db
-        
-        matches = {}
-        total_a = len(self.a_files)
-        
-        all_cached_matches = db.get_all_dup_match()
-        new_matches_to_save = [] 
-        
-        a_data = []
-        for idx, a_file in enumerate(self.a_files):
-            if self.is_cancelled: return
-            if idx % 50 == 0: time.sleep(0.001) 
-            
-            if "name" in a_file:
-                raw_name = os.path.splitext(a_file["name"])[0]
-                core_title, nums, is_bundle = self.extract_series_and_nums(raw_name)
-                if not core_title: core_title = raw_name.lower()
-                
-                # --- 전처리 단순화 ---
-                a_char, a_bigrams = self.get_char_and_bigrams(core_title)
-                a_data.append((a_file, core_title, nums, is_bundle, a_char, a_bigrams))
-
-        b_folders = {}
-        for idx, b_file in enumerate(self.b_cache):
-            if self.is_cancelled: return
-            if idx % 50 == 0: time.sleep(0.001) 
-            
-            bp = b_file["path"]
-            if bp not in b_folders:
-                folder_name = os.path.basename(bp)
-                f_core, _, _ = self.extract_series_and_nums(folder_name) if folder_name else ("", [], False)
-                f_core_str = f_core if f_core else folder_name.lower()
-                
-                f_char, f_bigrams = self.get_char_and_bigrams(f_core_str)
-
-                b_folders[bp] = {
-                    "name": folder_name,
-                    "core_title": f_core_str,
-                    "f_char": f_char, "f_bigrams": f_bigrams,
-                    "size": 0, "files": []
-                }
-            
-            if "core_title" not in b_file:
-                raw_name = os.path.splitext(b_file["name"])[0]
-                core_title, nums, is_bundle = self.extract_series_and_nums(raw_name)
-                core_str = core_title if core_title else raw_name.lower()
-                
-                b_char, b_bigrams = self.get_char_and_bigrams(core_str)
-
-                b_file["core_title"] = core_str
-                b_file["nums"] = nums
-                b_file["is_bundle"] = is_bundle
-                b_file["b_char"] = b_char
-                b_file["b_bigrams"] = b_bigrams
-                
-            b_folders[bp]["files"].append(b_file)
-            b_folders[bp]["size"] += b_file.get("size", 0)
-
-        for i, (a_file, a_core, a_nums, a_is_bundle, a_char, a_bigrams) in enumerate(a_data):
-            if self.is_cancelled: return
-            
-            a_full_path = a_file.get("full_path", "")
-            
-            if a_full_path in all_cached_matches:
-                cached_data = all_cached_matches[a_full_path]
-                
-                # 🌟 [버그 수정] 캐시에 있는 매칭 결과 중, 원본 B 파일이 이미 삭제된 '유령 캐시'인지 검증
-                is_stale_cache = False
-                if cached_data:
-                    for bp, matches_list in cached_data.items():
-                        for m in matches_list:
-                            b_fp = m.get("b_file", {}).get("full_path", "")
-                            if b_fp and not os.path.exists(b_fp):
-                                is_stale_cache = True
-                                break
-                        if is_stale_cache: break
-                
-                if not is_stale_cache:
-                    if cached_data: 
-                        matches[a_full_path] = cached_data
-                    if total_a > 0 and i % max(1, total_a // 20) == 0:
-                        self.match_progress.emit(i + 1, total_a)
-                    continue
-
-            if i % 10 == 0: time.sleep(0.001)
-            
-            file_matches = []
-            a_path = os.path.normcase(os.path.normpath(a_full_path))
-            a_dir_norm = os.path.dirname(a_path)
-            
-            for bp, b_folder in b_folders.items():
-                if self.is_cancelled: return
-                bp_norm = os.path.normcase(os.path.normpath(bp))
-                
-                if a_dir_norm != bp_norm:
-                    # [비교 호출부 수정] 파라미터 간소화
-                    is_folder_match, ratio = self.check_similarity_fast(
-                        a_char, b_folder["f_char"], a_bigrams, b_folder["f_bigrams"]
-                    )
-                    if is_folder_match:
-                        dummy_b_file = {
-                            "name": "(폴더 전체 매칭)",
-                            "size": b_folder["size"],
-                            "full_path": bp,
-                            "path": bp
-                        }
-                        file_matches.append({"b_file": dummy_b_file, "ratio": ratio})
-                        continue
-                        
-                for b_file in b_folder["files"]:
-                    if self.is_cancelled: return
-                    b_full_path = os.path.normcase(os.path.normpath(b_file.get("full_path", "")))
-                    if a_path == b_full_path: continue
-                    
-                    number_match = False
-                    if a_is_bundle or b_file["is_bundle"]:
-                        number_match = True
-                    else:
-                        if a_nums == b_file["nums"]:
-                            number_match = True
-                            
-                    if not number_match: continue
-                    
-                    # [비교 호출부 수정] 파라미터 간소화
-                    is_file_match, f_ratio = self.check_similarity_fast(
-                        a_char, b_file["b_char"], a_bigrams, b_file["b_bigrams"]
-                    )
-                    if is_file_match:
-                        file_matches.append({"b_file": b_file, "ratio": f_ratio})
-                        
-            if file_matches:
-                grouped = {}
-                for m in file_matches:
-                    bp = m["b_file"]["path"]
-                    if bp not in grouped: grouped[bp] = []
-                    grouped[bp].append(m)
-                matches[a_full_path] = grouped
-                new_matches_to_save.append((a_full_path, grouped))
-            else:
-                new_matches_to_save.append((a_full_path, {}))
-                
-            if total_a > 0 and i % max(1, total_a // 20) == 0:
-                self.match_progress.emit(i + 1, total_a)
-                
-        if new_matches_to_save and not self.is_cancelled:
-            db.save_dup_matches_bulk(new_matches_to_save)
-                
-        self.match_finished.emit(matches)
-
-# ==========================================
-# 스마트 인메모리 스레드
-# ==========================================
-class MemoryExtractThread(QThread):
-    data_extracted = pyqtSignal(str, dict, bool) 
-    progress_updated = pyqtSignal(int)
-    
-    def __init__(self, tasks, seven_zip_path):
-        super().__init__()
-        self.current_tasks = tasks
-        self.seven_zip_path = seven_zip_path
-        self.is_cancelled = False
-        self.show_progress = False
-
-    def cancel(self):
-        self.is_cancelled = True
-
-    def run(self):
-        for task in self.current_tasks:
-            if self.is_cancelled: return
-            
-            filepath, needs_img, needs_meta, thumb_path = task
-            meta_dict = {}
-            img_bytes = b""
-            has_img_out = False
-
-            if needs_img and thumb_path and os.path.exists(thumb_path):
-                if os.path.getsize(thumb_path) > 0:
-                    qimg = QImage()
-                    qimg.load(thumb_path)
-                    if not qimg.isNull():
-                        has_img_out = True
-                        needs_img = False 
-                else:
-                    has_img_out = True
-                    needs_img = False
-
-            if needs_meta or needs_img:
-                ext = os.path.splitext(filepath)[1].lower()
-                try:
-                    if ext in ['.zip', '.cbz']:
-                        with zipfile.ZipFile(filepath, 'r') as zf:
-                            namelist = zf.namelist()
-                            if needs_meta:
-                                xml_name = next((f for f in namelist if f.lower() == 'comicinfo.xml'), None)
-                                if xml_name:
-                                    xml_data = zf.read(xml_name).decode('utf-8', errors='ignore')
-                                    meta_dict = self._parse_xml(xml_data)
-                            if needs_img:
-                                img_files = [f for f in namelist if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.bmp'))]
-                                if img_files:
-                                    img_files.sort()
-                                    img_bytes = zf.read(img_files[0]) 
-                    else:
-                        cmd_l = [self.seven_zip_path, 'l', '-slt', filepath]
-                        res_l = subprocess.run(cmd_l, capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
-                        lines = res_l.stdout.splitlines()
-                        
-                        has_xml = False
-                        img_candidates = []
-                        for line in lines:
-                            if line.startswith("Path = "):
-                                fname = line.replace("Path = ", "").strip()
-                                if fname.lower() == 'comicinfo.xml':
-                                    has_xml = True
-                                elif needs_img and fname.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.bmp')):
-                                    img_candidates.append(fname)
-                                    
-                        if needs_meta and has_xml:
-                            cmd_x = [self.seven_zip_path, 'e', filepath, 'ComicInfo.xml', '-so']
-                            res_x = subprocess.run(cmd_x, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
-                            if res_x.returncode == 0:
-                                meta_dict = self._parse_xml(res_x.stdout.decode('utf-8', errors='ignore'))
-                                
-                        if needs_img and img_candidates:
-                            img_candidates.sort()
-                            cmd_e = [self.seven_zip_path, 'e', filepath, img_candidates[0], '-so']
-                            res_e = subprocess.run(cmd_e, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
-                            if res_e.returncode == 0:
-                                img_bytes = res_e.stdout 
-                except Exception:
-                    pass
-
-            if img_bytes and not has_img_out:
-                qimg = QImage()
-                qimg.loadFromData(img_bytes)
-                if not qimg.isNull():
-                    meta_dict["resolution"] = f"{qimg.width()} x {qimg.height()}"
-                    qimg = qimg.scaled(400, 400, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-                    if thumb_path:
-                        qimg.save(thumb_path, "WEBP", 85)
-                    has_img_out = True
-                else:
-                    if thumb_path: open(thumb_path, 'wb').close()
-                    has_img_out = True
-            elif needs_img and not has_img_out and not img_bytes:
-                if thumb_path: open(thumb_path, 'wb').close()
-                has_img_out = True
-
-            self.data_extracted.emit(filepath, meta_dict, has_img_out)
-            
-            if self.show_progress:
-                self.progress_updated.emit(1)
-            
-    def _parse_xml(self, xml_data):
-        meta = {}
-        try:
-            root = ET.fromstring(xml_data)
-            meta["title"] = root.findtext("Title", "")
-            meta["series"] = root.findtext("Series", "")
-            meta["series_group"] = root.findtext("SeriesGroup", "")
-            meta["volume"] = root.findtext("Volume", "")
-            meta["number"] = root.findtext("Number", "")
-            meta["writer"] = root.findtext("Writer", "")
-            meta["penciller"] = root.findtext("Penciller", "")
-            meta["inker"] = root.findtext("Inker", "")
-            meta["colorist"] = root.findtext("Colorist", "")
-            meta["letterer"] = root.findtext("Letterer", "")
-            meta["cover_artist"] = root.findtext("CoverArtist", "")
-            meta["editor"] = root.findtext("Editor", "")
-            meta["publisher"] = root.findtext("Publisher", "")
-            meta["imprint"] = root.findtext("Imprint", "")
-            meta["genre"] = root.findtext("Genre", "")
-            meta["volume_count"] = root.findtext("VolumeCount", "")
-            meta["page_count"] = root.findtext("PageCount", "")
-            meta["format"] = root.findtext("Format", "")
-            meta["manga"] = root.findtext("Manga", "")
-            meta["language"] = root.findtext("LanguageISO", "")
-            meta["rating"] = root.findtext("CommunityRating") or root.findtext("Rating", "")
-            meta["age_rating"] = root.findtext("AgeRating", "")
-            meta["year"] = root.findtext("Year", "")
-            meta["month"] = root.findtext("Month", "")
-            meta["day"] = root.findtext("Day", "")
-            meta["summary"] = root.findtext("Summary", "")
-            meta["characters"] = root.findtext("Characters", "")
-            meta["teams"] = root.findtext("Teams", "")
-            meta["locations"] = root.findtext("Locations", "")
-            meta["story_arc"] = root.findtext("StoryArc", "")
-            meta["tags"] = root.findtext("Tags", "")
-            meta["notes"] = root.findtext("Notes", "")
-            meta["web"] = root.findtext("Web", "")
-        except: pass
-        return meta
-
-
-class DimOverlay(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.hide()
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor(0, 0, 0, 178))  # rgba(0,0,0,0.7)
-        painter.end()
-
-    def showEvent(self, event):
-        self.raise_()
-        self.resize(self.parent().size())
-        super().showEvent(event)
-
-# ==========================================
-# 커스텀 헤더 뷰 (텍스트 강조색 및 아이콘 직접 렌더링)
-# ==========================================
-class CustomHeaderView(QHeaderView):
-    def __init__(self, orientation, parent=None):
-        super().__init__(orientation, parent)
-
-    def paintSection(self, painter, rect, logicalIndex):
-        from PyQt6.QtGui import QColor, QPainter
-        from PyQt6.QtCore import Qt, QRect
-
-        # 1. 스타일시트로 지정된 기본 배경, 테두리, 정렬 화살표만 먼저 그립니다 (텍스트는 제외)
-        painter.save()
-        super().paintSection(painter, rect, logicalIndex)
-        painter.restore()
-
-        model = self.model()
-        if not model: return
-
-        # 모델의 UserRole에서 순수 텍스트를 가져옵니다.
-        text = model.headerData(logicalIndex, self.orientation(), Qt.ItemDataRole.UserRole)
-        if not text: return
-
-        is_sorted = (self.sortIndicatorSection() == logicalIndex)
-        
-        # 정렬 상태에 따른 강조색 결정
-        color = QColor("#3498DB") if is_sorted else QColor("#cccccc")
-
-        painter.save()
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
-        # 2. 점 6개 그립 아이콘 그리기
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(color)
-        y_offset = rect.y() + (rect.height() - 13) // 2
-        x_offset = rect.x() + 8
-        for row in range(3):
-            for col in range(2):
-                painter.drawEllipse(x_offset + col * 4, y_offset + row * 5, 2, 2)
-
-        # 3. 텍스트 그리기 (QSS를 무시하고 직접 색상 적용)
-        font = model.headerData(logicalIndex, self.orientation(), Qt.ItemDataRole.FontRole)
-        if font:
-            painter.setFont(font)
-        painter.setPen(color)
-        
-        # 우측 네이티브 정렬 화살표와 텍스트가 겹치지 않도록 우측 여백(마진) 확보
-        right_margin = 20 if is_sorted else 5
-        text_rect = QRect(x_offset + 16, rect.y(), rect.width() - 24 - right_margin, rect.height())
-        
-        # 텍스트가 길면 자동으로 잘리도록(Clip) 설정하여 그립니다.
-        painter.drawText(text_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, text)
-        
-        painter.restore()
-
-# ==========================================
-# 커스텀 테이블 뷰
-# ==========================================
-class CustomTableView(QTableView):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._rubber_band = None
-        self._origin = QPoint()
-
-    def mousePressEvent(self, event):
-        index = self.indexAt(event.pos())
-        if index.isValid() and event.button() == Qt.MouseButton.LeftButton:
-            row_data = self.model()._data[index.row()]
-            if row_data.get("is_dup_folder"):
-                from PyQt6.QtGui import QFont, QFontMetrics
-                
-                text = f"📁 {row_data.get('path', '')} - ~{int(row_data.get('max_ratio', 0))}%"
-                font = QFont("Jua", 10, QFont.Weight.Bold)
-                fm = QFontMetrics(font)
-                text_width = fm.horizontalAdvance(text)
-                
-                rect = self.visualRect(index)
-                btn_rect = QRect(rect.left() + 20 + text_width + 15, rect.top() + 5, 90, 24)
-                
-                if btn_rect.contains(event.pos()):
-                    path = row_data.get("path")
-                    if os.name == 'nt': os.startfile(path)
-                    else: subprocess.Popen(['open' if sys.platform == 'darwin' else 'xdg-open', path])
-                    return # 이벤트 소비
-
-        if event.button() == Qt.MouseButton.LeftButton and not self.indexAt(event.pos()).isValid():
-            if not self._rubber_band:
-                self._rubber_band = QRubberBand(QRubberBand.Shape.Rectangle, self.viewport())
-            self._origin = event.pos()
-            self._rubber_band.setGeometry(QRect(self._origin, QSize()))
-            self._rubber_band.show()
-            
-            if not (event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier)):
-                self.clearSelection()
-            return
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event):
-        if self._rubber_band and self._rubber_band.isVisible():
-            rect = QRect(self._origin, event.pos()).normalized()
-            self._rubber_band.setGeometry(rect)
-            
-            row_count = self.model().rowCount()
-            if row_count > 0:
-                selection = QItemSelection()
-                for r in range(row_count):
-                    row_rect = self.visualRect(self.model().index(r, 0))
-                    row_rect.setWidth(self.viewport().width())
-                    
-                    if row_rect.intersects(rect):
-                        selection.select(self.model().index(r, 0), self.model().index(r, self.model().columnCount() - 1))
-                
-                if not (event.modifiers() & Qt.KeyboardModifier.ControlModifier):
-                    self.selectionModel().select(selection, QItemSelectionModel.SelectionFlag.ClearAndSelect)
-                else:
-                    self.selectionModel().select(selection, QItemSelectionModel.SelectionFlag.Select)
-            return
-        super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        if self._rubber_band and self._rubber_band.isVisible():
-            self._rubber_band.hide()
-            return
-        super().mouseReleaseEvent(event)
-
-# ==========================================
-# 백그라운드 폴더 스캔 스레드
-# ==========================================
-class FolderScanThread(QThread):
-    progress_updated = pyqtSignal(int)
-    scan_finished = pyqtSignal(list, float)
-    
-    def __init__(self, folder_path, include_sub, target_exts, thumb_dir, force_update=False):
-        super().__init__()
-        self.folder_path = folder_path
-        self.include_sub = include_sub
-        self.target_exts = tuple(target_exts)
-        self.thumb_dir = thumb_dir
-        self.force_update = force_update
-        self.is_cancelled = False
-
-    def run(self):
-        if not os.path.exists(self.folder_path):
-            self.scan_finished.emit([], 0)
-            return
-
-        from core.library_db import db
-        cache_dict = db.get_all_files_in_path(self.folder_path, self.include_sub)
-
-        file_data_cache = []
-        total_size = 0
-        count = 0
-
-        def scan_dir(path):
-            nonlocal total_size, count
-            if self.is_cancelled:
-                return
-            try:
-                with os.scandir(path) as it:
-                    for entry in it:
-                        if self.is_cancelled:
-                            break
-
-                        if entry.is_dir(follow_symlinks=False):
-                            if self.include_sub:
-                                scan_dir(entry.path)
-                        elif entry.is_file(follow_symlinks=False):
-                            name = entry.name
-                            if name.lower().endswith(self.target_exts):
-                                full_path = entry.path
-                                stat = entry.stat()
-                                mtime = stat.st_mtime
-                                ctime = stat.st_ctime
-                                size = stat.st_size
-
-                                cached = cache_dict.get(full_path)
-                                meta_processed = False
-                                full_meta = {}
-                                res, title, series, vol, num, writer = "", "", "", "", "", ""
-
-                                if cached and not self.force_update:
-                                    cached_mtime = cached[1]
-                                    if abs(float(cached_mtime) - float(mtime)) < 2.0:
-                                        meta_processed = True
-                                        res    = cached[4]  if len(cached) > 4  else ""
-                                        title  = cached[5]  if len(cached) > 5  else ""
-                                        series = cached[6]  if len(cached) > 6  else ""
-                                        vol    = cached[8]  if len(cached) > 8  else ""
-                                        num    = cached[9]  if len(cached) > 9  else ""
-                                        writer = cached[10] if len(cached) > 10 else ""
-                                        full_meta = {
-                                            "resolution":   cached[4]  if len(cached) > 4  else "",
-                                            "title":        cached[5]  if len(cached) > 5  else "",
-                                            "series":       cached[6]  if len(cached) > 6  else "",
-                                            "series_group": cached[7]  if len(cached) > 7  else "",
-                                            "volume":       cached[8]  if len(cached) > 8  else "",
-                                            "number":       cached[9]  if len(cached) > 9  else "",
-                                            "writer":       cached[10] if len(cached) > 10 else "",
-                                            "creators":     cached[11] if len(cached) > 11 else "",
-                                            "publisher":    cached[12] if len(cached) > 12 else "",
-                                            "imprint":      cached[13] if len(cached) > 13 else "",
-                                            "genre":        cached[14] if len(cached) > 14 else "",
-                                            "volume_count": cached[15] if len(cached) > 15 else "",
-                                            "page_count":   cached[16] if len(cached) > 16 else "",
-                                            "format":       cached[17] if len(cached) > 17 else "",
-                                            "manga":        cached[18] if len(cached) > 18 else "",
-                                            "language":     cached[19] if len(cached) > 19 else "",
-                                            "rating":       cached[20] if len(cached) > 20 else "",
-                                            "age_rating":   cached[21] if len(cached) > 21 else "",
-                                            "publish_date": cached[22] if len(cached) > 22 else "",
-                                            "summary":      cached[23] if len(cached) > 23 else "",
-                                            "characters":   cached[24] if len(cached) > 24 else "",
-                                            "teams":        cached[25] if len(cached) > 25 else "",
-                                            "locations":    cached[26] if len(cached) > 26 else "",
-                                            "story_arc":    cached[27] if len(cached) > 27 else "",
-                                            "tags":         cached[28] if len(cached) > 28 else "",
-                                            "notes":        cached[29] if len(cached) > 29 else "",
-                                            "web":          cached[30] if len(cached) > 30 else "",
-                                        }
-
-                                file_hash = hashlib.md5(f"{full_path}_{mtime}".encode()).hexdigest()
-                                thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.webp")
-                                has_thumb = os.path.exists(thumb_path)
-
-                                row_dict = {
-                                    "full_path":       full_path,
-                                    "hash":            file_hash,
-                                    "name":            name,
-                                    "path":            path,
-                                    "ext":             os.path.splitext(name)[1].lower(),
-                                    "raw_size":        size,
-                                    "raw_mtime":       mtime,
-                                    "raw_ctime":       ctime,
-                                    "ctime":           datetime.fromtimestamp(ctime).strftime('%Y-%m-%d %H:%M'),
-                                    "mtime":           datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M'),
-                                    "thumb_processed": has_thumb,
-                                    "meta_processed":  meta_processed,
-                                    "full_meta":       full_meta,
-                                    "res":    res,
-                                    "series": series,
-                                    "title":  title,
-                                    "vol":    vol,
-                                    "num":    num,
-                                    "writer": writer,
-                                    "display_index": -1
-                                }
-                                file_data_cache.append(row_dict)
-                                total_size += size
-                                count += 1
-
-                                if count % 1000 == 0:
-                                    self.progress_updated.emit(count)
-            except Exception as e:
-                print(f"scan_dir error: {e}")
-
-        scan_dir(self.folder_path)
-        self.scan_finished.emit(file_data_cache, total_size)
-
-    def cancel(self):
-        self.is_cancelled = True
-
-# ==========================================
-# 썸네일/타일 뷰용 델리게이트 (부드러운 애니메이션 및 스택 투명도 적용)
-# ==========================================
-class ThumbnailDelegate(QStyledItemDelegate):
-    def __init__(self, parent=None, thumb_dir=""):
-        super().__init__(parent)
-        self.view_mode = "thumbnail"
-        self.item_size = 360
-        self.thumb_dir = thumb_dir
-        
-        # --- [추가됨] 부드러운 확대 애니메이션을 위한 변수 및 타이머 ---
-        self.hover_targets = {}
-        self.current_scales = {}
-        self.anim_timer = QTimer(self)
-        self.anim_timer.setInterval(15) # 약 60FPS
-        self.anim_timer.timeout.connect(self._on_anim_tick)
-
-    def _on_anim_tick(self):
-        needs_update = False
-        for row, target in list(self.hover_targets.items()):
-            current = self.current_scales.get(row, 1.0)
-            diff = target - current
-            
-            # 목표 배율에 거의 도달하면 타이머 갱신 종료
-            if abs(diff) < 0.005:
-                self.current_scales[row] = target
-                if target == 1.0:
-                    del self.hover_targets[row]
-                    if row in self.current_scales:
-                        del self.current_scales[row]
-            else:
-                # 현재 값에서 목표 값으로 30%씩 부드럽게 이동 (Easing 효과)
-                self.current_scales[row] = current + diff * 0.3
-                needs_update = True
-                
-        # 변경된 스케일이 있다면 화면을 다시 그리도록 요청
-        if needs_update:
-            if self.parent() and hasattr(self.parent(), 'currentWidget'):
-                view = self.parent().currentWidget()
-                if view and hasattr(view, 'viewport'):
-                    view.viewport().update()
-        else:
-            self.anim_timer.stop()
-
-    def paint(self, painter, option, index):
-        from PyQt6.QtGui import QPen, QPainterPath, QLinearGradient
-        from PyQt6.QtCore import QRectF, QRect
-
-        if not index.isValid(): return
-        
-        row_data = index.model()._data[index.row()]
-        
-        font_family = "Jua"
-        p = self.parent()
-        while p:
-            if hasattr(p, 'config') and isinstance(p.config, dict):
-                font_family = p.config.get("font_family_str", "Jua")
-                break
-            p = p.parent()
-        
-        painter.save()
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        if row_data.get("is_group"):
-            painter.fillRect(option.rect, QColor("#2b2b2b"))
-            painter.setPen(QColor("#3498DB"))
-            font = QFont(font_family, 11, QFont.Weight.Bold)
-            painter.setFont(font)
-            text = _("group_header").format(row_data['name'], row_data['count'])
-            flags = Qt.AlignmentFlag.AlignLeft.value | Qt.AlignmentFlag.AlignVCenter.value
-            painter.drawText(option.rect.adjusted(10, 0, -10, -5), flags, text)
-            
-            # 누락 권수 뱃지 텍스트 렌더링
-            missing = row_data.get("missing", [])
-            if missing:
-                if len(missing) > 5:
-                    missing_str = f"  ⚠️ 누락: {', '.join(missing[:4])} ... (총 {len(missing)}권/화)"
-                else:
-                    missing_str = f"  ⚠️ 누락: {', '.join(missing)}"
-                    
-                fm = painter.fontMetrics()
-                text_width = fm.horizontalAdvance(text)
-                
-                painter.setPen(QColor("#E74C3C"))
-                font_missing = QFont(font_family, 10, QFont.Weight.Bold)
-                painter.setFont(font_missing)
-                painter.drawText(option.rect.adjusted(10 + text_width + 10, 0, -10, -5), flags, missing_str)
-            
-            painter.setPen(QColor("#555555"))
-            painter.drawLine(option.rect.left() + 5, option.rect.bottom() - 2, option.rect.right() - 5, option.rect.bottom() - 2)
-            painter.restore()
-            return
-        
-        if row_data.get("is_dup_folder"):
-            painter.fillRect(option.rect, QColor("#1e1e1e"))
-            painter.setPen(QColor("#e67e22"))
-            font = QFont(font_family, 10, QFont.Weight.Bold)
-            painter.setFont(font)
-            text = f"📁 {row_data['path']} - ~{int(row_data['max_ratio'])}%"
-            
-            flags = Qt.AlignmentFlag.AlignLeft.value | Qt.AlignmentFlag.AlignVCenter.value
-            painter.drawText(option.rect.adjusted(20, 0, 0, 0), flags, text)
-            
-            fm = painter.fontMetrics()
-            text_width = fm.horizontalAdvance(text)
-            
-            btn_rect = QRect(option.rect.left() + 20 + text_width + 15, option.rect.top() + 5, 90, 24)
-            painter.fillRect(btn_rect, QColor("#3a3a3a"))
-            painter.setPen(QColor("#ffffff"))
-            painter.drawRect(btn_rect)
-            flags_center = Qt.AlignmentFlag.AlignCenter.value
-            painter.drawText(btn_rect, flags_center, _("btn_open_folder"))
-            painter.restore()
-            return
-
-        if row_data.get("is_dup_child"):
-            painter.fillRect(option.rect, QColor("#1e1e1e"))
-            painter.setPen(QColor("#aaaaaa"))
-            font = QFont(font_family, 9)
-            painter.setFont(font)
-            text = f"      └ 📦 {row_data['name']} ({row_data['size_str']}) - {int(row_data['ratio'])}%"
-            flags = Qt.AlignmentFlag.AlignLeft.value | Qt.AlignmentFlag.AlignVCenter.value
-            painter.drawText(option.rect.adjusted(20, 0, -10, 0), flags, text)
-            painter.restore()
-            return
-            
-        if self.view_mode == "detail":
-            col_id = index.model().active_columns[index.column()]
-            if col_id == "cover":
-                file_hash = row_data.get("hash", "")
-                pixmap = QPixmap()
-                if file_hash:
-                    cached_pixmap = QPixmapCache.find(file_hash)
-                    if cached_pixmap is not None and not cached_pixmap.isNull():
-                        pixmap = cached_pixmap
-                    else:
-                        thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.webp")
-                        if row_data.get("thumb_processed") and os.path.exists(thumb_path) and os.path.getsize(thumb_path) > 0:
-                            pixmap.load(thumb_path)
-                            if not pixmap.isNull():
-                                QPixmapCache.insert(file_hash, pixmap)
-                
-                if option.state & QStyle.StateFlag.State_Selected:
-                    painter.fillRect(option.rect, QColor(0, 0, 0, 127))
-                    
-                if not pixmap.isNull():
-                    rect = option.rect
-                    target_rect = rect.adjusted(2, 2, -2, -2)
-                    scaled_pixmap = pixmap.scaled(
-                        target_size:=target_rect.size(),
-                        Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                        Qt.TransformationMode.SmoothTransformation
-                    )
-                    crop_x = (scaled_pixmap.width() - target_rect.width()) // 2
-                    crop_y = (scaled_pixmap.height() - target_rect.height()) // 2
-                    cropped_pixmap = scaled_pixmap.copy(crop_x, crop_y, target_rect.width(), target_rect.height())
-                    painter.drawPixmap(target_rect.topLeft(), cropped_pixmap)
-                painter.restore()
-                return 
-            else:
-                super().paint(painter, option, index)
-                painter.restore()
-                return
-
-        file_name = row_data.get("name", "")
-        file_hash = row_data.get("hash", "")
-        
-        pixmap = QPixmap()
-        if file_hash:
-            cached_pixmap = QPixmapCache.find(file_hash)
-            if cached_pixmap is not None and not cached_pixmap.isNull():
-                pixmap = cached_pixmap
-            else:
-                thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.webp")
-                if row_data.get("thumb_processed") and os.path.exists(thumb_path):
-                    if os.path.getsize(thumb_path) > 0:
-                        pixmap.load(thumb_path)
-                        if not pixmap.isNull():
-                            QPixmapCache.insert(file_hash, pixmap)
-        
-        is_hovered = option.state & QStyle.StateFlag.State_MouseOver
-        is_selected = option.state & QStyle.StateFlag.State_Selected
-
-        row = index.row()
-        target_scale = 1.05 if (is_hovered and self.view_mode in ["thumbnail", "tile"]) else 1.0
-        
-        if self.hover_targets.get(row, 1.0) != target_scale:
-            self.hover_targets[row] = target_scale
-            if not self.anim_timer.isActive():
-                self.anim_timer.start()
-                
-        current_scale = self.current_scales.get(row, 1.0)
-
-        # 선택 박스를 8px 라운드 처리 (약간의 여백을 주어 가장자리가 잘리지 않게 함)
-        if is_selected:
-            painter.setBrush(QColor("#3a7ebf"))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawRoundedRect(option.rect.adjusted(2, 2, -2, -2), 8, 8)
-        else:
-            painter.setPen(QColor("#cccccc"))
-            
-        rect = option.rect.adjusted(5, 5, -5, -5)
-
-        if current_scale > 1.0:
-            center = rect.center()
-            painter.translate(center)
-            painter.scale(current_scale, current_scale)
-            painter.translate(-center)
-        
-        if self.view_mode == "thumbnail":
-            img_size = int(self.item_size) - 10 
-            
-            if pixmap.isNull():
-                pw, ph = 100, 141
-            else:
-                pw, ph = pixmap.width(), pixmap.height()
-                if pw == 0 or ph == 0: pw, ph = 100, 141
-                
-            ratio = min(img_size / pw, img_size / ph)
-            nw, nh = int(pw * ratio), int(ph * ratio)
-            
-            stack_offset = 5
-            visual_w = nw + (stack_offset * 2)
-            visual_h = nh + (stack_offset * 2)
-            
-            x = rect.x() + (rect.width() - visual_w) // 2
-            y = rect.y() + (rect.height() - visual_h) // 2 
-            
-            img_rect = QRect(x, y, nw, nh)
-            
-            painter.setPen(QPen(QColor(0, 0, 0, 150), 1))
-            painter.setBrush(QColor(255, 255, 255, 80))
-            painter.drawRoundedRect(img_rect.translated(stack_offset * 2, stack_offset * 2), 4, 4)
-            painter.drawRoundedRect(img_rect.translated(stack_offset, stack_offset), 4, 4)
-            
-            path = QPainterPath()
-            path.addRoundedRect(QRectF(img_rect), 4, 4)
-            painter.save()
-            painter.setClipPath(path)
-            
-            if not pixmap.isNull():
-                painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
-                painter.drawPixmap(img_rect, pixmap)
-            else:
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(QColor("#2a2a2a"))
-                painter.drawRect(img_rect)
-            
-            # 하단 1px 빈틈 수정: bottom() 대신 y() + height()를 사용해 정확한 좌표 지정
-            grad_h = int(nh * 0.4) 
-            grad_rect = QRect(img_rect.x(), img_rect.y() + img_rect.height() - grad_h, nw, grad_h)
-            gradient = QLinearGradient(0, grad_rect.y(), 0, grad_rect.y() + grad_rect.height())
-            gradient.setColorAt(0.0, QColor(0, 0, 0, 0))
-            gradient.setColorAt(0.6, QColor(0, 0, 0, 180))
-            gradient.setColorAt(1.0, QColor(0, 0, 0, 240))
-            painter.fillRect(grad_rect, gradient)
-            
-            painter.restore() 
-            
-            painter.setPen(QPen(QColor(150, 150, 150, 150), 1))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(img_rect, 4, 4)
-
-            font = QFont(font_family, 10, QFont.Weight.Bold)
-            painter.setFont(font)
-            painter.setPen(QColor(255, 255, 255)) 
-            text_rect = grad_rect.adjusted(6, 0, -6, -6) 
-            flags = Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignHCenter | Qt.TextFlag.TextWordWrap.value
-            painter.drawText(text_rect, flags, file_name)
-            
-        elif self.view_mode == "tile":
-            img_size = int(self.item_size) - 10
-            
-            if pixmap.isNull():
-                pw, ph = 100, 141
-            else:
-                pw, ph = pixmap.width(), pixmap.height()
-                if pw == 0 or ph == 0: pw, ph = 100, 141
-                
-            ratio = min(img_size / pw, img_size / ph)
-            nw, nh = int(pw * ratio), int(ph * ratio)
-            x = rect.x() + 5
-            y = rect.y() + (rect.height() - nh) // 2
-            
-            img_rect = QRect(x, y, nw, nh)
-            stack_offset = 4
-            
-            painter.setPen(QPen(QColor(0, 0, 0, 150), 1))
-            painter.setBrush(QColor(255, 255, 255, 80))
-            painter.drawRoundedRect(img_rect.translated(stack_offset * 2, stack_offset * 2), 4, 4)
-            painter.drawRoundedRect(img_rect.translated(stack_offset, stack_offset), 4, 4)
-            
-            if not pixmap.isNull():
-                path = QPainterPath()
-                path.addRoundedRect(QRectF(img_rect), 4, 4)
-                painter.save()
-                painter.setClipPath(path)
-                painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
-                painter.drawPixmap(img_rect, pixmap)
-                painter.restore()
-            else:
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(QColor("#2a2a2a"))
-                painter.drawRoundedRect(img_rect, 4, 4)
-                
-            painter.setPen(QPen(QColor(150, 150, 150, 150), 1))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(img_rect, 4, 4)
-            
-            font = QFont(font_family, 10, QFont.Weight.Bold)
-            painter.setFont(font)
-            text_rect = rect.adjusted(img_size + 15, 10, -5, -5)
-            flags = Qt.AlignmentFlag.AlignLeft.value | Qt.AlignmentFlag.AlignTop.value | Qt.TextFlag.TextWordWrap.value
-            painter.drawText(text_rect, flags, file_name)
-            
-        painter.restore()
-
-    def sizeHint(self, option, index):
-        import os
-        from PyQt6.QtCore import QSize
-        from PyQt6.QtGui import QImageReader
-        
-        row_data = index.model()._data[index.row()]
-        if row_data.get("is_group") or row_data.get("is_dup_folder") or row_data.get("is_dup_child"):
-            width = self.parent().viewport().width() if hasattr(self.parent(), 'viewport') else 800
-            return QSize(width - 20, 35)
-
-        if self.view_mode == "thumbnail":
-            pw, ph = row_data.get("thumb_size", (0, 0))
-            if pw == 0 or ph == 0:
-                file_hash = row_data.get("hash", "")
-                if file_hash:
-                    thumb_path = os.path.join(getattr(self, 'thumb_dir', ''), f"{file_hash}.webp")
-                    if os.path.exists(thumb_path):
-                        reader = QImageReader(thumb_path)
-                        sz = reader.size()
-                        if sz.isValid():
-                            pw, ph = sz.width(), sz.height()
-                            row_data["thumb_size"] = (pw, ph) 
-                            
-            img_size = int(self.item_size) - 10
-            stack_offset = 8 
-            
-            if pw > 0 and ph > 0:
-                ratio = min(img_size / pw, img_size / ph)
-                nw = int(pw * ratio)
-                return QSize(nw + stack_offset + 22, int(self.item_size) + 25)
-                
-            fallback_nw = int(img_size / 1.414)
-            return QSize(fallback_nw + stack_offset + 22, int(self.item_size) + 25)
-            
-        elif self.view_mode == "tile":
-            return QSize(int(self.item_size) * 2 + 25, int(self.item_size) + 25)
-            
-        return super().sizeHint(option, index)
-
-# ==========================================
-# 컬럼 편집 다이얼로그
-# ==========================================
-class ColumnSelectDialog(QDialog):
-    def __init__(self, parent, current_columns, all_columns):
-        super().__init__(parent)
-        self.setWindowTitle(_("dlg_edit_lay_title"))
-        self.setFixedSize(320, 500)
-        self.setStyleSheet("background-color: #2b2b2b; color: white;")
-        self.selected_columns = list(current_columns)
-        self.all_columns = all_columns
-        self.checkboxes = {}
-        self.setup_ui()
-
-    def setup_ui(self):
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel(_("dlg_edit_lay_msg")))
-        
-        self.list_widget = QListWidget()
-        self.list_widget.setStyleSheet("background-color: #1e1e1e; border: 1px solid #444;")
-        for col_id, col_name in self.all_columns.items():
-            item = QListWidgetItem(self.list_widget)
-            chk = QCheckBox(col_name)
-            chk.setChecked(col_id in self.selected_columns)
-            self.checkboxes[col_id] = chk
-            self.list_widget.setItemWidget(item, chk)
-            
-        layout.addWidget(self.list_widget)
-        btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        btn_box.accepted.connect(self.accept)
-        btn_box.rejected.connect(self.reject)
-        layout.addWidget(btn_box)
-
-    def get_selected(self):
-        return [col_id for col_id, chk in self.checkboxes.items() if chk.isChecked()]
-
-# ==========================================
-# 메인 테이블 모델
-# ==========================================
-class LibraryTableModel(QAbstractTableModel):
-    def __init__(self, data=None, thumb_dir=""):
-        super().__init__()
-        self._data = data or []
-        self.thumb_dir = thumb_dir
-        self.ALL_COLUMNS = {
-            "cover": _("col_cover"),
-            "name": _("col_name"), "size": _("col_size"), "res": _("col_res"), "mtime": _("col_mtime"), "ctime": _("col_ctime"), 
-            "path": _("col_path"), "ext": _("col_ext"), "series": _("col_series"), "title": _("col_title"), 
-            "vol": _("col_vol"), "num": _("col_num"), "writer": _("col_writer"),
-            "series_group": _("col_series_group"), "creators": _("col_creators"), "publisher": _("col_publisher"), "imprint": _("col_imprint"),
-            "genre": _("col_genre"), "volume_count": _("col_vol_count"), "page_count": _("col_page_count"), "format": _("col_format"),
-            "manga": _("col_manga"), "language": _("col_language"), "rating": _("col_rating"), "age_rating": _("col_age_rating"), 
-            "publish_date": _("col_pub_date"), "summary": _("col_summary"), "characters": _("col_characters"), 
-            "teams": _("col_teams"), "locations": _("col_locations"), "story_arc": _("col_story_arc"), 
-            "tags": _("col_tags"), "notes": _("col_notes"), "web": _("col_web")
-        }
-        self.active_columns = ["cover", "name", "size", "mtime", "series", "title", "writer"]
-
-    def set_columns(self, columns):
-        self.beginResetModel()
-        self.active_columns = [c for c in columns if c in self.ALL_COLUMNS]
-        self.endResetModel()
-
-    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
-        if not index.isValid() or index.row() >= len(self._data): return None
-        row_data = self._data[index.row()]
-
-        if row_data.get("is_group"):
-            if role == Qt.ItemDataRole.DisplayRole and index.column() == 0:
-                return _("group_header").format(row_data['name'], row_data['count'])
-            elif role == Qt.ItemDataRole.BackgroundRole:
-                return QColor("#222222")
-            elif role == Qt.ItemDataRole.ForegroundRole:
-                return QColor("#3498DB")
-            elif role == Qt.ItemDataRole.FontRole:
-                font = QFont()
-                font.setBold(True)
-                return font
-            return None
-
-        col_id = self.active_columns[index.column()]
-
-        if col_id == "cover" and role == Qt.ItemDataRole.DisplayRole:
-            return None 
-
-        if role == Qt.ItemDataRole.TextAlignmentRole:
-            if col_id in ["res", "vol", "num", "size", "mtime", "ctime", "volume_count", "page_count", "rating", "age_rating", "publish_date"]:
-                return Qt.AlignmentFlag.AlignCenter.value
-            return Qt.AlignmentFlag.AlignLeft.value | Qt.AlignmentFlag.AlignVCenter.value
-
-        if role == Qt.ItemDataRole.DisplayRole:
-            if col_id in row_data and row_data[col_id] != "":
-                val = row_data[col_id]
-            else:
-                val = row_data.get("full_meta", {}).get(col_id, "")
-            return str(val) if val is not None else ""
-            
-        elif role == Qt.ItemDataRole.UserRole:
-            return row_data.get("full_path", "")
-        return None
-
-    def flags(self, index):
-        flags = super().flags(index)
-        if not index.isValid(): return flags
-        row_data = self._data[index.row()]
-        # 중복행들도 클릭(선택)이 안되도록 처리
-        if row_data.get("is_group") or row_data.get("is_dup_folder") or row_data.get("is_dup_child"):
-            flags &= ~Qt.ItemFlag.ItemIsSelectable 
-        return flags
-
-    def mimeTypes(self):
-        return ["text/uri-list"]
-
-    def mimeData(self, indexes):
-        mime_data = QMimeData()
-        urls = []
-        processed_rows = set()
-        for index in indexes:
-            row = index.row()
-            if row in processed_rows:
-                continue
-            processed_rows.add(row)
-            
-            if not self._data[row].get("is_group"):
-                path = self._data[row].get("full_path")
-                if path and os.path.exists(path):
-                    urls.append(QUrl.fromLocalFile(path))
-        
-        mime_data.setUrls(urls)
-        return mime_data
-
-    def rowCount(self, parent=QModelIndex()):
-        return len(self._data)
-
-    def columnCount(self, parent=QModelIndex()):
-        return len(self.active_columns)
-
-    def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
-        from PyQt6.QtGui import QFont
-        from PyQt6.QtCore import Qt
-        
-        if orientation == Qt.Orientation.Horizontal:
-            if section >= len(self.active_columns): return None
-            col_id = self.active_columns[section]
-            
-            is_sorted = False
-            config = None
-            
-            if hasattr(self, 'table_view'):
-                if self.table_view.horizontalHeader().sortIndicatorSection() == section:
-                    is_sorted = True
-                p = self.table_view
-                while p:
-                    if hasattr(p, 'config') and isinstance(p.config, dict):
-                        config = p.config
-                        break
-                    p = p.parent()
-
-            text = f"{self.ALL_COLUMNS.get(col_id, '')}"
-            
-            if config:
-                ff = config.get("font_family", "Default")
-                font_family = "Jua" if ff == "Default" else ff
-                base_size = config.get("s12", 12)
-            else:
-                font_family = "Jua"
-                base_size = 12
-
-            if role == Qt.ItemDataRole.DisplayRole:
-                # CustomHeaderView에서 직접 그리므로, 기본 텍스트 렌더링 엔진 작동을 막습니다.
-                return None  
-                
-            elif role == Qt.ItemDataRole.UserRole:
-                # CustomHeaderView 텍스트 드로잉에 사용할 원본 텍스트 전달
-                return text  
-                
-            elif role == Qt.ItemDataRole.FontRole:
-                font = QFont(font_family)
-                font.setPixelSize(base_size + 1)
-                if is_sorted: 
-                    font.setBold(True)
-                return font
-                
-        return None
-
-    def update_data(self, new_data):
-        self.beginResetModel()
-        self._data = new_data
-        self.endResetModel()
-
-# ==========================================
-# 상세 패널 배경 위젯 (표지 블러 및 오버레이 처리)
-# ==========================================
-class DetailBackgroundWidget(QFrame):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.bg_pixmap = None
-        
-    def set_cover_image(self, pixmap):
-        self.bg_pixmap = pixmap
-        self.update()
-
-    def paintEvent(self, event):
-        from PyQt6.QtGui import QPainter, QColor, QLinearGradient
-        from PyQt6.QtCore import Qt
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
-        # 1. 기본 어두운 배경색
-        painter.fillRect(self.rect(), QColor("#1e1e1e"))
-        
-        # 2. 썸네일 이미지가 있으면 화면에 꽉 차게 그리고 블러 처리
-        if self.bg_pixmap and not self.bg_pixmap.isNull():
-            scaled = self.bg_pixmap.scaled(
-                self.size(),
-                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                Qt.TransformationMode.SmoothTransformation
-            )
-            crop_x = (scaled.width() - self.width()) // 2
-            crop_y = (scaled.height() - self.height()) // 2
-            cropped = scaled.copy(crop_x, crop_y, self.width(), self.height())
-            
-            blur_factor = 10
-            if self.width() > 0 and self.height() > 0:
-                small = cropped.scaled(
-                    max(1, self.width() // blur_factor), 
-                    max(1, self.height() // blur_factor), 
-                    Qt.AspectRatioMode.IgnoreAspectRatio, 
-                    Qt.TransformationMode.SmoothTransformation
-                )
-                blurred = small.scaled(
-                    self.width(), 
-                    self.height(), 
-                    Qt.AspectRatioMode.IgnoreAspectRatio, 
-                    Qt.TransformationMode.SmoothTransformation
-                )
-                
-                painter.setOpacity(0.6) # 이미지 투명도 조절
-                painter.drawPixmap(0, 0, blurred)
-                painter.setOpacity(1.0)
-                
-        # 3. 어둡게 덮는 오버레이 (상단에서 하단으로 갈수록 어두워지는 그라데이션)
-        gradient = QLinearGradient(0, 0, 0, (self.height() / 10) * 9)
-        gradient.setColorAt(0.0, QColor(20, 20, 20, 180))
-        gradient.setColorAt(0.5, QColor(15, 15, 15, 210))
-        gradient.setColorAt(1.0, QColor(10, 10, 10, 240))
-        
-        painter.fillRect(self.rect(), gradient)
-        
-        # 4. 테두리 (기존 패널 스타일과 동일하게)
-        painter.setPen(QColor("#444444"))
-        painter.drawRoundedRect(0, 0, self.width() - 1, self.height() - 1, 5, 5)
-
-# ==========================================
-# 누락 권수 백그라운드 검사 스레드 (초고속 최적화)
-# ==========================================
-
-# [속도/정밀도 개선 핵심 정규식]
-RE_TRASH_1 = re.compile(r'(?i)\b(1080p|720p|480p|1440p|4k|2k|x264|x265|\d{3,4}x\d{3,4})\b')
-RE_TRASH_2 = re.compile(r'\[19\d{2}\]|\[20\d{2}\]|\(19\d{2}\)|\(20\d{2}\)')
-RE_TRASH_3 = re.compile(r'(?i)\bv\d+\b')
-
-# 범위 매칭 (물결표는 키보드~, 전각～, 일본식〜 모두 커버하여 무조건 범위로 인정)
-RE_RANGE_TILDE = re.compile(r'(\d+)\s*(?:권|화|장|편|부|vol|ch|ep)?\s*[~～〜]\s*(\d+)\s*(?:권|화|장|편|부|vol|ch|ep)?', re.IGNORECASE)
-
-# 대시(-)는 13권-56(에피소드)과 13-56화(범위)를 엄격히 구분하기 위해 우측이나 양쪽에 명시적 단위가 있을 때만 범위로 인정
-RE_RANGE_DASH_1 = re.compile(r'(\d+)\s*-\s*(\d+)\s*(권|화|장|편|부|vol|ch|ep)', re.IGNORECASE)
-RE_RANGE_DASH_2 = re.compile(r'(\d+)\s*(권|화|장|편|부|vol|ch|ep)\s*-\s*(\d+)\s*\2', re.IGNORECASE)
-
-# 단일 명시 매칭 (13권 - 56 처럼 우측 단위가 없으면 메인 번호 13만 잡고 즉시 종료)
-RE_KO_SINGLE = re.compile(r'(\d+)(?:[-_.]\d+)?\s*(권|화|장|편|부)', re.IGNORECASE)
-RE_EN_SINGLE = re.compile(r'(?i)(?:vol|chapter|ch|제|#)\s*\.?\s*0*(\d+)(?:[-_.]\d+)?')
-
-# 최후의 숫자 추출
-RE_DIGITS = re.compile(r'(\d+)(?:[-_.]\d+)?')
-
-class MissingCheckThread(QThread):
-    finished_signal = pyqtSignal(list, bool)
-
-    def __init__(self, dup_folders, file_data_cache, is_toast=False):
-        super().__init__()
-        self.dup_folders = dup_folders
-        self.file_data_cache = file_data_cache
-        self.is_toast = is_toast
-        self.series_regex_cache = {}
-
-    def extract_vol_numbers(self, name, series_name=""):
-        vols = set()
-        
-        clean_name = RE_TRASH_1.sub('', name)
-        clean_name = RE_TRASH_2.sub('', clean_name)
-        clean_name = RE_TRASH_3.sub('', clean_name)
-        
-        # 1. 범위 형태 최우선 처리 (찾으면 얼리 리턴)
-        for rm in RE_RANGE_TILDE.finditer(clean_name):
-            start, end = int(rm.group(1)), int(rm.group(2))
-            if start <= end and end - start < 250: 
-                vols.update(range(start, end + 1))
-                return vols
-                
-        for rm in RE_RANGE_DASH_1.finditer(clean_name):
-            start, end = int(rm.group(1)), int(rm.group(2))
-            if start <= end and end - start < 250: 
-                vols.update(range(start, end + 1))
-                return vols
-                
-        for rm in RE_RANGE_DASH_2.finditer(clean_name):
-            start, end = int(rm.group(1)), int(rm.group(3))
-            if start <= end and end - start < 250: 
-                vols.update(range(start, end + 1))
-                return vols
-
-        # 2. 명시적 단위가 있는 단일 번호 처리 (찾으면 메인 번호 1개만 넣고 얼리 리턴)
-        km = RE_KO_SINGLE.search(clean_name)
-        if km:
-            vols.add(int(km.group(1)))
-            return vols
-            
-        em = RE_EN_SINGLE.search(clean_name)
-        if em:
-            vols.add(int(em.group(1)))
-            return vols
-            
-        # 3. 최후의 수단: 시리즈명을 제거하고 남은 맨 마지막 숫자 하나만 수집
-        if series_name:
-            if series_name not in self.series_regex_cache:
-                safe_series = r'\s*'.join(re.escape(word) for word in series_name.split())
-                self.series_regex_cache[series_name] = re.compile(f'(?i){safe_series}')
-                
-            name_no_series = self.series_regex_cache[series_name].sub('', clean_name)
-        else:
-            name_no_series = clean_name
-            
-        digits = RE_DIGITS.findall(name_no_series)
-        if digits:
-            vols.add(int(digits[-1]))
-            
-        return vols
-
-    def run(self):
-        from core.library_db import db
-        from core.parser import extract_core_title
-        
-        series_map = defaultdict(list)
-        
-        def process_record(fp, name, db_series):
-            if not fp or not name: return
-            
-            # [핵심 수정] 기존에 잘못 분류된 '회장님은 메이드 사마 56' 같은 파편화 시리즈를 
-            # 메인 엔진(extract_core_title)을 통해 강제로 깎아내어 원래 시리즈로 뭉치게 만듭니다.
-            if db_series:
-                series_name = extract_core_title(db_series).strip()
-                if not series_name: series_name = db_series
-            else:
-                series_name = extract_core_title(os.path.splitext(name)[0]).strip()
-                if not series_name:
-                    series_name = os.path.basename(os.path.dirname(fp))
-            
-            series_map[series_name].append({
-                "name": name,
-                "folder_path": os.path.dirname(fp),
-                "series_name": series_name
-            })
-
-        if self.dup_folders:
-            for folder in self.dup_folders:
-                if not os.path.exists(folder): continue
-                records = db.get_target_index(folder)
-                if not records: continue
-                
-                for record in records:
-                    if isinstance(record, dict):
-                        fp = record.get("full_path", "")
-                        name = record.get("name", "")
-                        db_series = record.get("series", "")
-                        if not db_series:
-                            db_series = record.get("full_meta", {}).get("series", "")
-                    else:
-                        fp = record[0]
-                        name = record[2]
-                        db_series = record[6] if len(record) > 6 else ""
-                        
-                    process_record(fp, name, db_series)
-        else:
-            for row in self.file_data_cache:
-                if row.get("is_folder") or row.get("is_dup_folder") or row.get("is_dup_child"): continue
-                
-                fp = row.get("full_path", "")
-                name = row.get("name", "")
-                db_series = row.get("series", "") or row.get("full_meta", {}).get("series", "")
-                
-                process_record(fp, name, db_series)
-
-        missing_data = []
-        for s_name, items in series_map.items():
-            vols = set()
-            folder_paths = set()
-            for item in items:
-                v_nums = self.extract_vol_numbers(item["name"], item["series_name"])
-                vols.update(v_nums)
-                folder_paths.add(item["folder_path"])
-                    
-            if vols:
-                min_v, max_v = min(vols), max(vols)
-                if max_v - min_v < 250:
-                    missing = [str(i) for i in range(min_v, max_v) if i not in vols]
-                    if missing:
-                        missing_data.append({
-                            "series": s_name,
-                            "missing": missing,
-                            "folder_path": next(iter(folder_paths)) 
-                        })
-                        
-        missing_data.sort(key=lambda x: x["series"])
-        self.finished_signal.emit(missing_data, self.is_toast)
 
 # ==========================================
 # 탭 폴더 메인 클래스
@@ -3538,14 +1812,60 @@ class TabFolder(QWidget):
                 group_rows[g_val].append(r)
                 
             # 파일명에서 실제 권/화 번호만 영리하게 추출하는 함수
-            def extract_vol_number(name):
+            def extract_vol_numbers(name, series_name=""):
                 name = re.sub(r'(?i)\b(1080p|720p|480p|1440p|4k|2k|x264|x265)\b', '', name)
                 name = re.sub(r'\[19\d{2}\]|\[20\d{2}\]|\(19\d{2}\)|\(20\d{2}\)', '', name)
-                match = re.search(r'(?i)(?:vol|v|권|화|제|chapter|ch|#)\s*\.?\s*0*(\d+)', name)
-                if match: return int(match.group(1))
-                digits = re.findall(r'\d+', name)
-                if digits: return int(digits[-1])
-                return None
+                
+                # 1. 001화~009화 같은 패턴 (단위가 양쪽에 다 있는 경우)
+                range_match = re.search(r'(\d+(?:\.\d+)?)\s*(권|화|장|편|부)\s*[~-]\s*(\d+(?:\.\d+)?)\s*(권|화|장|편|부)', name, re.IGNORECASE)
+                if range_match:
+                    try:
+                        start = int(float(range_match.group(1)))
+                        end = int(float(range_match.group(3)))
+                        if start <= end and end - start < 150:
+                            return list(range(start, end + 1))
+                    except ValueError:
+                        pass
+
+                # 2. 일반적인 패턴 (단위가 뒤에 있는 경우: 13권, 13~14권)
+                vol_match = re.search(r'(?:제|v|vol\.?\s*)?(\d+(?:\.\d+)?(?:\s*[~-]\s*\d+(?:\.\d+)?)?)\s*(권|화|장|편|부)', name, re.IGNORECASE)
+                if vol_match:
+                    num_str = vol_match.group(1)
+                else:
+                    # 단위가 앞에 있는 경우: vol 13, 제 13, ch 13
+                    pre_match = re.search(r'(?i)(?:vol|v|권|화|제|chapter|ch|#)\s*\.?\s*(\d+(?:\.\d+)?(?:\s*[~-]\s*\d+(?:\.\d+)?)?)', name)
+                    if pre_match:
+                        num_str = pre_match.group(1)
+                    else:
+                        # 3. 단위가 없는 경우 마지막 숫자 그룹 추출
+                        clean_for_nums = re.sub(r'\[.*?\]|\(.*?\)', '', name)
+                        if series_name:
+                            safe_series = r'\s*'.join(re.escape(word) for word in series_name.split())
+                            clean_for_nums = re.sub(f'(?i){safe_series}', '', clean_for_nums)
+                        matches = re.findall(r'\d+(?:\.\d+)?(?:\s*[~-]\s*\d+(?:\.\d+)?)?', clean_for_nums)
+                        if matches:
+                            num_str = matches[-1]
+                        else:
+                            return []
+
+                # 추출된 숫자 문자열 파싱
+                if '~' in num_str or '-' in num_str:
+                    parts = re.split(r'\s*[~-]\s*', num_str)
+                    if len(parts) >= 2:
+                        try:
+                            start = int(float(parts[0]))
+                            end = int(float(parts[1]))
+                            if start <= end and end - start < 150:
+                                return list(range(start, end + 1))
+                            else:
+                                return [start]
+                        except ValueError:
+                            pass
+                
+                try:
+                    return [int(float(num_str))]
+                except ValueError:
+                    return []
 
             current_group = object()
             for row in data:
@@ -3556,11 +1876,15 @@ class TabFolder(QWidget):
                     
                     # 그룹 내 파일들의 번호를 수집하여 누락 확인
                     vols = set()
+                    from core.parser import extract_core_title
                     for gr in group_rows[g_val]:
                         if gr.get("is_folder"): continue
-                        v_num = extract_vol_number(gr.get("name", ""))
-                        if v_num is not None:
-                            vols.add(v_num)
+                        s_name = safe_get(gr, "series") or gr.get("full_meta", {}).get("series", "")
+                        if not s_name:
+                            s_name = extract_core_title(os.path.splitext(gr.get("name", ""))[0]).strip()
+                        v_nums = extract_vol_numbers(gr.get("name", ""), s_name)
+                        for v in v_nums:
+                            vols.add(v)
                     
                     missing = []
                     if vols:
@@ -4529,26 +2853,67 @@ class TabFolder(QWidget):
         from collections import defaultdict
         from core.library_db import db
         from core.parser import extract_core_title
-        
-        def extract_vol_number(name):
+
+        def extract_vol_numbers(name, series_name=""):
             name = re.sub(r'(?i)\b(1080p|720p|480p|1440p|4k|2k|x264|x265)\b', '', name)
             name = re.sub(r'\[19\d{2}\]|\[20\d{2}\]|\(19\d{2}\)|\(20\d{2}\)', '', name)
-            match = re.search(r'(?i)(?:vol|v|권|화|제|chapter|ch|#)\s*\.?\s*0*(\d+)', name)
-            if match: return int(match.group(1))
-            digits = re.findall(r'\d+', name)
-            if digits: return int(digits[-1])
-            return None
+            
+            range_match = re.search(r'(\d+(?:\.\d+)?)\s*(권|화|장|편|부)\s*[~-]\s*(\d+(?:\.\d+)?)\s*(권|화|장|편|부)', name, re.IGNORECASE)
+            if range_match:
+                try:
+                    start = int(float(range_match.group(1)))
+                    end = int(float(range_match.group(3)))
+                    if start <= end and end - start < 150:
+                        return list(range(start, end + 1))
+                except ValueError:
+                    pass
+
+            vol_match = re.search(r'(?:제|v|vol\.?\s*)?(\d+(?:\.\d+)?(?:\s*[~-]\s*\d+(?:\.\d+)?)?)\s*(권|화|장|편|부)', name, re.IGNORECASE)
+            if vol_match:
+                num_str = vol_match.group(1)
+            else:
+                pre_match = re.search(r'(?i)(?:vol|v|권|화|제|chapter|ch|#)\s*\.?\s*(\d+(?:\.\d+)?(?:\s*[~-]\s*\d+(?:\.\d+)?)?)', name)
+                if pre_match:
+                    num_str = pre_match.group(1)
+                else:
+                    clean_for_nums = re.sub(r'\[.*?\]|\(.*?\)', '', name)
+                    if series_name:
+                        safe_series = r'\s*'.join(re.escape(word) for word in series_name.split())
+                        clean_for_nums = re.sub(f'(?i){safe_series}', '', clean_for_nums)
+                    matches = re.findall(r'\d+(?:\.\d+)?(?:\s*[~-]\s*\d+(?:\.\d+)?)?(?![가-힣a-zA-Z])', clean_for_nums)
+                    if matches:
+                        num_str = matches[-1]
+                    else:
+                        return []
+
+            if '~' in num_str or '-' in num_str:
+                parts = re.split(r'\s*[~-]\s*', num_str)
+                if len(parts) >= 2:
+                    try:
+                        start = int(float(parts[0]))
+                        end = int(float(parts[1]))
+                        if start <= end and end - start < 150:
+                            return list(range(start, end + 1))
+                        else:
+                            return [start]
+                    except ValueError:
+                        pass
+            
+            try:
+                return [int(float(num_str))]
+            except ValueError:
+                return []
 
         series_map = defaultdict(list)
         dup_folders = self.config.get("dup_check_folders", [])
-        
+
         # [핵심] 1. 설정에 등록된 '중복 검사 대상 폴더(메인 라이브러리)'의 전체 DB 인덱스를 활용
         if dup_folders:
             for folder in dup_folders:
                 if not os.path.exists(folder): continue
                 records = db.get_target_index(folder)
                 if not records: continue
-                
+
                 for record in records:
                     if isinstance(record, dict):
                         fp = record.get("full_path", "")
@@ -4556,16 +2921,17 @@ class TabFolder(QWidget):
                     else:
                         fp = record[0]
                         name = record[2]
-                        
+
                     if not fp or not name: continue
-                    
+
                     series_name = extract_core_title(os.path.splitext(name)[0]).strip()
                     if not series_name: 
                         series_name = os.path.basename(os.path.dirname(fp))
-                        
+
                     series_map[series_name].append({
                         "name": name,
-                        "folder_path": os.path.dirname(fp)
+                        "folder_path": os.path.dirname(fp),
+                        "series_name": series_name
                     })
         else:
             # 2. 설정된 메인 라이브러리가 없다면 기존처럼 현재 화면의 데이터를 활용 (Fallback)
@@ -4581,7 +2947,8 @@ class TabFolder(QWidget):
                 if series_name:
                     series_map[series_name].append({
                         "name": row.get("name", ""),
-                        "folder_path": os.path.dirname(row.get("full_path", ""))
+                        "folder_path": os.path.dirname(row.get("full_path", "")),
+                        "series_name": series_name
                     })
 
         missing_data = []
@@ -4589,8 +2956,9 @@ class TabFolder(QWidget):
             vols = set()
             folder_paths = set()
             for item in items:
-                v_num = extract_vol_number(item["name"])
-                if v_num is not None: vols.add(v_num)
+                v_nums = extract_vol_numbers(item["name"], item["series_name"])
+                for v in v_nums:
+                    vols.add(v)
                 folder_paths.add(item["folder_path"])
                     
             if vols:
@@ -4598,6 +2966,7 @@ class TabFolder(QWidget):
                 # 오탐지 방지: 첫 권과 끝 권의 차이가 150 이하일 때만 검사
                 if max_v - min_v < 150:
                     missing = [str(i) for i in range(min_v, max_v) if i not in vols]
+                    
                     if missing:
                         missing_data.append({
                             "series": s_name,
