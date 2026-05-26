@@ -1,7 +1,7 @@
 import os
 from PyQt6.QtWidgets import (
     QTreeWidget, QTableWidget, QLabel, QGraphicsOpacityEffect, 
-    QComboBox, QCompleter, QMenu, QMessageBox
+    QComboBox, QCompleter, QMenu, QMessageBox, QWidget
 )
 from PyQt6.QtCore import pyqtSignal, Qt, QTimer, QPropertyAnimation, QEasingCurve, QSortFilterProxyModel
 
@@ -146,3 +146,84 @@ class SearchableComboBox(QComboBox):
 
     def setText(self, text):
         self.setCurrentText(text)
+
+
+class DimOverlay(QWidget):
+    def __init__(self, parent=None, show_spinner=False, text=""):
+        super().__init__(parent)
+        self.show_spinner = show_spinner
+        self._text = text
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        
+        self.movie = None
+        
+        if self.show_spinner:
+            from PyQt6.QtGui import QMovie
+            from PyQt6.QtWidgets import QLabel, QVBoxLayout
+            import os
+            
+            layout = QVBoxLayout(self)
+            layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            
+            self.anim_label = QLabel()
+            self.anim_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.anim_label.setStyleSheet("background: transparent;")
+            
+            # Lottie 대신 고화질 WebP 또는 GIF 애니메이션 파일 사용 권장
+            from config import get_resource_path
+            anim_path = get_resource_path(os.path.join("src", "rainbow cat remix.gif"))
+            
+
+            if anim_path:
+                self.movie = QMovie(anim_path)
+                self.movie.setCacheMode(QMovie.CacheMode.CacheAll)
+                from PyQt6.QtGui import QImageReader
+                from PyQt6.QtCore import QSize
+                orig_size = QImageReader(anim_path).size()
+                if orig_size.isValid():
+                    self.movie.setScaledSize(QSize(orig_size.width() * 1, orig_size.height() * 1))
+                self.anim_label.setMovie(self.movie)
+            else:
+                # 지정된 파일이 없을 경우 기존 스피너 아이콘으로 폴백
+                import qtawesome as qta
+                self.anim_label.setPixmap(qta.icon('fa5s.spinner', color='#3498DB').pixmap(62, 62))
+                
+            layout.addWidget(self.anim_label)
+            
+            self.text_label = QLabel(self._text)
+            self.text_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.text_label.setStyleSheet("color: white; font-size: 14px; font-weight: bold; background: transparent; margin-top: 15px;")
+            layout.addWidget(self.text_label)
+            
+        self.hide()
+
+    @property
+    def text(self):
+        return self._text
+
+    @text.setter
+    def text(self, value):
+        self._text = value
+        if hasattr(self, 'text_label'):
+            self.text_label.setText(value)
+
+    def paintEvent(self, event):
+        from PyQt6.QtGui import QPainter, QColor
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(0, 0, 0, 178))  # rgba(0,0,0,0.7)
+        painter.end()
+
+    def showEvent(self, event):
+        self.raise_()
+        self.resize(self.parent().size())
+        if self.parent():
+            self.resize(self.parent().size())
+        if self.movie:
+            self.movie.start()
+        super().showEvent(event)
+        
+    def hideEvent(self, event):
+        if self.movie:
+            self.movie.stop()
+        super().hideEvent(event)

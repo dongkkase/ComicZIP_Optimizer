@@ -119,24 +119,6 @@ class FlowLayout(QLayout):
         return y + lineHeight - from_rect.y()
 
 
-class DimOverlay(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.hide()
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor(0, 0, 0, 178))  # rgba(0,0,0,0.7)
-        painter.end()
-
-    def showEvent(self, event):
-        self.raise_()
-        self.resize(self.parent().size())
-        super().showEvent(event)
-
-
 class DetailBackgroundWidget(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -196,5 +178,3 @@ class DetailBackgroundWidget(QFrame):
         # 4. 테두리 (기존 패널 스타일과 동일하게)
         painter.setPen(QColor("#444444"))
         painter.drawRoundedRect(0, 0, self.width() - 1, self.height() - 1, 5, 5)
-
-

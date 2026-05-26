@@ -596,7 +596,11 @@ class SettingsDialog(QDialog):
         self.config = config
         self.i18n = i18n[config["lang"]]
         self.setWindowTitle(self.i18n.get("settings_title", "환경 설정"))
-        self.setFixedSize(500, 750) 
+        
+        # self.setFixedSize(500, 750) 
+        self.resize(500, 750)
+        self.setMinimumSize(500, 750)
+
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
 
         self.chk_pass_skip_meta = QCheckBox(self.i18n.get("opt_pass_skip_meta", "스킵된 파일도 메타데이터 관리로 넘기기"))
@@ -889,12 +893,12 @@ class SettingsDialog(QDialog):
         folder_set_layout.setContentsMargins(15, 15, 15, 15)
         folder_set_layout.setSpacing(15)
         
-        grp_dup_folders = QGroupBox(self.i18n.get("grp_dup_folders_title", "중복 검사 대상 폴더"))
+        grp_dup_folders = QGroupBox(self.i18n.get("grp_dup_folders_title", "라이브러리 폴더 등록"))
         grp_dup_layout = QVBoxLayout(grp_dup_folders)
         grp_dup_layout.setContentsMargins(15, 20, 15, 15)
         grp_dup_layout.setSpacing(10)
 
-        lbl_dup_desc = QLabel(self.i18n.get("dup_folder_desc", "중복 파일을 검사할 대상 폴더를 추가하세요.\nNAS나 대용량 드라이브의 폴더를 지정할 수 있습니다."))
+        lbl_dup_desc = QLabel(self.i18n.get("dup_folder_desc", "관리할 라이브러리 대상 폴더를 추가하세요. (등록된 폴더는 중복 검사에도 사용됩니다.)\nNAS나 대용량 드라이브의 폴더를 지정할 수 있습니다."))
         lbl_dup_desc.setStyleSheet(f"color: #aaaaaa; font-size: {self.config['s11']}px;")
         grp_dup_layout.addWidget(lbl_dup_desc)
 
@@ -1094,6 +1098,13 @@ class SettingsDialog(QDialog):
         btn_box.rejected.connect(self.reject)
         main_layout.addWidget(btn_box)
     
+    def accept(self):
+        # 환경설정 창이 닫힐 때 빠른 이동 목록 즉시 갱신 (메인 윈도우의 config 갱신 후 반영되도록 100ms 지연)
+        main_win = self.parent()
+        if hasattr(main_win, 'tab_folder'):
+            QTimer.singleShot(100, main_win.tab_folder.populate_quick_access)
+        super().accept()
+
     def action_clear_cache(self):
         try:
             with sqlite3.connect(".api_cache.db", timeout=10) as conn:
@@ -1102,7 +1113,7 @@ class SettingsDialog(QDialog):
                 c.execute("DELETE FROM img_cache")
                 c.execute("DELETE FROM trans_cache")
                 conn.commit()
-            Toast.show(self.parent(), self.i18n.get("msg_cache_cleared", "캐시가 초기화되었습니다."))
+            Toast.show(self, self.i18n.get("msg_cache_cleared", "캐시가 초기화되었습니다."))
         except Exception as e:
             pass
 
@@ -1116,7 +1127,7 @@ class SettingsDialog(QDialog):
         if reply == QMessageBox.StandardButton.Yes:
             from core.library_db import db
             if hasattr(db, 'clear_dup_cache') and db.clear_dup_cache():
-                Toast.show(self.parent(), self.i18n.get("folder_clear_cache_done", "중복 매칭 캐시가 초기화되었습니다."))
+                Toast.show(self, self.i18n.get("folder_clear_cache_done", "중복 매칭 캐시가 초기화되었습니다."))
 
     def show_api_manual(self):
         msg = QMessageBox(self)
@@ -1174,7 +1185,7 @@ class SettingsDialog(QDialog):
 
     def add_dup_folder(self):
         from PyQt6.QtWidgets import QFileDialog
-        folder = QFileDialog.getExistingDirectory(self, self.i18n.get("dlg_sel_dup_folder", "중복 검사 대상 폴더 선택"))
+        folder = QFileDialog.getExistingDirectory(self, self.i18n.get("dlg_sel_dup_folder", "라이브러리 폴더 선택"))
         if folder:
             # 중복 방지
             items = [self.list_dup_folders.item(i).text() for i in range(self.list_dup_folders.count())]
@@ -1232,4 +1243,4 @@ class SettingsDialog(QDialog):
         main_win = self.parent()
         if hasattr(main_win, 'tab_folder'):
             main_win.tab_folder.start_index_update_task(force_rescan=True)
-            Toast.show(main_win, self.i18n.get("setting_update_index_msg", "인덱스가 갱신되었습니다."))
+            Toast.show(self, self.i18n.get("setting_update_index_msg", "인덱스가 갱신되었습니다."))

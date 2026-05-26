@@ -1594,6 +1594,9 @@ class Tab3Metadata(QWidget):
         
         self.main_app.lbl_status.setText(f'{t.get("t3_msg_saving", "저장 중...")} [{engine}]')
         
+        self.main_app.is_processing = True
+        self.main_app.toggle_ui_elements(is_processing=True)
+        
         targets = {fp: self.book_meta[fp]}
         self.save_worker = SaveWorker(targets, self, is_single=True)
         self.save_worker.finished_single.connect(self._on_save_single_finished)
@@ -1609,6 +1612,9 @@ class Tab3Metadata(QWidget):
         self.save_worker = None
 
         self.tree_meta_files.setEnabled(True)
+        
+        self.main_app.is_processing = False
+        self.main_app.toggle_ui_elements(is_processing=False)
         
         if success: 
             from utils import play_complete_sound
@@ -1647,6 +1653,9 @@ class Tab3Metadata(QWidget):
         
         self.main_app.lbl_status.setText(f'{t.get("t3_msg_saving", "저장 중...")} [{engine}]')
 
+        self.main_app.is_processing = True
+        self.main_app.toggle_ui_elements(is_processing=True)
+
         max_threads = self.main_app.config.get("max_threads", 4)
         self.save_worker = SaveWorker(targets, self, is_single=False, max_workers=max_threads)
         self.save_worker.progress.connect(self._on_save_progress)
@@ -1666,6 +1675,9 @@ class Tab3Metadata(QWidget):
         self.save_worker = None
         
         self.tree_meta_files.setEnabled(True)
+        
+        self.main_app.is_processing = False
+        self.main_app.toggle_ui_elements(is_processing=False)
         
         msg = t.get("t3_msg_save_all_done", "").format(success_count=success_count, fail_count=fail_count)
         Toast.show(self.main_app, msg)

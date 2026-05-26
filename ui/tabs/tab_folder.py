@@ -21,13 +21,14 @@ from PyQt6.QtWidgets import (
 )
 
 from PyQt6.QtGui import QFileSystemModel, QAction, QPixmap, QPainter, QColor, QFont, QKeySequence, QShortcut, QImage, QPixmapCache, QLinearGradient
-from PyQt6.QtCore import Qt, QDir, QAbstractTableModel, QModelIndex, QSize, QByteArray, QItemSelectionModel, QItemSelection, QStandardPaths, QFileSystemWatcher, QTimer, QMimeData, QUrl, QThread, pyqtSignal, QRect, QPoint, QCoreApplication
+from PyQt6.QtCore import Qt, QDir, QAbstractTableModel, QModelIndex, QSize, QByteArray, QItemSelectionModel, QItemSelection, QStandardPaths, QFileSystemWatcher, QTimer, QMimeData, QUrl, QThread, pyqtSignal, QRect, QPoint, QCoreApplication, QEventLoop
 
 from config import get_resource_path, save_config
 from core.library_db import db
 from .tab_folder_threads import DupScanThread, IndexSyncThread, DupMatchThread, MemoryExtractThread, FolderScanThread, MissingCheckThread
 from .tab_folder_models import CustomHeaderView, CustomTableView, ThumbnailDelegate, ColumnSelectDialog, LibraryTableModel
-from .tab_folder_ui import GlowCard, FlowLayout, DimOverlay, DetailBackgroundWidget
+from .tab_folder_ui import GlowCard, FlowLayout, DetailBackgroundWidget
+from ui.widgets import DimOverlay
 
 from collections import defaultdict
 
@@ -100,6 +101,7 @@ class TabFolder(QWidget):
         self.dup_matches = {}
         self.dup_scan_thread = None
         self.dup_match_thread = None
+        self._has_shown_global_missing_toast = False
         # ----------------------------------------------
 
         self.main_status_label = None
@@ -951,8 +953,9 @@ class TabFolder(QWidget):
             
             has_img = r.get("thumb_processed")
             has_meta = r.get("meta_processed")
+            has_res = bool(r.get("res"))
             
-            if has_img and has_meta: continue
+            if has_img and has_meta and has_res: continue
             
             disp_idx = r.get("display_index", -1)
             if disp_idx >= 0:
@@ -962,7 +965,7 @@ class TabFolder(QWidget):
                 is_visible = False
                 
             is_selected = fp in selected_paths
-            needs_img = not has_img
+            needs_img = not has_img or not has_res
             needs_meta = not has_meta
             
             thumb_path = os.path.join(self.thumb_dir, f"{r.get('hash', '')}.webp")
@@ -1124,6 +1127,14 @@ class TabFolder(QWidget):
         for name, loc in paths:
             path = QStandardPaths.writableLocation(loc)
             if path: self.combo_quick_access.addItem(name, path)
+
+        lib_folders = self.config.get("dup_check_folders", [])
+        if lib_folders:
+            self.combo_quick_access.insertSeparator(self.combo_quick_access.count())
+            for folder in lib_folders:
+                folder_name = os.path.basename(folder)
+                if not folder_name: folder_name = folder
+                self.combo_quick_access.addItem(f"📚 {folder_name}", folder)
 
         custom_favs = self.config.get("folder_favorites", [])
         if custom_favs:
@@ -1868,7 +1879,10 @@ class TabFolder(QWidget):
                     return []
 
             current_group = object()
-            for row in data:
+            for loop_idx, row in enumerate(data):
+                if loop_idx % 50 == 0:
+                    QCoreApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+                
                 g_val = safe_get(row, self.current_group_key) or _("folder_unknown")
                 
                 if g_val != current_group:
@@ -1877,7 +1891,9 @@ class TabFolder(QWidget):
                     # 그룹 내 파일들의 번호를 수집하여 누락 확인
                     vols = set()
                     from core.parser import extract_core_title
-                    for gr in group_rows[g_val]:
+                    for gr_idx, gr in enumerate(group_rows[g_val]):
+                        if gr_idx % 20 == 0:
+                            QCoreApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
                         if gr.get("is_folder"): continue
                         s_name = safe_get(gr, "series") or gr.get("full_meta", {}).get("series", "")
                         if not s_name:
@@ -1905,7 +1921,9 @@ class TabFolder(QWidget):
         is_detail_view = (self.view_stack.currentIndex() == 0)
         show_dup = is_detail_view and self.btn_dup_check.isChecked()
 
-        for row in display_data:
+        for loop_idx, row in enumerate(display_data):
+            if loop_idx % 50 == 0:
+                QCoreApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
             final_data.append(row)
             if not row.get("is_group") and show_dup:
                 fp = row.get("full_path")
@@ -1933,7 +1951,9 @@ class TabFolder(QWidget):
 
         self.file_data_map = {}
         idx_counter = 0
-        for row in final_data:
+        for loop_idx, row in enumerate(final_data):
+            if loop_idx % 100 == 0:
+                QCoreApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
             row["display_index"] = idx_counter
             if not row.get("is_group") and not row.get("is_dup_folder") and not row.get("is_dup_child"):
                 self.file_data_map[row.get("full_path")] = row
@@ -1953,6 +1973,8 @@ class TabFolder(QWidget):
 
         span_targets = []
         for i, row in enumerate(final_data):
+            if i % 200 == 0:
+                QCoreApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
             if row.get("is_group") or row.get("is_dup_folder") or row.get("is_dup_child"):
                 span_targets.append(i)
 
@@ -1999,14 +2021,34 @@ class TabFolder(QWidget):
         self.lbl_tree_status.setText(_("folder_scanning").format(count))
 
     def _show_missing_toast_delayed(self):
-        # 폴더 진입 시 이전 캐시를 비우고 분석 시작
-        self._cached_missing_data = None 
         self._waiting_for_dialog = False
         
-        dup_folders = self.config.get("dup_check_folders", [])
-        self.toast_check_thread = MissingCheckThread(dup_folders, getattr(self, 'file_data_cache', []), is_toast=True)
-        self.toast_check_thread.finished_signal.connect(self._on_missing_data_ready)
-        self.toast_check_thread.start()
+        if getattr(self, '_cached_missing_data', None) is None:
+            if not hasattr(self, 'toast_check_thread') or not self.toast_check_thread.isRunning():
+                dup_folders = self.config.get("dup_check_folders", [])
+                self.toast_check_thread = MissingCheckThread(dup_folders, getattr(self, 'file_data_cache', []), is_toast=True)
+                self.toast_check_thread.finished_signal.connect(self._on_missing_data_ready)
+                self.toast_check_thread.start()
+        else:
+            current_series = set()
+            from core.parser import extract_core_title
+            for row in getattr(self, 'file_data_cache', []):
+                if row.get("is_folder") or row.get("is_dup_folder") or row.get("is_dup_child"): continue
+                s_name = row.get("series") or row.get("full_meta", {}).get("series", "")
+                if not s_name:
+                    s_name = extract_core_title(os.path.splitext(row.get("name", ""))[0]).strip()
+                if not s_name:
+                    s_name = os.path.basename(os.path.dirname(row.get("full_path", "")))
+                if s_name:
+                    current_series.add(s_name)
+                    
+            local_missing = [item for item in self._cached_missing_data if item['series'] in current_series]
+            
+            if local_missing:
+                try:
+                    from ui.widgets import Toast
+                    Toast.show(self.main_window, _("tf_local_missing_alert").format(len(local_missing)))
+                except Exception: pass
             
     def on_scan_finished(self, file_data_cache, total_size):
         self.is_syncing = False
@@ -2132,39 +2174,55 @@ class TabFolder(QWidget):
 
         was_meta_already_processed = row.get("meta_processed", False)
         
-        if not was_meta_already_processed:
+        new_res = meta_dict.get("resolution", "") if meta_dict else ""
+        if new_res:
+            row["res"] = new_res
+            
+        if not was_meta_already_processed or new_res:
             row["meta_processed"] = True 
             if meta_dict is None: meta_dict = {}
+            
+            title = meta_dict.get("title", row.get("title", ""))
+            series = meta_dict.get("series", row.get("series", ""))
+            vol = meta_dict.get("volume", row.get("vol", ""))
+            num = meta_dict.get("number", row.get("num", ""))
+            writer = meta_dict.get("writer", row.get("writer", ""))
+            
             row.update({
-                "res": meta_dict.get("resolution", ""), "title": meta_dict.get("title", ""),
-                "series": meta_dict.get("series", ""), "vol": meta_dict.get("volume", ""),
-                "num": meta_dict.get("number", ""), "writer": meta_dict.get("writer", ""),
-                "full_meta": meta_dict
+                "title": title,
+                "series": series,
+                "vol": vol,
+                "num": num,
+                "writer": writer
             })
+            
+            if "full_meta" not in row:
+                row["full_meta"] = {}
+            row["full_meta"].update(meta_dict)
             
             try:
                 creators_list = []
-                writer = meta_dict.get("writer")
-                if writer: creators_list.append(writer)
+                _writer = row["full_meta"].get("writer")
+                if _writer: creators_list.append(_writer)
                 for role in ['penciller', 'inker', 'colorist', 'letterer', 'cover_artist', 'editor']:
-                    val = meta_dict.get(role)
+                    val = row["full_meta"].get(role)
                     if val: creators_list.append(val)
                 creators_str = " / ".join(creators_list) if creators_list else ""
                 
-                y, m, d = meta_dict.get("year", ""), meta_dict.get("month", ""), meta_dict.get("day", "")
+                y, m, d = row["full_meta"].get("year", ""), row["full_meta"].get("month", ""), row["full_meta"].get("day", "")
                 publish_date_str = f"{y}-{m}-{d}".strip('-')
                 if publish_date_str == "--": publish_date_str = ""
                 
                 db.upsert_file_info(
                     filepath, row.get("raw_mtime", 0), row.get("raw_size", 0), row.get("ext", ""),
-                    meta_dict.get("resolution", ""), meta_dict.get("title", ""), meta_dict.get("series", ""),
-                    meta_dict.get("series_group", ""), meta_dict.get("volume", ""), meta_dict.get("number", ""),
-                    meta_dict.get("writer", ""), creators_str, meta_dict.get("publisher", ""), meta_dict.get("imprint", ""), 
-                    meta_dict.get("genre", ""), meta_dict.get("volume_count", ""), meta_dict.get("page_count", ""), 
-                    meta_dict.get("format", ""), meta_dict.get("manga", ""), meta_dict.get("language", ""),
-                    meta_dict.get("rating", ""), meta_dict.get("age_rating", ""), publish_date_str, meta_dict.get("summary", ""), 
-                    meta_dict.get("characters", ""), meta_dict.get("teams", ""), meta_dict.get("locations", ""), 
-                    meta_dict.get("story_arc", ""), meta_dict.get("tags", ""), meta_dict.get("notes", ""), meta_dict.get("web", ""), ""
+                    row.get("res", ""), row["full_meta"].get("title", ""), row["full_meta"].get("series", ""),
+                    row["full_meta"].get("series_group", ""), row["full_meta"].get("volume", ""), row["full_meta"].get("number", ""),
+                    row["full_meta"].get("writer", ""), creators_str, row["full_meta"].get("publisher", ""), row["full_meta"].get("imprint", ""), 
+                    row["full_meta"].get("genre", ""), row["full_meta"].get("volume_count", ""), row["full_meta"].get("page_count", ""), 
+                    row["full_meta"].get("format", ""), row["full_meta"].get("manga", ""), row["full_meta"].get("language", ""),
+                    row["full_meta"].get("rating", ""), row["full_meta"].get("age_rating", ""), publish_date_str, row["full_meta"].get("summary", ""), 
+                    row["full_meta"].get("characters", ""), row["full_meta"].get("teams", ""), row["full_meta"].get("locations", ""), 
+                    row["full_meta"].get("story_arc", ""), row["full_meta"].get("tags", ""), row["full_meta"].get("notes", ""), row["full_meta"].get("web", ""), ""
                 )
             except Exception as e: print(f"DB Upsert Error: {e}")
 
@@ -3008,13 +3066,16 @@ class TabFolder(QWidget):
         self._cached_missing_data = missing_data
         
         if is_toast:
-            if missing_data:
-                try:
-                    from ui.widgets import Toast
-                    Toast.show(self.main_window, _("tf_toast_missing").format(len(missing_data)))
-                except Exception: pass
+            if not getattr(self, '_has_shown_global_missing_toast', False):
+                self._has_shown_global_missing_toast = True
+                if missing_data:
+                    try:
+                        from ui.widgets import Toast
+                        Toast.show(self.main_window, _("tf_toast_missing").format(len(missing_data)))
+                    except Exception: pass
+            else:
+                self._show_missing_toast_delayed()
                 
-            # 유저가 로딩 중에 버튼을 눌러서 기다리고 있었다면 팝업 즉시 호출
             if getattr(self, '_waiting_for_dialog', False):
                 self._waiting_for_dialog = False
                 self.btn_check_missing.setEnabled(True)

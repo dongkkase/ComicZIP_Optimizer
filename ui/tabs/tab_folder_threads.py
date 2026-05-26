@@ -480,16 +480,11 @@ class MemoryExtractThread(QThread):
             img_bytes = b""
             has_img_out = False
 
-            if needs_img and thumb_path and os.path.exists(thumb_path):
+            if thumb_path and os.path.exists(thumb_path):
                 if os.path.getsize(thumb_path) > 0:
-                    qimg = QImage()
-                    qimg.load(thumb_path)
-                    if not qimg.isNull():
-                        has_img_out = True
-                        needs_img = False 
-                else:
                     has_img_out = True
-                    needs_img = False
+                else:
+                    has_img_out = False
 
             if needs_meta or needs_img:
                 ext = os.path.splitext(filepath)[1].lower()
@@ -537,17 +532,18 @@ class MemoryExtractThread(QThread):
                 except Exception:
                     pass
 
-            if img_bytes and not has_img_out:
+            if img_bytes:
                 qimg = QImage()
                 qimg.loadFromData(img_bytes)
                 if not qimg.isNull():
                     meta_dict["resolution"] = f"{qimg.width()} x {qimg.height()}"
-                    qimg = qimg.scaled(400, 400, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-                    if thumb_path:
-                        qimg.save(thumb_path, "WEBP", 85)
-                    has_img_out = True
+                    if not has_img_out:
+                        qimg = qimg.scaled(400, 400, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                        if thumb_path:
+                            qimg.save(thumb_path, "WEBP", 85)
+                        has_img_out = True
                 else:
-                    if thumb_path: open(thumb_path, 'wb').close()
+                    if not has_img_out and thumb_path: open(thumb_path, 'wb').close()
                     has_img_out = True
             elif needs_img and not has_img_out and not img_bytes:
                 if thumb_path: open(thumb_path, 'wb').close()

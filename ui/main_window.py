@@ -318,6 +318,17 @@ class RenamerApp(QMainWindow):
         bottom_layout.addWidget(self.btn_run)
         main_layout.addLayout(bottom_layout)
 
+        from ui.widgets import DimOverlay
+        self.lock_overlay = DimOverlay(self.tabs, show_spinner=True, text="작업을 진행 중입니다...")
+        self.tabs.installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        from PyQt6.QtCore import QEvent
+        if obj is getattr(self, 'tabs', None) and event.type() == QEvent.Type.Resize:
+            if hasattr(self, 'lock_overlay') and self.lock_overlay.isVisible():
+                self.lock_overlay.resize(self.tabs.size())
+        return super().eventFilter(obj, event)
+
     def apply_dark_theme(self):
         self.is_dark_mode = True 
         
@@ -462,6 +473,14 @@ class RenamerApp(QMainWindow):
                 self.tab2.entry_custom.setEnabled(False)
             else:
                 self.tab2.on_pattern_change(self.tab2.cb_pattern.currentText())
+
+        if is_processing:
+            if hasattr(self, 'lock_overlay'):
+                self.lock_overlay.text = "Processing..." if self.lang == "en" else ("処理中です..." if self.lang == "ja" else "작업을 진행 중입니다...")
+                self.lock_overlay.show()
+        else:
+            if hasattr(self, 'lock_overlay'):
+                self.lock_overlay.hide()
 
     def open_settings(self):
         old_lang = self.config.get("lang", "ko")
