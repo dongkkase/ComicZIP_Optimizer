@@ -42,3 +42,5 @@ venv/
 data/
 
 .api_cache.db
+
+.aiexclude

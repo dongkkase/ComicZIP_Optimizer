@@ -597,7 +597,7 @@ class MemoryExtractThread(QThread):
 
 class FolderScanThread(QThread):
     progress_updated = pyqtSignal(int)
-    scan_finished = pyqtSignal(list, float)
+    scan_finished = pyqtSignal(str, list, float)
     
     def __init__(self, folder_path, include_sub, target_exts, thumb_dir, force_update=False):
         super().__init__()
@@ -609,121 +609,142 @@ class FolderScanThread(QThread):
         self.is_cancelled = False
 
     def run(self):
+        import time
         if not os.path.exists(self.folder_path):
-            self.scan_finished.emit([], 0)
-            return
+            # [방어] 경로가 없을 경우 NAS 마운트 지연을 고려해 최대 5초 대기
+            for _ in range(10):
+                time.sleep(0.5)
+                if self.is_cancelled: return
+                if os.path.exists(self.folder_path): break
+            else:
+                if not self.is_cancelled:
+                    self.scan_finished.emit(self.folder_path, [], 0)
+                return
 
         from core.library_db import db
         cache_dict = db.get_all_files_in_path(self.folder_path, self.include_sub)
 
-        file_data_cache = []
-        total_size = 0
-        count = 0
+        # [NAS 스핀업 지연 방어] 스캔 결과가 0건일 경우 일시적 오류일 확률을 고려해 재시도
+        for retry in range(8):
+            file_data_cache = []
+            total_size = 0
+            count = 0
 
-        def scan_dir(path):
-            nonlocal total_size, count
+            def scan_dir(path):
+                nonlocal total_size, count
+                if self.is_cancelled:
+                    return
+                try:
+                    with os.scandir(path) as it:
+                        for entry in it:
+                            if self.is_cancelled:
+                                break
+
+                            if entry.is_dir(follow_symlinks=False):
+                                if self.include_sub:
+                                    scan_dir(entry.path)
+                            elif entry.is_file(follow_symlinks=False):
+                                name = entry.name
+                                if name.lower().endswith(self.target_exts):
+                                    full_path = entry.path
+                                    stat = entry.stat()
+                                    mtime = stat.st_mtime
+                                    ctime = stat.st_ctime
+                                    size = stat.st_size
+
+                                    cached = cache_dict.get(full_path)
+                                    meta_processed = False
+                                    full_meta = {}
+                                    res, title, series, vol, num, writer = "", "", "", "", "", ""
+
+                                    if cached and not self.force_update:
+                                        cached_mtime = cached[1]
+                                        if abs(float(cached_mtime) - float(mtime)) < 2.0:
+                                            meta_processed = True
+                                            res    = cached[4]  if len(cached) > 4  else ""
+                                            title  = cached[5]  if len(cached) > 5  else ""
+                                            series = cached[6]  if len(cached) > 6  else ""
+                                            vol    = cached[8]  if len(cached) > 8  else ""
+                                            num    = cached[9]  if len(cached) > 9  else ""
+                                            writer = cached[10] if len(cached) > 10 else ""
+                                            full_meta = {
+                                                "resolution":   cached[4]  if len(cached) > 4  else "",
+                                                "title":        cached[5]  if len(cached) > 5  else "",
+                                                "series":       cached[6]  if len(cached) > 6  else "",
+                                                "series_group": cached[7]  if len(cached) > 7  else "",
+                                                "volume":       cached[8]  if len(cached) > 8  else "",
+                                                "number":       cached[9]  if len(cached) > 9  else "",
+                                                "writer":       cached[10] if len(cached) > 10 else "",
+                                                "creators":     cached[11] if len(cached) > 11 else "",
+                                                "publisher":    cached[12] if len(cached) > 12 else "",
+                                                "imprint":      cached[13] if len(cached) > 13 else "",
+                                                "genre":        cached[14] if len(cached) > 14 else "",
+                                                "volume_count": cached[15] if len(cached) > 15 else "",
+                                                "page_count":   cached[16] if len(cached) > 16 else "",
+                                                "format":       cached[17] if len(cached) > 17 else "",
+                                                "manga":        cached[18] if len(cached) > 18 else "",
+                                                "language":     cached[19] if len(cached) > 19 else "",
+                                                "rating":       cached[20] if len(cached) > 20 else "",
+                                                "age_rating":   cached[21] if len(cached) > 21 else "",
+                                                "publish_date": cached[22] if len(cached) > 22 else "",
+                                                "summary":      cached[23] if len(cached) > 23 else "",
+                                                "characters":   cached[24] if len(cached) > 24 else "",
+                                                "teams":        cached[25] if len(cached) > 25 else "",
+                                                "locations":    cached[26] if len(cached) > 26 else "",
+                                                "story_arc":    cached[27] if len(cached) > 27 else "",
+                                                "tags":         cached[28] if len(cached) > 28 else "",
+                                                "notes":        cached[29] if len(cached) > 29 else "",
+                                                "web":          cached[30] if len(cached) > 30 else "",
+                                            }
+
+                                    file_hash = hashlib.md5(f"{full_path}_{mtime}".encode()).hexdigest()
+                                    thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.webp")
+                                    has_thumb = os.path.exists(thumb_path)
+
+                                    row_dict = {
+                                        "full_path":       full_path,
+                                        "hash":            file_hash,
+                                        "name":            name,
+                                        "path":            path,
+                                        "ext":             os.path.splitext(name)[1].lower(),
+                                        "raw_size":        size,
+                                        "raw_mtime":       mtime,
+                                        "raw_ctime":       ctime,
+                                        "ctime":           datetime.fromtimestamp(ctime).strftime('%Y-%m-%d %H:%M'),
+                                        "mtime":           datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M'),
+                                        "thumb_processed": has_thumb,
+                                        "meta_processed":  meta_processed,
+                                        "full_meta":       full_meta,
+                                        "res":    res,
+                                        "series": series,
+                                        "title":  title,
+                                        "vol":    vol,
+                                        "num":    num,
+                                        "writer": writer,
+                                        "display_index": -1
+                                    }
+                                    file_data_cache.append(row_dict)
+                                    total_size += size
+                                    count += 1
+
+                                    if count % 1000 == 0:
+                                        self.progress_updated.emit(count)
+                except Exception as e:
+                    print(f"scan_dir error: {e}")
+
+            scan_dir(self.folder_path)
+            
             if self.is_cancelled:
                 return
-            try:
-                with os.scandir(path) as it:
-                    for entry in it:
-                        if self.is_cancelled:
-                            break
-
-                        if entry.is_dir(follow_symlinks=False):
-                            if self.include_sub:
-                                scan_dir(entry.path)
-                        elif entry.is_file(follow_symlinks=False):
-                            name = entry.name
-                            if name.lower().endswith(self.target_exts):
-                                full_path = entry.path
-                                stat = entry.stat()
-                                mtime = stat.st_mtime
-                                ctime = stat.st_ctime
-                                size = stat.st_size
-
-                                cached = cache_dict.get(full_path)
-                                meta_processed = False
-                                full_meta = {}
-                                res, title, series, vol, num, writer = "", "", "", "", "", ""
-
-                                if cached and not self.force_update:
-                                    cached_mtime = cached[1]
-                                    if abs(float(cached_mtime) - float(mtime)) < 2.0:
-                                        meta_processed = True
-                                        res    = cached[4]  if len(cached) > 4  else ""
-                                        title  = cached[5]  if len(cached) > 5  else ""
-                                        series = cached[6]  if len(cached) > 6  else ""
-                                        vol    = cached[8]  if len(cached) > 8  else ""
-                                        num    = cached[9]  if len(cached) > 9  else ""
-                                        writer = cached[10] if len(cached) > 10 else ""
-                                        full_meta = {
-                                            "resolution":   cached[4]  if len(cached) > 4  else "",
-                                            "title":        cached[5]  if len(cached) > 5  else "",
-                                            "series":       cached[6]  if len(cached) > 6  else "",
-                                            "series_group": cached[7]  if len(cached) > 7  else "",
-                                            "volume":       cached[8]  if len(cached) > 8  else "",
-                                            "number":       cached[9]  if len(cached) > 9  else "",
-                                            "writer":       cached[10] if len(cached) > 10 else "",
-                                            "creators":     cached[11] if len(cached) > 11 else "",
-                                            "publisher":    cached[12] if len(cached) > 12 else "",
-                                            "imprint":      cached[13] if len(cached) > 13 else "",
-                                            "genre":        cached[14] if len(cached) > 14 else "",
-                                            "volume_count": cached[15] if len(cached) > 15 else "",
-                                            "page_count":   cached[16] if len(cached) > 16 else "",
-                                            "format":       cached[17] if len(cached) > 17 else "",
-                                            "manga":        cached[18] if len(cached) > 18 else "",
-                                            "language":     cached[19] if len(cached) > 19 else "",
-                                            "rating":       cached[20] if len(cached) > 20 else "",
-                                            "age_rating":   cached[21] if len(cached) > 21 else "",
-                                            "publish_date": cached[22] if len(cached) > 22 else "",
-                                            "summary":      cached[23] if len(cached) > 23 else "",
-                                            "characters":   cached[24] if len(cached) > 24 else "",
-                                            "teams":        cached[25] if len(cached) > 25 else "",
-                                            "locations":    cached[26] if len(cached) > 26 else "",
-                                            "story_arc":    cached[27] if len(cached) > 27 else "",
-                                            "tags":         cached[28] if len(cached) > 28 else "",
-                                            "notes":        cached[29] if len(cached) > 29 else "",
-                                            "web":          cached[30] if len(cached) > 30 else "",
-                                        }
-
-                                file_hash = hashlib.md5(f"{full_path}_{mtime}".encode()).hexdigest()
-                                thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.webp")
-                                has_thumb = os.path.exists(thumb_path)
-
-                                row_dict = {
-                                    "full_path":       full_path,
-                                    "hash":            file_hash,
-                                    "name":            name,
-                                    "path":            path,
-                                    "ext":             os.path.splitext(name)[1].lower(),
-                                    "raw_size":        size,
-                                    "raw_mtime":       mtime,
-                                    "raw_ctime":       ctime,
-                                    "ctime":           datetime.fromtimestamp(ctime).strftime('%Y-%m-%d %H:%M'),
-                                    "mtime":           datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M'),
-                                    "thumb_processed": has_thumb,
-                                    "meta_processed":  meta_processed,
-                                    "full_meta":       full_meta,
-                                    "res":    res,
-                                    "series": series,
-                                    "title":  title,
-                                    "vol":    vol,
-                                    "num":    num,
-                                    "writer": writer,
-                                    "display_index": -1
-                                }
-                                file_data_cache.append(row_dict)
-                                total_size += size
-                                count += 1
-
-                                if count % 1000 == 0:
-                                    self.progress_updated.emit(count)
-            except Exception as e:
-                print(f"scan_dir error: {e}")
-
-        scan_dir(self.folder_path)
-        self.scan_finished.emit(file_data_cache, total_size)
+                
+            if count > 0 or retry == 7:
+                break
+                
+            # 파일이 0개라면 HDD/NAS 스핀업 지연일 가능성을 열어두고 1초 대기 후 재시도
+            time.sleep(1.0)
+            
+        if not self.is_cancelled:
+            self.scan_finished.emit(self.folder_path, file_data_cache, total_size)
 
     def cancel(self):
         self.is_cancelled = True

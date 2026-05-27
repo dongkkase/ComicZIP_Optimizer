@@ -95,13 +95,16 @@ class TabFolder(QWidget):
         self.grouping_timer = QTimer()
         self.grouping_timer.setSingleShot(True)
         self.grouping_timer.timeout.connect(self.apply_grouping_and_sorting)
+        self.folder_scan_cache = {}
 
         # --- [추가됨] 중복 검사용 캐시 및 스레드 변수 ---
         self.b_folder_cache = []
         self.dup_matches = {}
         self.dup_scan_thread = None
         self.dup_match_thread = None
+        self.scan_overlay = None
         self._has_shown_global_missing_toast = False
+        self._db_upsert_buffer = []
         # ----------------------------------------------
 
         self.main_status_label = None
@@ -187,64 +190,69 @@ class TabFolder(QWidget):
             if obj is self.table_view and event.type() == QEvent.Type.Resize:
                 if hasattr(self, 'dim_overlay'):
                     self.dim_overlay.resize(self.table_view.size())
-                    
-            # 헤더 영역의 마우스 커서 동적 변경
-            header = self.table_view.horizontalHeader()
-            
-            # [핵심] header 자체뿐만 아니라 이벤트가 실제로 발생하는 viewport()까지 반드시 검사
-            if obj is header or (header.viewport() and obj is header.viewport()):
+        
+            # [추가] 폴더 스캔 로딩 오버레이 크기 조절
+            if obj is self.right_top_panel and event.type() == QEvent.Type.Resize:
+                if hasattr(self, 'scan_overlay') and self.scan_overlay.isVisible():
+                    self.scan_overlay.resize(self.right_top_panel.size())
+                        
+                # 헤더 영역의 마우스 커서 동적 변경
+                header = self.table_view.horizontalHeader()
                 
-                if event.type() in (QEvent.Type.MouseMove, QEvent.Type.HoverMove):
-                    pos = event.position().toPoint() if hasattr(event, 'position') else event.pos()
-                    idx = header.logicalIndexAt(pos)
-                    if idx >= 0:
-                        section_x = header.sectionViewportPosition(idx)
-                        section_width = header.sectionSize(idx)
-                        
-                        # 우측 끝 영역(5px)은 컬럼 크기 조절을 위해 기본 커서 유지
-                        if pos.x() >= section_x + section_width - 5:
-                            cursor = Qt.CursorShape.SplitHCursor
-                            header.setCursor(cursor)
-                            if header.viewport(): header.viewport().setCursor(cursor)
-                        
-                        # 그립 아이콘 영역(좌측 25픽셀 이내)은 Grab(펼친 손) 커서
-                        elif pos.x() - section_x <= 25:
-                            cursor = Qt.CursorShape.OpenHandCursor
-                            header.setCursor(cursor)
-                            if header.viewport(): header.viewport().setCursor(cursor)
-                            
-                        # 나머지 텍스트 영역은 Pointer(클릭 손) 커서
-                        else:
-                            cursor = Qt.CursorShape.PointingHandCursor
-                            header.setCursor(cursor)
-                            if header.viewport(): header.viewport().setCursor(cursor)
-                            
-                elif event.type() == QEvent.Type.Leave:
-                    header.unsetCursor()
-                    if header.viewport(): header.viewport().unsetCursor()
+                # [핵심] header 자체뿐만 아니라 이벤트가 실제로 발생하는 viewport()까지 반드시 검사
+                if obj is header or (header.viewport() and obj is header.viewport()):
                     
-                elif event.type() == QEvent.Type.MouseButtonPress:
-                    pos = event.position().toPoint() if hasattr(event, 'position') else event.pos()
-                    idx = header.logicalIndexAt(pos)
-                    if idx >= 0:
-                        section_x = header.sectionViewportPosition(idx)
-                        # 아이콘 영역 클릭 시 Grabbing(움켜쥔 손) 커서로 피드백
-                        if pos.x() - section_x <= 25:
-                            cursor = Qt.CursorShape.ClosedHandCursor
+                    if event.type() in (QEvent.Type.MouseMove, QEvent.Type.HoverMove):
+                        pos = event.position().toPoint() if hasattr(event, 'position') else event.pos()
+                        idx = header.logicalIndexAt(pos)
+                        if idx >= 0:
+                            section_x = header.sectionViewportPosition(idx)
+                            section_width = header.sectionSize(idx)
+                            
+                            # 우측 끝 영역(5px)은 컬럼 크기 조절을 위해 기본 커서 유지
+                            if pos.x() >= section_x + section_width - 5:
+                                cursor = Qt.CursorShape.SplitHCursor
+                                header.setCursor(cursor)
+                                if header.viewport(): header.viewport().setCursor(cursor)
+                            
+                            # 그립 아이콘 영역(좌측 25픽셀 이내)은 Grab(펼친 손) 커서
+                            elif pos.x() - section_x <= 25:
+                                cursor = Qt.CursorShape.OpenHandCursor
+                                header.setCursor(cursor)
+                                if header.viewport(): header.viewport().setCursor(cursor)
+                                
+                            # 나머지 텍스트 영역은 Pointer(클릭 손) 커서
+                            else:
+                                cursor = Qt.CursorShape.PointingHandCursor
+                                header.setCursor(cursor)
+                                if header.viewport(): header.viewport().setCursor(cursor)
+                                
+                    elif event.type() == QEvent.Type.Leave:
+                        header.unsetCursor()
+                        if header.viewport(): header.viewport().unsetCursor()
+                        
+                    elif event.type() == QEvent.Type.MouseButtonPress:
+                        pos = event.position().toPoint() if hasattr(event, 'position') else event.pos()
+                        idx = header.logicalIndexAt(pos)
+                        if idx >= 0:
+                            section_x = header.sectionViewportPosition(idx)
+                            # 아이콘 영역 클릭 시 Grabbing(움켜쥔 손) 커서로 피드백
+                            if pos.x() - section_x <= 25:
+                                cursor = Qt.CursorShape.ClosedHandCursor
+                                header.setCursor(cursor)
+                                if header.viewport(): header.viewport().setCursor(cursor)
+                                
+                    elif event.type() == QEvent.Type.MouseButtonRelease:
+                        pos = event.position().toPoint() if hasattr(event, 'position') else event.pos()
+                        idx = header.logicalIndexAt(pos)
+                        if idx >= 0:
+                            section_x = header.sectionViewportPosition(idx)
+                            if pos.x() - section_x <= 25:
+                                cursor = Qt.CursorShape.OpenHandCursor
+                            else:
+                                cursor = Qt.CursorShape.PointingHandCursor
                             header.setCursor(cursor)
                             if header.viewport(): header.viewport().setCursor(cursor)
-                            
-                elif event.type() == QEvent.Type.MouseButtonRelease:
-                    pos = event.position().toPoint() if hasattr(event, 'position') else event.pos()
-                    idx = header.logicalIndexAt(pos)
-                    if idx >= 0:
-                        section_x = header.sectionViewportPosition(idx)
-                        if pos.x() - section_x <= 25:
-                            cursor = Qt.CursorShape.OpenHandCursor
-                        else:
-                            cursor = Qt.CursorShape.PointingHandCursor
-                        header.setCursor(cursor)
-                        if header.viewport(): header.viewport().setCursor(cursor)
         
         except RuntimeError:
             # 객체가 이미 삭제된 상태에서 이벤트가 들어오는 경우 무시
@@ -540,7 +548,9 @@ class TabFolder(QWidget):
         self.right_splitter.setHandleWidth(8)
         
         self.right_top_panel = QFrame()
-        self.right_top_panel.setStyleSheet("QFrame { background-color: #2b2b2b; border-radius: 5px; border: 1px solid #444; }")
+        self.right_top_panel.setObjectName("RightTopPanel")
+        self.right_top_panel.installEventFilter(self)
+        self.right_top_panel.setStyleSheet("QFrame#RightTopPanel { background-color: #2b2b2b; border-radius: 5px; border: 1px solid #444; }")
         right_top_layout = QVBoxLayout(self.right_top_panel)
         right_top_layout.setContentsMargins(5, 5, 5, 5)
 
@@ -693,7 +703,22 @@ class TabFolder(QWidget):
 
         self.view_stack.addWidget(self.table_view)
         self.view_stack.addWidget(self.list_view)
+        self.view_stack.hide() # 초기에 데이터가 없을 때는 숨김 처리
         right_top_layout.addWidget(self.view_stack)
+
+        # --- [추가] 빈 상태 표시 라벨 ---
+        self.lbl_empty_state = QLabel(_("t3_no_data"))
+        self.lbl_empty_state.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_empty_state.setStyleSheet(f"color: #888888; font-size: {self.config.get('s16', 16)}px; font-weight: bold;")
+        self.lbl_empty_state.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        right_top_layout.addWidget(self.lbl_empty_state)
+        # ------------------------------
+        
+        # --- [추가] 폴더 스캔 로딩 오버레이 ---
+        self.scan_overlay = DimOverlay(self.right_top_panel, show_spinner=True, text=_("folder_scan_prep"))
+        self.scan_overlay.setStyleSheet("QLabel { border: none; background-color: transparent; }")
+        self.scan_overlay.hide()
+        # ------------------------------------
 
         # ---------------- 네이티브 디자인 레이아웃 적용 (우측 하단 패널) ----------------
         # from ui.widgets import DetailBackgroundWidget
@@ -969,6 +994,7 @@ class TabFolder(QWidget):
             has_res = bool(r.get("res"))
             
             if has_img and has_meta and has_res: continue
+            if has_img and has_meta: continue
             
             disp_idx = r.get("display_index", -1)
             if disp_idx >= 0:
@@ -979,6 +1005,7 @@ class TabFolder(QWidget):
                 
             is_selected = fp in selected_paths
             needs_img = not has_img or not has_res
+            needs_img = not has_img
             needs_meta = not has_meta
             
             thumb_path = os.path.join(self.thumb_dir, f"{r.get('hash', '')}.webp")
@@ -1010,7 +1037,7 @@ class TabFolder(QWidget):
         self.extract_thread.show_progress = (real_heavy_tasks_count > 0)
         self.extract_thread.data_extracted.connect(self.on_metadata_extracted)
         self.extract_thread.progress_updated.connect(self.on_extract_progress)
-        self.extract_thread.finished.connect(lambda: self.scroll_timer.start(10))
+        self.extract_thread.finished.connect(self._on_extract_thread_finished)
         self.extract_thread.start()
 
     def on_extract_progress(self, count):
@@ -1081,6 +1108,7 @@ class TabFolder(QWidget):
         self.extract_thread.show_progress = True
         self.extract_thread.data_extracted.connect(self.on_metadata_extracted)
         self.extract_thread.progress_updated.connect(self.on_extract_progress)
+        self.extract_thread.finished.connect(self._flush_db_buffer)
         self.extract_thread.start()
 
     def export_csv(self):
@@ -1124,6 +1152,13 @@ class TabFolder(QWidget):
     def on_watched_folder_changed(self, path):
         if getattr(self, '_internal_action_lock', False): return
         
+        # --- [추가] 캐시 무효화 ---
+        for sub_included in [True, False]:
+            cache_key = (path, sub_included)
+            if cache_key in self.folder_scan_cache:
+                del self.folder_scan_cache[cache_key]
+        # ------------------------
+
         if self.current_watched_folder == path:
             self.refresh_list(force_update=False)
 
@@ -1798,6 +1833,10 @@ class TabFolder(QWidget):
         self.apply_grouping_and_sorting()
 
     def apply_grouping_and_sorting(self):
+        # [추가] 새로운 폴더 스캔이 진행 중일 때는 과거 스레드(중복 검사 등)의 간섭으로 인한 '데이터 없음' 표시를 원천 차단
+        if hasattr(self, 'scan_thread') and self.scan_thread and self.scan_thread.isRunning():
+            return
+            
         import time
         from collections import Counter
         t0 = time.time()
@@ -1809,6 +1848,23 @@ class TabFolder(QWidget):
         search_query = self.search_bar.text().strip().lower()
         filter_no_meta = hasattr(self, 'action_filter_no_meta') and self.action_filter_no_meta.isChecked()
         
+        # --- [추가] 빈 상태 메시지 동적 결정 ---
+        empty_text = _("t3_no_data")
+        if search_query:
+            empty_text = _("t3_msg_no_search_result")
+        elif filter_no_meta:
+            empty_text = "조건에 맞는 파일이 없습니다.\n\n(상단의 '필터 ▼' 메뉴에서 '메타데이터가 없는 파일만 보기'가 켜져 있습니다)"
+        elif getattr(self, 'current_watched_folder', None) and os.path.exists(self.current_watched_folder):
+            if not self.btn_subfolders.isChecked():
+                try:
+                    for entry in os.scandir(self.current_watched_folder):
+                        if entry.is_dir():
+                            empty_text = "현재 폴더에 압축 파일이 없습니다.\n\n(하위 폴더의 파일을 보려면 상단의 '☑ 하위 폴더 포함'을 켜주세요)"
+                            break
+                except Exception:
+                    pass
+        # --------------------------------------
+
         data = []
         for row in self.file_data_cache:
             if filter_no_meta:
@@ -1829,6 +1885,9 @@ class TabFolder(QWidget):
 
         if not data:
             self.table_model.update_data([])
+            self.view_stack.hide()
+            self.lbl_empty_state.setText(empty_text)
+            self.lbl_empty_state.show()
             return
 
         col_id = self.current_sort_key
@@ -2015,6 +2074,15 @@ class TabFolder(QWidget):
 
         t_model = time.time()
         self.table_model.update_data(final_data)
+        
+        if not final_data:
+            self.view_stack.hide()
+            self.lbl_empty_state.setText(empty_text)
+            self.lbl_empty_state.show()
+        else:
+            self.view_stack.show()
+            self.lbl_empty_state.hide()
+            
         print(f"[LOG] 8. TableModel 내부 업데이트 (Qt 엔진 렌더링 계산): {time.time()-t_model:.3f}s")
 
         col_count = self.table_model.columnCount()
@@ -2067,6 +2135,8 @@ class TabFolder(QWidget):
 
     def on_scan_progress(self, count):
         self.lbl_tree_status.setText(_("folder_scanning").format(count))
+        if self.scan_overlay and self.scan_overlay.isVisible():
+            self.scan_overlay.text = _("folder_scanning").format(count)
 
     def _show_missing_toast_delayed(self):
         self._waiting_for_dialog = False
@@ -2098,7 +2168,13 @@ class TabFolder(QWidget):
                     Toast.show(self.main_window, _("tf_local_missing_alert").format(len(local_missing)))
                 except Exception: pass
             
-    def on_scan_finished(self, file_data_cache, total_size):
+    def on_scan_finished(self, folder_path, file_data_cache, total_size):
+        # [추가] 빠른 폴더 이동 시 발생하는 캐시 덮어쓰기(데이터 증발) 버그 방어
+        if folder_path != getattr(self, 'current_watched_folder', None):
+            return
+
+        self.scan_overlay.hide()
+
         self.is_syncing = False
         self.sync_total_tasks = 0
         self.sync_completed_tasks = 0
@@ -2108,11 +2184,23 @@ class TabFolder(QWidget):
             if hasattr(self, 'main_status_label') and self.main_status_label:
                 self.main_status_label.setText(_("folder_ready"))
             self.lbl_tree_status.setText("Network Drive Offline / 경로를 찾을 수 없습니다.")
+            self.lbl_empty_state.setText("경로를 찾을 수 없습니다.")
             return
 
         self.file_data_cache = file_data_cache
         for row in self.file_data_cache:
             row["size"] = self.format_size(row["raw_size"])
+
+        # --- [추가] 스캔 결과를 메모리 캐시에 저장 (비어있을 땐 캐시 제외하여 HDD 스핀업 지연 방어) ---
+        folder_path = self.current_watched_folder
+        if folder_path and file_data_cache:
+            include_sub = self.btn_subfolders.isChecked()
+            cache_key = (folder_path, include_sub)
+            try:
+                mtime = os.stat(folder_path).st_mtime
+            except:
+                mtime = 0
+            self.folder_scan_cache[cache_key] = (file_data_cache, total_size, mtime)
 
         self.apply_grouping_and_sorting()
 
@@ -2152,8 +2240,31 @@ class TabFolder(QWidget):
         folder_path = self.dir_model.filePath(index)
         if not os.path.isdir(folder_path): return
         
+        # --- [추가] 캐시 확인 및 사용 로직 ---
+        include_sub = self.btn_subfolders.isChecked()
+        cache_key = (folder_path, include_sub)
+        if not force_update and cache_key in self.folder_scan_cache:
+            cached_file_data, cached_total_size, cached_mtime = self.folder_scan_cache[cache_key]
+            try:
+                current_mtime = os.stat(folder_path).st_mtime
+            except:
+                current_mtime = 0
+
+            # 루트 폴더의 mtime이 변경되지 않았다면 캐시 사용 (하위 폴더 변경은 file watcher/nas poller가 캐시를 지워주는 것을 신뢰)
+            if abs(current_mtime - cached_mtime) < 2.0:
+                if self.current_watched_folder != folder_path:
+                    if self.current_watched_folder:
+                        self.folder_watcher.removePath(self.current_watched_folder)
+                    self.folder_watcher.addPath(folder_path)
+                    self.current_watched_folder = folder_path
+                    self.config["folder_last_path"] = folder_path
+                    save_config(self.config)
+                
+                self.on_scan_finished(folder_path, list(cached_file_data), cached_total_size)
+                return
+
         self.force_update_flag = force_update
-        
+
         if self.current_watched_folder != folder_path:
             if self.current_watched_folder:
                 self.folder_watcher.removePath(self.current_watched_folder)
@@ -2198,7 +2309,15 @@ class TabFolder(QWidget):
         # --- [수정됨] 삭제 및 새로고침 시 UI 잔상(깨짐) 방지 ---
         self.table_view.setUpdatesEnabled(False)
         self.table_view.clearSpans()
-        self.table_model.update_data([])
+        # [수정] 로딩 오버레이를 위해 기존 UI 요소들을 숨깁니다.
+        self.view_stack.hide()
+        self.lbl_empty_state.hide()
+        
+        if hasattr(self, 'scan_overlay') and self.scan_overlay:
+            self.scan_overlay.text = _("folder_scan_prep")
+            self.scan_overlay.resize(self.right_top_panel.size())
+            self.scan_overlay.show()
+        
         self.table_view.setUpdatesEnabled(True)
         # --------------------------------------------------------
         self.lbl_tree_status.setText(_("folder_scan_prep"))
@@ -2261,7 +2380,7 @@ class TabFolder(QWidget):
                 publish_date_str = f"{y}-{m}-{d}".strip('-')
                 if publish_date_str == "--": publish_date_str = ""
                 
-                db.upsert_file_info(
+                self._db_upsert_buffer.append((
                     filepath, row.get("raw_mtime", 0), row.get("raw_size", 0), row.get("ext", ""),
                     row.get("res", ""), row["full_meta"].get("title", ""), row["full_meta"].get("series", ""),
                     row["full_meta"].get("series_group", ""), row["full_meta"].get("volume", ""), row["full_meta"].get("number", ""),
@@ -2271,7 +2390,11 @@ class TabFolder(QWidget):
                     row["full_meta"].get("rating", ""), row["full_meta"].get("age_rating", ""), publish_date_str, row["full_meta"].get("summary", ""), 
                     row["full_meta"].get("characters", ""), row["full_meta"].get("teams", ""), row["full_meta"].get("locations", ""), 
                     row["full_meta"].get("story_arc", ""), row["full_meta"].get("tags", ""), row["full_meta"].get("notes", ""), row["full_meta"].get("web", ""), ""
-                )
+                ))
+                
+                # 50개가 모일 때마다 1번씩 벌크 인서트 진행
+                if len(self._db_upsert_buffer) >= 50:
+                    self._flush_db_buffer()
             except Exception as e: print(f"DB Upsert Error: {e}")
 
         disp_idx = row.get("display_index")
@@ -2282,6 +2405,26 @@ class TabFolder(QWidget):
 
         if self.current_selected_path == filepath:
             self.update_info_panel(filepath, row.get("full_meta", {}))
+
+    def _flush_db_buffer(self):
+        """메모리에 쌓인 파일 데이터들을 DB에 한 번에 일괄 저장합니다."""
+        if not getattr(self, '_db_upsert_buffer', None):
+            return
+        try:
+            # 벌크 저장 메서드가 DB에 구현되어 있다면 사용, 없다면 안전하게 1개씩 저장 (하위호환)
+            if hasattr(db, 'upsert_file_info_bulk'):
+                db.upsert_file_info_bulk(self._db_upsert_buffer)
+            else:
+                for record in self._db_upsert_buffer:
+                    db.upsert_file_info(*record)
+        except Exception as e:
+            print(f"DB Bulk Upsert Error: {e}")
+        finally:
+            self._db_upsert_buffer.clear()
+
+    def _on_extract_thread_finished(self):
+        self._flush_db_buffer()
+        self.scroll_timer.start(10)
 
         # 필터가 켜져 있을 때 백그라운드 스캔으로 메타가 채워지면 리스트에서 즉시 숨기도록 디바운스 타이머 호출
         if hasattr(self, 'action_filter_no_meta') and self.action_filter_no_meta.isChecked():
@@ -3210,6 +3353,13 @@ class TabFolder(QWidget):
         try:
             current_mtime = os.stat(self.current_watched_folder).st_mtime
             if current_mtime != getattr(self, 'last_folder_mtime', 0):
+                # --- [추가] 캐시 무효화 ---
+                include_sub = self.btn_subfolders.isChecked()
+                cache_key = (self.current_watched_folder, include_sub)
+                if cache_key in self.folder_scan_cache:
+                    del self.folder_scan_cache[cache_key]
+                # ------------------------
+
                 self.last_folder_mtime = current_mtime
                 self.refresh_list(force_update=False)
         except Exception:
