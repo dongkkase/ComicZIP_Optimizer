@@ -156,6 +156,10 @@ class DimOverlay(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         
+        self.opacity_effect = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(self.opacity_effect)
+        self.anim_fade = QPropertyAnimation(self.opacity_effect, b"opacity", self)
+        
         self.movie = None
         
         if self.show_spinner:
@@ -221,6 +225,13 @@ class DimOverlay(QWidget):
             self.resize(self.parent().size())
         if self.movie:
             self.movie.start()
+            
+        self.anim_fade.stop()
+        self.anim_fade.setDuration(100)
+        self.anim_fade.setStartValue(0.0)
+        self.anim_fade.setEndValue(1.0)
+        self.anim_fade.start()
+        
         super().showEvent(event)
         
     def hideEvent(self, event):

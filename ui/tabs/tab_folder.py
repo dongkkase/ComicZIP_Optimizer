@@ -301,6 +301,14 @@ class TabFolder(QWidget):
             # [추가] 매칭할 파일 데이터가 없어서 진행되지 않는 경우 오버레이 해제
             self.dim_overlay.hide()
 
+        # [추가] 인덱싱(중복 스캔) 작업 완료 시 탐색기 패널의 선택된 폴더로 스크롤 포커싱
+        target_path = getattr(self, 'current_watched_folder', None)
+        if not target_path:
+            target_path = self.config.get("folder_last_path", "")
+            
+        if target_path and os.path.exists(target_path):
+            self._start_queued_scroll(target_path)
+
     # 중복 검사 토글 이벤트 처리
     def on_dup_check_toggled(self, checked):
         import time
@@ -559,6 +567,11 @@ class TabFolder(QWidget):
         self.btn_grouped.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.btn_grouped.setStyleSheet(menu_btn_style)
 
+        self.btn_filter = QToolButton()
+        self.btn_filter.setText(_("folder_filter"))
+        self.btn_filter.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.btn_filter.setStyleSheet(menu_btn_style)
+
         self.btn_sorted = QToolButton()
         self.btn_sorted.setText(_("folder_sorted"))
         self.btn_sorted.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
@@ -587,7 +600,7 @@ class TabFolder(QWidget):
         self.btn_sidebar.setCursor(Qt.CursorShape.PointingHandCursor)
         list_toolbar.addWidget(self.btn_sidebar)
         
-        for btn in [self.btn_views, self.btn_grouped, self.btn_sorted, self.btn_layouts, self.btn_export]:
+        for btn in [self.btn_views, self.btn_grouped, self.btn_filter, self.btn_sorted, self.btn_layouts, self.btn_export]:
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             list_toolbar.addWidget(btn)
             
@@ -1187,6 +1200,12 @@ class TabFolder(QWidget):
         self.menu_grouped.addAction(_("col_writer"), lambda: self.set_grouping("writer"))
         self.btn_grouped.setMenu(self.menu_grouped)
 
+        self.menu_filter = QMenu(self)
+        self.action_filter_no_meta = QAction(_("filter_no_meta"), self, checkable=True)
+        self.action_filter_no_meta.toggled.connect(self._on_filter_toggled)
+        self.menu_filter.addAction(self.action_filter_no_meta)
+        self.btn_filter.setMenu(self.menu_filter)
+
         self.menu_sorted = QMenu(self)
         self.menu_sorted.addAction(_("col_name"), lambda: self.set_sorting("name"))
         self.menu_sorted.addAction(_("col_size"), lambda: self.set_sorting("size"))
@@ -1223,6 +1242,23 @@ class TabFolder(QWidget):
         QShortcut(QKeySequence("Ctrl+Z"), self).activated.connect(self.action_undo_rename)
 
         QShortcut(QKeySequence("Ctrl+G"), self).activated.connect(self.show_goto_dialog)
+
+    def _update_button_active_style(self, button, is_active):
+        if is_active:
+            button.setStyleSheet("""
+                QToolButton { background-color: #2980B9; color: white; padding: 5px; font-weight: bold; border-radius: 4px; }
+                QToolButton::menu-indicator { image: none; }
+            """)
+        else:
+            button.setStyleSheet("""
+                QToolButton { background-color: transparent; color: white; padding: 5px; font-weight: bold; border: none; }
+                QToolButton:hover { color: #3498DB; }
+                QToolButton::menu-indicator { image: none; }
+            """)
+
+    def _on_filter_toggled(self, checked):
+        self._update_button_active_style(self.btn_filter, checked)
+        self.apply_grouping_and_sorting()
 
     def hotkey_shift_r(self):
         # 탐색기 패널에 포커스가 있으면 폴더 이름 변경, 리스트에 있으면 다중 파일 이름 변경
@@ -1654,6 +1690,7 @@ class TabFolder(QWidget):
     def set_view_mode(self, mode):
         self.config["folder_view_mode"] = mode
         save_config(self.config)
+        self._update_button_active_style(self.btn_views, mode != "detail")
         
         if mode == "detail":
             self.view_stack.setCurrentIndex(0)
@@ -1715,6 +1752,7 @@ class TabFolder(QWidget):
 
     def set_grouping(self, key):
         self.current_group_key = key
+        self._update_button_active_style(self.btn_grouped, key != "none")
         self.apply_grouping_and_sorting()
 
     def _save_sort_state(self):
@@ -1769,9 +1807,19 @@ class TabFolder(QWidget):
         # self.table_view.clearSpans() 
         
         search_query = self.search_bar.text().strip().lower()
+        filter_no_meta = hasattr(self, 'action_filter_no_meta') and self.action_filter_no_meta.isChecked()
         
         data = []
         for row in self.file_data_cache:
+            if filter_no_meta:
+                has_meta = False
+                fm = row.get("full_meta", {})
+                for k in ["title", "series", "writer", "publisher", "volume_count", "summary", "tags"]:
+                    if fm.get(k):
+                        has_meta = True
+                        break
+                if has_meta: continue
+
             if search_query:
                 search_target = f"{row.get('name','')} {row.get('title','')} {row.get('series','')} {row.get('writer','')}".lower()
                 if search_query not in search_target: continue
@@ -2234,6 +2282,11 @@ class TabFolder(QWidget):
 
         if self.current_selected_path == filepath:
             self.update_info_panel(filepath, row.get("full_meta", {}))
+
+        # 필터가 켜져 있을 때 백그라운드 스캔으로 메타가 채워지면 리스트에서 즉시 숨기도록 디바운스 타이머 호출
+        if hasattr(self, 'action_filter_no_meta') and self.action_filter_no_meta.isChecked():
+            if not self.grouping_timer.isActive():
+                self.grouping_timer.start(500)
 
     def on_tree_selection_changed(self):
         self.refresh_list()
@@ -3065,6 +3118,11 @@ class TabFolder(QWidget):
         # 백그라운드 분석이 완료되면 무조건 캐시에 결과 저장
         self._cached_missing_data = missing_data
         
+        base_text = _("tf_btn_check_missing")
+        badge_text = f"{base_text}  🔴 {len(missing_data)}" if missing_data else base_text
+        badge_text = f"{base_text}  🔔 {len(missing_data)}" if missing_data else base_text
+        self.btn_check_missing.setText(badge_text)
+        
         if is_toast:
             if not getattr(self, '_has_shown_global_missing_toast', False):
                 self._has_shown_global_missing_toast = True
@@ -3079,12 +3137,10 @@ class TabFolder(QWidget):
             if getattr(self, '_waiting_for_dialog', False):
                 self._waiting_for_dialog = False
                 self.btn_check_missing.setEnabled(True)
-                self.btn_check_missing.setText(_("tf_btn_check_missing"))
                 self._build_and_show_missing_dialog(missing_data)
             return
 
         self.btn_check_missing.setEnabled(True)
-        self.btn_check_missing.setText(_("tf_btn_check_missing"))
         self._build_and_show_missing_dialog(missing_data)
         
     def _build_and_show_missing_dialog(self, missing_data):

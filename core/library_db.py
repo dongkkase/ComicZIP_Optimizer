@@ -245,6 +245,10 @@ class LibraryDB:
                 cursor = conn.cursor()
                 cursor.execute('DELETE FROM dup_cache')
                 conn.commit()
+                
+                # SQLite 특성상 데이터를 삭제해도 파일 용량이 줄어들지 않으므로,
+                # VACUUM 명령을 실행하여 실제 파일 크기를 강제로 축소시킵니다.
+                conn.execute('VACUUM')
                 return True
             except Exception as e:
                 print(f"Clear Cache Error: {e}")

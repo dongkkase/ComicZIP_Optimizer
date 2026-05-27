@@ -56,6 +56,7 @@ class Tab3Metadata(QWidget):
         self.btn_next_vol.setIcon(qta.icon('fa5s.caret-right', color=icon_color))
         
         self.btn_reset_series.setIcon(qta.icon('fa5s.undo', color=icon_color))
+        self.btn_load_latest.setIcon(qta.icon('fa5s.cloud-download-alt', color=icon_color))
         self.btn_copy_orig.setIcon(qta.icon('fa5s.copy', color=icon_color))
         self.btn_apply_all.setIcon(qta.icon('fa5s.check', color=icon_color))
         self.btn_apply_series.setIcon(qta.icon('fa5s.layer-group', color='white')) 
@@ -228,12 +229,14 @@ class Tab3Metadata(QWidget):
         self.btn_next_vol.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         
         self.btn_reset_series = QPushButton(t.get("t3_btn_reset_series", "시리즈\n초기화"))
-        self.btn_copy_orig = QPushButton(t.get("t3_btn_copy_orig", "원본\n카피 편집"))
-        self.btn_apply_all = QPushButton(t.get("t3_btn_apply_all", "편집\n적용"))
-        self.btn_apply_series = QPushButton(f"{t.get('t3_btn_apply_series', '시리즈\n편집 적용')} (C)")
+        self.btn_load_latest = QPushButton(f"{t.get('t3_btn_load_latest', '최신권 정보\n불러오기')} (D)")
+        self.btn_copy_orig = QPushButton(t.get("t3_btn_copy_orig", "편집창에\n원본 복사"))
+        self.btn_apply_all = QPushButton(t.get("t3_btn_apply_all", "현재 책에\n편집 적용"))
+        self.btn_apply_series = QPushButton(f"{t.get('t3_btn_apply_series', '시리즈 전체에\n일괄 적용')} (C)")
         self.btn_apply_series.setObjectName("actionBtnBlue")
 
         self.btn_reset_series.setToolTip(t.get("t3_tt_reset_series", ""))
+        self.btn_load_latest.setToolTip(t.get("t3_tt_load_latest", ""))
         self.btn_copy_orig.setToolTip(t.get("t3_tt_copy_orig", ""))
         self.btn_apply_all.setToolTip(t.get("t3_tt_apply_all", ""))
         self.btn_apply_series.setToolTip(t.get("t3_tt_apply_series", ""))
@@ -288,21 +291,24 @@ class Tab3Metadata(QWidget):
         
         group3_layout = QHBoxLayout(); group3_layout.setSpacing(2)
         self.btn_reset_series.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_load_latest.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_copy_orig.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_apply_all.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_apply_series.setCursor(Qt.CursorShape.PointingHandCursor)
         
         self.set_segmented_btn_style(self.btn_reset_series, "left_end")
+        self.set_segmented_btn_style(self.btn_load_latest, "middle")
         self.set_segmented_btn_style(self.btn_copy_orig, "middle")
         self.set_segmented_btn_style(self.btn_apply_all, "middle")
         self.set_segmented_btn_style(self.btn_apply_series, "right_end", is_primary=True)
         
         self.btn_reset_series.clicked.connect(self.action_reset_series)
+        self.btn_load_latest.clicked.connect(self.action_load_latest_meta)
         self.btn_copy_orig.clicked.connect(self.action_copy_orig)
         self.btn_apply_all.clicked.connect(self.action_apply_all)
         self.btn_apply_series.clicked.connect(self.action_apply_series)
         
-        group3_layout.addWidget(self.btn_reset_series); group3_layout.addWidget(self.btn_copy_orig); group3_layout.addWidget(self.btn_apply_all); group3_layout.addWidget(self.btn_apply_series)
+        group3_layout.addWidget(self.btn_reset_series); group3_layout.addWidget(self.btn_load_latest); group3_layout.addWidget(self.btn_copy_orig); group3_layout.addWidget(self.btn_apply_all); group3_layout.addWidget(self.btn_apply_series)
         nav_layout.addLayout(group1_layout); nav_layout.addStretch(); nav_layout.addLayout(group2_layout); nav_layout.addStretch(); nav_layout.addLayout(group3_layout)
         right_layout.addLayout(nav_layout)
 
@@ -656,6 +662,10 @@ class Tab3Metadata(QWidget):
         self.shortcut_s.activated.connect(self._trigger_s)
         self.shortcut_s.setContext(Qt.ShortcutContext.WindowShortcut)
 
+        self.shortcut_d = QShortcut(QKeySequence(Qt.Key.Key_D), self)
+        self.shortcut_d.activated.connect(self._trigger_d)
+        self.shortcut_d.setContext(Qt.ShortcutContext.WindowShortcut)
+
         self.shortcut_c = QShortcut(QKeySequence(Qt.Key.Key_C), self)
         self.shortcut_c.activated.connect(self._trigger_c)
         self.shortcut_c.setContext(Qt.ShortcutContext.WindowShortcut)
@@ -674,6 +684,13 @@ class Tab3Metadata(QWidget):
         
         if self.btn_meta_search.isEnabled():
             self.action_search_api()
+
+    def _trigger_d(self):
+        focus_widget = QApplication.focusWidget()
+        if isinstance(focus_widget, (QLineEdit, QTextEdit, QComboBox)): return
+        
+        if getattr(self, 'btn_load_latest', None) and self.btn_load_latest.isEnabled():
+            self.action_load_latest_meta()
 
     def _trigger_c(self):
         focus_widget = QApplication.focusWidget()
@@ -705,11 +722,12 @@ class Tab3Metadata(QWidget):
         self.btn_goto_publish.setText(t.get("t3_nav_publish", ""))
         self.btn_goto_genre.setText(t.get("t3_nav_genre", ""))
         self.btn_goto_etc.setText(t.get("t3_nav_etc", ""))
+        self.btn_load_latest.setText(f"{t.get('t3_btn_load_latest', '')} (D)")
         self.btn_copy_orig.setText(t.get("t3_btn_copy_orig", ""))
         self.btn_apply_all.setText(t.get("t3_btn_apply_all", ""))
         
         self.btn_reset_series.setText(t.get("t3_btn_reset_series", "시리즈\n초기화"))
-        self.btn_apply_series.setText(f"{t.get('t3_btn_apply_series', '시리즈\n편집 적용')} (C)")
+        self.btn_apply_series.setText(f"{t.get('t3_btn_apply_series', '시리즈 전체에\n일괄 적용')} (C)")
         
         if hasattr(self, 'cb_apply_empty'):
             self.cb_apply_empty.setText(t.get("t3_apply_empty", "빈 값도 덮어쓰기"))
@@ -742,6 +760,7 @@ class Tab3Metadata(QWidget):
         self.btn_next_vol.setText(t.get("t3_btn_next", "다음 권"))
         
         self.btn_reset_series.setToolTip(t.get("t3_tt_reset_series", ""))
+        self.btn_load_latest.setToolTip(t.get("t3_tt_load_latest", ""))
         self.btn_copy_orig.setToolTip(t.get("t3_tt_copy_orig", ""))
         self.btn_apply_all.setToolTip(t.get("t3_tt_apply_all", ""))
         self.btn_apply_series.setToolTip(t.get("t3_tt_apply_series", ""))
@@ -1317,9 +1336,10 @@ class Tab3Metadata(QWidget):
         if not self.current_meta_file: return
         self._save_ui_to_dict(); parent_dir = str(Path(self.current_meta_file).parent)
         if parent_dir not in self.meta_data: return
-        exclude_keys = {'Volume', 'Number', 'PageCount'}; results_to_copy = {}
         
         allow_empty = getattr(self, 'cb_apply_empty', None) and self.cb_apply_empty.isChecked()
+        exclude_keys = set() if allow_empty else {'Volume', 'Number', 'PageCount'}
+        results_to_copy = {}
         
         for key, field in self.meta_ui_fields.items():
             if key not in exclude_keys:
@@ -1747,6 +1767,99 @@ class Tab3Metadata(QWidget):
                 res_widget.setPlainText(str(val))
             elif hasattr(res_widget, "setText"):
                 res_widget.setText(str(val))
+
+    def action_load_latest_meta(self):
+        t = self.main_app.i18n[self.main_app.lang]
+        if not self.current_meta_file:
+            Toast.show(self.main_app, t.get("t3_msg_sel", "왼쪽 리스트에서 작업할 책을 선택해주세요."))
+            return
+            
+        target_series = self.meta_ui_fields['Series']['my'].text().strip()
+        if not target_series:
+            title = Path(self.current_meta_file).stem
+            clean_title = re.sub(r'^\[.*?\]\s*|^\(.*?\)\s*', '', title).strip()
+            target_series = re.sub(r'\s*제?\d+\s*(?:권|화|편).*$', '', clean_title)
+            target_series = re.sub(r'(?i)(?:\s|_|-)*(?:vol\.?|v|ch\.?|chapter|c)\s*\d+.*$', '', target_series)
+            target_series = re.sub(r'\s*(?:-\s*)?\d+\s*$', '', target_series).strip()
+            
+        if not target_series:
+            target_series = Path(self.current_meta_file).parent.name
+            target_series = re.sub(r'^\[.*?\]\s*|^\(.*?\)\s*', '', target_series).strip()
+
+        if not target_series:
+            Toast.show(self.main_app, "시리즈명을 확인할 수 없습니다." if self.main_app.lang == "ko" else "Cannot determine the series name.")
+            return
+
+        import sqlite3
+        db_path = os.path.abspath(os.path.join("data", "library.db"))
+        
+        if not os.path.exists(db_path):
+            Toast.show(self.main_app, "라이브러리 DB를 찾을 수 없습니다." if self.main_app.lang == "ko" else "Library DB not found.")
+            return
+            
+        latest_path = None
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            search_pattern = f"%{target_series}%"
+            query = """
+                SELECT full_path, name FROM dup_target_index 
+                WHERE full_path LIKE ? OR name LIKE ?
+            """
+            cursor.execute(query, (search_pattern, search_pattern))
+            rows = cursor.fetchall()
+            
+            if rows:
+                def get_vol_num(r):
+                    name_no_ext = os.path.splitext(r['name'])[0]
+                    v_match = (
+                        re.search(r'(?i)(?:vol\.?|v|ch\.?|chapter|c)\s*(\d+)', name_no_ext) or
+                        re.search(r'제?\s*(\d+)\s*(?:권|화|편)', name_no_ext) or
+                        re.search(r'\b(\d+)\s*$', name_no_ext.strip())
+                    )
+                    return int(v_match.group(1)) if v_match else -1
+                    
+                sorted_rows = sorted(rows, key=get_vol_num, reverse=True)
+                latest_path = sorted_rows[0]['full_path']
+                
+            conn.close()
+        except Exception as e:
+            Toast.show(self.main_app, f"DB 조회 중 오류 발생: {e}" if self.main_app.lang == "ko" else f"DB Error: {e}")
+            return
+            
+        if not latest_path:
+            Toast.show(self.main_app, f"'{target_series}'의 인덱싱된 데이터를 찾을 수 없습니다." if self.main_app.lang == "ko" else f"No indexed data found for '{target_series}'.")
+            return
+
+        if not os.path.exists(latest_path):
+            Toast.show(self.main_app, f"최신권 파일이 존재하지 않습니다: {os.path.basename(latest_path)}" if self.main_app.lang == "ko" else "Latest volume file does not exist.")
+            return
+
+        # 실제 파일에서 ComicInfo.xml 추출
+        xml_data = self._read_xml_from_archive(latest_path)
+        if not xml_data:
+            Toast.show(self.main_app, f"최신권 파일에서 ComicInfo.xml을 찾을 수 없습니다." if self.main_app.lang == "ko" else "ComicInfo.xml not found in the latest volume.")
+            return
+
+        exclude_from_batch = {'Title', 'Volume', 'Number', 'PageCount'}
+        final_data = {}
+        for k, v in xml_data.items():
+            if k not in exclude_from_batch:
+                final_data[k] = v
+
+        self._apply_api_data_to_res(final_data)
+        
+        def get_vol(meta):
+            v = meta.get('Volume', '')
+            if str(v).isdigit(): return int(v)
+            n = meta.get('Number', '')
+            if str(n).isdigit(): return int(n)
+            return -1
+            
+        vol_info = f" (권/화: {get_vol(xml_data)})" if get_vol(xml_data) >= 0 else ""
+        Toast.show(self.main_app, f"최신권{vol_info}의 메타데이터를 실제 파일에서 추출하여 불러왔습니다." if self.main_app.lang == "ko" else f"Loaded latest volume metadata from actual file.")
 
     def _on_series_group_delete(self, item_text):
         """우클릭(컨텍스트 메뉴) 삭제 요청 시 확인 후 DB 삭제"""

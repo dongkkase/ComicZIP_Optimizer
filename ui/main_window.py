@@ -63,7 +63,7 @@ class RenamerApp(QMainWindow):
         window_width = self.config.get("width", 1150)
         window_height = self.config.get("height", 800)
         self.setWindowTitle(f"ComicZIP Optimizer v{CURRENT_VERSION}")
-        self.setMinimumSize(1100, 750) 
+        self.setMinimumSize(1200, 750) 
         self.resize(window_width, window_height)
         if self.config.get("is_maximized", False): self.showMaximized()
         
