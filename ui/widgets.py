@@ -172,7 +172,7 @@ class DimOverlay(QWidget):
             
             self.anim_label = QLabel()
             self.anim_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.anim_label.setStyleSheet("background: transparent;")
+            self.anim_label.setStyleSheet("background: transparent; border: none;")
             
             # Lottie 대신 고화질 WebP 또는 GIF 애니메이션 파일 사용 권장
             from config import get_resource_path
@@ -197,7 +197,7 @@ class DimOverlay(QWidget):
             
             self.text_label = QLabel(self._text)
             self.text_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.text_label.setStyleSheet("color: white; font-size: 14px; font-weight: bold; background: transparent; margin-top: 15px;")
+            self.text_label.setStyleSheet("color: white; font-size: 14px; font-weight: bold; background: transparent; border: none; margin-top: 15px;")
             layout.addWidget(self.text_label)
             
         self.hide()

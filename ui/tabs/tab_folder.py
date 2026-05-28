@@ -185,9 +185,9 @@ class TabFolder(QWidget):
             if not hasattr(self, 'table_view') or self.table_view is None:
                 return super().eventFilter(obj, event)
 
-            if obj is self.table_view and event.type() == QEvent.Type.Resize:
+            if obj is self.view_stack and event.type() == QEvent.Type.Resize:
                 if hasattr(self, 'dim_overlay'):
-                    self.dim_overlay.resize(self.table_view.size())
+                    self.dim_overlay.resize(self.view_stack.size())
                     
             # 헤더 영역의 마우스 커서 동적 변경
             header = self.table_view.horizontalHeader()
@@ -667,8 +667,6 @@ class TabFolder(QWidget):
         self.table_view.verticalHeader().setDefaultSectionSize(64) 
         self.table_view.setIconSize(QSize(45, 60)) 
         
-        self.dim_overlay = DimOverlay(self.table_view)
-
         self.list_view = QListView()
         self.list_view.setModel(self.table_model)
         self.list_view.setItemDelegate(self.item_delegate)
@@ -695,6 +693,9 @@ class TabFolder(QWidget):
         self.view_stack.addWidget(self.table_view)
         self.view_stack.addWidget(self.list_view)
         right_top_layout.addWidget(self.view_stack)
+        self.view_stack.installEventFilter(self)
+
+        self.dim_overlay = DimOverlay(self.view_stack, show_spinner=True)
 
         # --- [추가] 데이터가 없을 때 표시할 빈 페이지 ---
         self.page_empty_folder = QWidget()
@@ -1020,8 +1021,25 @@ class TabFolder(QWidget):
         if not visible_tasks and not hidden_tasks:
             self.is_syncing = False
             self.progress_bar.hide()
+            self.dim_overlay.hide()
             if hasattr(self, 'main_status_label') and self.main_status_label:
                 self.main_status_label.setText(self.i18n.get("folder_ready", "Ready") if hasattr(self, 'i18n') else "Ready")
+                
+            if getattr(self, '_pending_auto_select', False):
+                self._pending_auto_select = False
+                if self.table_model.rowCount() > 0:
+                    active_view = self.get_active_view()
+                    first_idx = None
+                    for i in range(self.table_model.rowCount()):
+                        idx = self.table_model.index(i, 0)
+                        if idx.flags() & Qt.ItemFlag.ItemIsSelectable:
+                            first_idx = idx
+                            break
+                    if first_idx is not None:
+                        active_view.selectionModel().select(
+                            first_idx, QItemSelectionModel.SelectionFlag.ClearAndSelect | QItemSelectionModel.SelectionFlag.Rows
+                        )
+                        active_view.setCurrentIndex(first_idx)
             return
 
         tasks = (visible_tasks + hidden_tasks)[:50] 
@@ -1036,6 +1054,11 @@ class TabFolder(QWidget):
         seven_zip_path = get_resource_path('7za.exe')
         self.extract_thread = MemoryExtractThread(tasks, seven_zip_path)
         self.extract_thread.show_progress = (real_heavy_tasks_count > 0)
+        
+        if self.extract_thread.show_progress:
+            self.dim_overlay.text = _("folder_optimizing").format(self.sync_completed_tasks, self.sync_total_tasks)
+            self.dim_overlay.show()
+            
         self.extract_thread.data_extracted.connect(self.on_metadata_extracted)
         self.extract_thread.progress_updated.connect(self.on_extract_progress)
         self.extract_thread.finished.connect(lambda: self.scroll_timer.start(10))
@@ -1053,6 +1076,7 @@ class TabFolder(QWidget):
         self.progress_bar.setValue(self.sync_completed_tasks)
         
         status_text = _("folder_optimizing").format(self.sync_completed_tasks, self.sync_total_tasks)
+        self.dim_overlay.text = status_text
         if hasattr(self, 'main_status_label') and self.main_status_label:
             self.main_status_label.setText(status_text)
             
@@ -1060,8 +1084,25 @@ class TabFolder(QWidget):
             self.progress_bar.hide()
             self.is_syncing = False
             self.is_force_syncing = False
+            self.dim_overlay.hide()
             if hasattr(self, 'main_status_label') and self.main_status_label:
                 self.main_status_label.setText(_("folder_ready"))
+                
+            if getattr(self, '_pending_auto_select', False):
+                self._pending_auto_select = False
+                if self.table_model.rowCount() > 0:
+                    active_view = self.get_active_view()
+                    first_idx = None
+                    for i in range(self.table_model.rowCount()):
+                        idx = self.table_model.index(i, 0)
+                        if idx.flags() & Qt.ItemFlag.ItemIsSelectable:
+                            first_idx = idx
+                            break
+                    if first_idx is not None:
+                        active_view.selectionModel().select(
+                            first_idx, QItemSelectionModel.SelectionFlag.ClearAndSelect | QItemSelectionModel.SelectionFlag.Rows
+                        )
+                        active_view.setCurrentIndex(first_idx)
 
     def force_update_selected_files(self):
         paths = self.get_selected_files()
@@ -1107,6 +1148,10 @@ class TabFolder(QWidget):
         seven_zip_path = get_resource_path('7za.exe')
         self.extract_thread = MemoryExtractThread(tasks, seven_zip_path)
         self.extract_thread.show_progress = True
+        
+        self.dim_overlay.text = _("folder_optimizing").format(self.sync_completed_tasks, self.sync_total_tasks)
+        self.dim_overlay.show()
+        
         self.extract_thread.data_extracted.connect(self.on_metadata_extracted)
         self.extract_thread.progress_updated.connect(self.on_extract_progress)
         self.extract_thread.start()
@@ -2181,20 +2226,9 @@ class TabFolder(QWidget):
         if folder_path:
             self.lbl_tree_status.setText(_("folder_status_sel").format(os.path.basename(folder_path), len(self.file_data_cache), self.format_size(total_size)))
             
+        self._pending_auto_select = True
         self.scroll_timer.start(100)
         self.start_dup_match()
-        
-        # [수정] 폴더 스캔 및 UI 렌더링이 완료된 후 첫 번째 항목 자동 선택
-        if self.table_model.rowCount() > 0:
-            active_view = self.get_active_view()
-            first_idx = self.table_model.index(0, 0)
-            
-            # SelectionModel을 통해 첫 번째 행 선택 (이 동작이 on_file_selection_changed를 호출함)
-            active_view.selectionModel().select(
-                first_idx, 
-                QItemSelectionModel.SelectionFlag.ClearAndSelect | QItemSelectionModel.SelectionFlag.Rows
-            )
-            active_view.setCurrentIndex(first_idx)
 
     def refresh_tree(self):
         idx = self.tree_view.currentIndex()
@@ -2213,6 +2247,9 @@ class TabFolder(QWidget):
         
         self.force_update_flag = force_update
         
+        if hasattr(self, 'dim_overlay'):
+            self.dim_overlay.hide()
+            
         if self.current_watched_folder != folder_path:
             if self.current_watched_folder:
                 self.folder_watcher.removePath(self.current_watched_folder)
@@ -2368,6 +2405,7 @@ class TabFolder(QWidget):
                     widget.deleteLater()
 
     def on_file_selection_changed(self):
+        self._pending_auto_select = False
         view = self.get_active_view()
         indexes = [idx for idx in view.selectionModel().selectedIndexes() if idx.column() == 0]
         
