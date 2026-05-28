@@ -2365,14 +2365,7 @@ class TabFolder(QWidget):
         if has_img_out:
             row["thumb_processed"] = True
         else:
-            # [수정] 이미지가 없는 파일이나 에러 파일의 경우 무한 재스캔을 막기 위해 0바이트 더미 썸네일 생성
             row["thumb_processed"] = True
-            file_hash = row.get("hash", "")
-            if file_hash:
-                thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.webp")
-                if not os.path.exists(thumb_path):
-                    try: open(thumb_path, 'w').close()
-                    except: pass
 
         was_meta_already_processed = row.get("meta_processed", False)
         

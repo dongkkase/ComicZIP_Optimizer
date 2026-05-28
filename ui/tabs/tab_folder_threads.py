@@ -542,12 +542,6 @@ class MemoryExtractThread(QThread):
                         if thumb_path:
                             qimg.save(thumb_path, "WEBP", 85)
                         has_img_out = True
-                else:
-                    if not has_img_out and thumb_path: open(thumb_path, 'wb').close()
-                    has_img_out = True
-            elif needs_img and not has_img_out and not img_bytes:
-                if thumb_path: open(thumb_path, 'wb').close()
-                has_img_out = True
 
             self.data_extracted.emit(filepath, meta_dict, has_img_out)
             
@@ -690,6 +684,9 @@ class FolderScanThread(QThread):
                                 file_hash = hashlib.md5(f"{full_path}_{mtime}".encode()).hexdigest()
                                 thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.webp")
                                 has_thumb = os.path.exists(thumb_path)
+                                
+                                if res == "0x0":
+                                    has_thumb = True
 
                                 row_dict = {
                                     "full_path":       full_path,
