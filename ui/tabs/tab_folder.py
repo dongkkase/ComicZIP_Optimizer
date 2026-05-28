@@ -268,7 +268,7 @@ class TabFolder(QWidget):
             self.dup_scan_thread.wait()
             print(f"[LOG] 기존 DupScanThread 종료 완료: {time.time()-t:.3f}s")
             
-        self.lbl_tree_status.setText(_("dup_scan_start"))
+        self.main_window.lbl_status.setText(_("dup_scan_start"))
 
         # [추가] 자세히 보기 모드일 때 리스트 패널 비활성화
         if self.view_stack.currentIndex() == 0 and self.btn_dup_check.isChecked():
@@ -282,13 +282,13 @@ class TabFolder(QWidget):
 
     def on_dup_scan_progress(self, match_count, total_scanned):
         msg = _("dup_scan_progress").format(total_scanned, match_count)
-        self.lbl_tree_status.setText(msg)
+        self.main_window.lbl_status.setText(msg)
 
     def on_dup_scan_finished(self, b_cache):
         self.b_folder_cache = b_cache
         
         msg = _("dup_scan_complete").format(len(b_cache))
-        self.lbl_tree_status.setText(msg) # i18n 적용
+        self.main_window.lbl_status.setText(msg) # i18n 적용
         
         try:
             from ui.widgets import Toast
@@ -332,7 +332,7 @@ class TabFolder(QWidget):
             # [추가] 버튼 OFF 시 즉시 활성화 복원
             self.dim_overlay.hide()
             self.apply_grouping_and_sorting()
-            self.lbl_tree_status.setText(_("folder_ready"))
+            self.main_window.lbl_status.setText(_("status_wait"))
 
     def start_dup_match(self):
         import time
@@ -348,7 +348,7 @@ class TabFolder(QWidget):
             print(f"[LOG] 동일 데이터 감지, 캐시된 결과로 UI 갱신 시작")
             self.apply_grouping_and_sorting()
             count = sum(len(v) for v in getattr(self, 'dup_matches', {}).values())
-            self.lbl_tree_status.setText(_("dup_match_found").format(count) if count > 0 else _("dup_match_none"))
+            self.main_window.lbl_status.setText(_("dup_match_found").format(count) if count > 0 else _("dup_match_none"))
             return
             
         self.last_matched_a_paths = current_a_paths
@@ -358,7 +358,7 @@ class TabFolder(QWidget):
             self.dup_match_thread.cancel()
             self.dup_match_thread.wait()
             
-        self.lbl_tree_status.setText(_("dup_match_start"))
+        self.main_window.lbl_status.setText(_("dup_match_start"))
 
         # 자세히 보기 모드일 때 리스트 패널 비활성화
         if self.view_stack.currentIndex() == 0:
@@ -374,7 +374,7 @@ class TabFolder(QWidget):
     # 매칭 진행 상황 표시
     def on_dup_match_progress(self, current, total):
         msg = _("dup_match_progress").format(current, total)
-        self.lbl_tree_status.setText(msg)
+        self.main_window.lbl_status.setText(msg)
 
     def on_dup_match_finished(self, matches):
         self.dup_matches = matches
@@ -386,7 +386,7 @@ class TabFolder(QWidget):
         else:
             msg = _("dup_match_none")
             
-        self.lbl_tree_status.setText(msg)
+        self.main_window.lbl_status.setText(msg)
     # ----------------------------------------------
 
 
@@ -913,17 +913,6 @@ class TabFolder(QWidget):
         self.lbl_tree_status.setStyleSheet(f"color: #aaaaaa; font-size: {self.config['s12']}px;")
         bottom_bar.addWidget(self.lbl_tree_status)
         
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setFixedHeight(12)
-        self.progress_bar.setFixedWidth(150)
-        self.progress_bar.setTextVisible(False)
-        self.progress_bar.setStyleSheet(f"""
-            QProgressBar {{ border: 1px solid #444; border-radius: 6px; background-color: #2b2b2b; }}
-            QProgressBar::chunk {{ background-color: #3498DB; border-radius: 5px; }}
-        """)
-        self.progress_bar.hide()
-        bottom_bar.addWidget(self.progress_bar)
-        
         bottom_bar.addStretch()
         
         self.slider_item_size = QSlider(Qt.Orientation.Horizontal)
@@ -1020,10 +1009,9 @@ class TabFolder(QWidget):
                 
         if not visible_tasks and not hidden_tasks:
             self.is_syncing = False
-            self.progress_bar.hide()
+            self.main_window.progress_bar.hide()
             self.dim_overlay.hide()
-            if hasattr(self, 'main_status_label') and self.main_status_label:
-                self.main_status_label.setText(self.i18n.get("folder_ready", "Ready") if hasattr(self, 'i18n') else "Ready")
+            self.main_window.lbl_status.setText(_("status_wait"))
                 
             if getattr(self, '_pending_auto_select', False):
                 self._pending_auto_select = False
@@ -1071,22 +1059,20 @@ class TabFolder(QWidget):
         if self.sync_completed_tasks > self.sync_total_tasks:
             self.sync_completed_tasks = self.sync_total_tasks
 
-        self.progress_bar.show()
-        self.progress_bar.setMaximum(self.sync_total_tasks)
-        self.progress_bar.setValue(self.sync_completed_tasks)
+        self.main_window.progress_bar.show()
+        self.main_window.progress_bar.setMaximum(self.sync_total_tasks)
+        self.main_window.progress_bar.setValue(self.sync_completed_tasks)
         
         status_text = _("folder_optimizing").format(self.sync_completed_tasks, self.sync_total_tasks)
         self.dim_overlay.text = status_text
-        if hasattr(self, 'main_status_label') and self.main_status_label:
-            self.main_status_label.setText(status_text)
+        self.main_window.lbl_status.setText(status_text)
             
         if self.sync_completed_tasks >= self.sync_total_tasks:
-            self.progress_bar.hide()
+            self.main_window.progress_bar.hide()
             self.is_syncing = False
             self.is_force_syncing = False
             self.dim_overlay.hide()
-            if hasattr(self, 'main_status_label') and self.main_status_label:
-                self.main_status_label.setText(_("folder_ready"))
+            self.main_window.lbl_status.setText(_("status_wait"))
                 
             if getattr(self, '_pending_auto_select', False):
                 self._pending_auto_select = False
@@ -2170,7 +2156,7 @@ class TabFolder(QWidget):
         return f"{size:.1f} PB"
 
     def on_scan_progress(self, count):
-        self.lbl_tree_status.setText(_("folder_scanning").format(count))
+        self.main_window.lbl_status.setText(_("folder_scanning").format(count))
 
     def _show_missing_toast_delayed(self):
         self._waiting_for_dialog = False
@@ -2209,9 +2195,8 @@ class TabFolder(QWidget):
         
         # 오프라인 방어 체크
         if not os.path.exists(self.current_watched_folder):
-            if hasattr(self, 'main_status_label') and self.main_status_label:
-                self.main_status_label.setText(_("folder_ready"))
-            self.lbl_tree_status.setText("Network Drive Offline / 경로를 찾을 수 없습니다.")
+            self.main_window.lbl_status.setText("Network Drive Offline / 경로를 찾을 수 없습니다.")
+            self.lbl_tree_status.setText("")
             return
 
         self.file_data_cache = file_data_cache
@@ -2225,6 +2210,7 @@ class TabFolder(QWidget):
         folder_path = self.current_watched_folder
         if folder_path:
             self.lbl_tree_status.setText(_("folder_status_sel").format(os.path.basename(folder_path), len(self.file_data_cache), self.format_size(total_size)))
+            self.main_window.lbl_status.setText(_("status_wait"))
             
         self._pending_auto_select = True
         self.scroll_timer.start(100)
@@ -2297,11 +2283,10 @@ class TabFolder(QWidget):
         self.table_model.update_data([])
         self.table_view.setUpdatesEnabled(True)
         # --------------------------------------------------------
-        self.lbl_tree_status.setText(_("folder_scan_prep"))
+        self.main_window.lbl_status.setText(_("folder_scan_prep"))
+        self.lbl_tree_status.setText("")
         self.is_syncing = False
-        if hasattr(self, 'main_status_label') and self.main_status_label:
-            self.main_status_label.setText(_("folder_ready"))
-        self.progress_bar.hide()
+        self.main_window.progress_bar.hide()
         
         # --- [수정됨] force_update 플래그 전달 ---
         self.scan_thread = FolderScanThread(folder_path, include_sub, target_exts, self.thumb_dir, self.force_update_flag)
