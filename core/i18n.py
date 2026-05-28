@@ -382,6 +382,9 @@ def get_i18n():
             "tf_dlg_missing_title": "누락 권수 확인",
             "tf_dlg_missing_desc": "다음 시리즈들에 누락된 권/화가 발견되었습니다:",
             "tf_btn_move": "이동",
+            "tf_empty_no_data": "데이터 없음",
+            "tf_empty_has_subfolders": "현재 폴더에 파일이 없습니다.\n하위 폴더가 존재합니다. '하위 폴더 포함' 옵션을 켜보세요.",
+            "tf_empty_filtered": "조건에 맞는 파일이 없습니다.",
 
         },
         "en": {
@@ -721,6 +724,9 @@ def get_i18n():
             "tf_dlg_missing_title": "Missing Volumes",
             "tf_dlg_missing_desc": "Missing volumes were found in the following series:",
             "tf_btn_move": "Move",
+            "tf_empty_no_data": "No Data",
+            "tf_empty_has_subfolders": "No files in the current folder.\nSubfolders exist. Try enabling 'Include Subfolders'.",
+            "tf_empty_filtered": "No files match the filter.",
 
         },
         "ja": {
@@ -1064,6 +1070,9 @@ def get_i18n():
             "tf_dlg_missing_title": "抜け巻確認",
             "tf_dlg_missing_desc": "以下のシリーズに抜け巻が見つかりました：",
             "tf_btn_move": "移動",
+            "tf_empty_no_data": "データなし",
+            "tf_empty_has_subfolders": "現在のフォルダにファイルがありません。\nサブフォルダが存在します。「サブフォルダを含める」オプションを有効にしてください。",
+            "tf_empty_filtered": "条件に一致するファイルがありません。",
 
 
         }

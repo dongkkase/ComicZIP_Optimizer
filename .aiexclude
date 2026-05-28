@@ -1,0 +1,33 @@
+# Build
+build/
+dist/
+*.spec
+*.zip
+
+# Python
+__pycache__/
+*.py[cod]
+
+data/thumbnails
+
+# Logs / temp
+*.log
+*.tmp
+*.bak
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Virtual env
+venv/
+.env
+.env.*
+
+# Test / coverage
+.pytest_cache/
+.coverage

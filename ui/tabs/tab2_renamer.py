@@ -69,7 +69,9 @@ class Tab2Renamer(QWidget):
 
     def update_icons(self, is_dark):
         empty_c = "#aaaaaa" if is_dark else "#9CA3AF"
-        self.icon_empty_arch.setPixmap(qta.icon('fa5s.folder-open', color=empty_c).pixmap(64, 64))
+        draganddrop_path = get_resource_path('src/draganddrop1.png')
+        if not os.path.exists(draganddrop_path):
+            self.icon_empty_arch.setPixmap(qta.icon('fa5s.folder-open', color=empty_c).pixmap(64, 64))
         
         icon_c = 'white' if is_dark else '#1F2937'
         if hasattr(self, 'btn_minus_num'):
@@ -231,7 +233,17 @@ class Tab2Renamer(QWidget):
         layout_empty = QVBoxLayout(page_empty)
         
         self.icon_empty_arch = QLabel()
-        self.icon_empty_arch.setPixmap(qta.icon('fa5s.folder-open', color='#aaaaaa').pixmap(64, 64))
+        import random
+        draganddrop_path = get_resource_path(f'src/draganddrop{random.randint(1, 3)}.png')
+        if os.path.exists(draganddrop_path):
+            draganddrop_pixmap = QPixmap(draganddrop_path)
+            self.icon_empty_arch.setPixmap(draganddrop_pixmap.scaled(256, 256, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+            from PyQt6.QtWidgets import QGraphicsOpacityEffect
+            opacity_effect = QGraphicsOpacityEffect()
+            opacity_effect.setOpacity(0.55)
+            self.icon_empty_arch.setGraphicsEffect(opacity_effect)
+        else:
+            self.icon_empty_arch.setPixmap(qta.icon('fa5s.folder-open', color='#aaaaaa').pixmap(64, 64))
         self.icon_empty_arch.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         self.lbl_empty_arch = QLabel(t.get("drag_drop", ""))

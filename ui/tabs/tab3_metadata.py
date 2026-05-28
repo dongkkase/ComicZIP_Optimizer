@@ -50,7 +50,9 @@ class Tab3Metadata(QWidget):
         icon_color = 'white' if is_dark else '#1F2937'
         empty_c = "#aaaaaa" if is_dark else "#9CA3AF"
         
-        self.icon_empty_meta.setPixmap(qta.icon('fa5s.folder-open', color=empty_c).pixmap(64, 64))
+        draganddrop_path = get_resource_path('src/draganddrop1.png')
+        if not os.path.exists(draganddrop_path):
+            self.icon_empty_meta.setPixmap(qta.icon('fa5s.folder-open', color=empty_c).pixmap(64, 64))
         self.btn_meta_search.setIcon(qta.icon('fa5s.search', color='white'))
         self.btn_prev_vol.setIcon(qta.icon('fa5s.caret-left', color=icon_color))
         self.btn_next_vol.setIcon(qta.icon('fa5s.caret-right', color=icon_color))
@@ -90,6 +92,17 @@ class Tab3Metadata(QWidget):
         page_empty = QWidget()
         layout_empty = QVBoxLayout(page_empty)
         self.icon_empty_meta = QLabel()
+        
+        import random
+        draganddrop_path = get_resource_path(f'src/draganddrop{random.randint(1, 3)}.png')
+        if os.path.exists(draganddrop_path):
+            draganddrop_pixmap = QPixmap(draganddrop_path)
+            self.icon_empty_meta.setPixmap(draganddrop_pixmap.scaled(256, 256, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+            from PyQt6.QtWidgets import QGraphicsOpacityEffect
+            opacity_effect = QGraphicsOpacityEffect()
+            opacity_effect.setOpacity(0.55)
+            self.icon_empty_meta.setGraphicsEffect(opacity_effect)
+            
         self.icon_empty_meta.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_empty = QLabel(t.get("t3_empty", "폴더 및 파일을 이 화면으로 드래그 앤 드롭하세요"))
         self.lbl_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)

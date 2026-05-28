@@ -31,6 +31,7 @@ from .tab_folder_ui import GlowCard, FlowLayout, DetailBackgroundWidget
 from ui.widgets import DimOverlay
 
 from collections import defaultdict
+import qtawesome as qta
 
 # ==========================================
 # [핵심 수정] i18n.py 구조에 맞춘 완벽한 다국어 처리 로직
@@ -694,6 +695,33 @@ class TabFolder(QWidget):
         self.view_stack.addWidget(self.table_view)
         self.view_stack.addWidget(self.list_view)
         right_top_layout.addWidget(self.view_stack)
+
+        # --- [추가] 데이터가 없을 때 표시할 빈 페이지 ---
+        self.page_empty_folder = QWidget()
+        self.page_empty_folder.setStyleSheet("border: none;")
+        layout_empty = QVBoxLayout(self.page_empty_folder)
+        self.icon_empty_folder = QLabel()
+        nodata_path = get_resource_path('src/nodata2.png')
+        if os.path.exists(nodata_path):
+            nodata_pixmap = QPixmap(nodata_path)
+            self.icon_empty_folder.setPixmap(nodata_pixmap.scaled(256, 256, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+            
+            from PyQt6.QtWidgets import QGraphicsOpacityEffect
+            opacity_effect = QGraphicsOpacityEffect()
+            opacity_effect.setOpacity(0.55)  # 투명도 75% 설정
+            self.icon_empty_folder.setGraphicsEffect(opacity_effect)
+        else:
+            self.icon_empty_folder.setPixmap(qta.icon('fa5s.folder-open', color='#aaaaaa').pixmap(64, 64))
+        self.icon_empty_folder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.icon_empty_folder.setStyleSheet("border: none;")
+        self.lbl_empty_folder = QLabel(_("tf_empty_no_data"))
+        self.lbl_empty_folder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_empty_folder.setStyleSheet(f"color: #aaaaaa; font-size: {self.config['s16']}px; font-weight: bold; border: none;")
+        layout_empty.addStretch()
+        layout_empty.addWidget(self.icon_empty_folder)
+        layout_empty.addWidget(self.lbl_empty_folder)
+        layout_empty.addStretch()
+        self.view_stack.addWidget(self.page_empty_folder)
 
         # ---------------- 네이티브 디자인 레이아웃 적용 (우측 하단 패널) ----------------
         # from ui.widgets import DetailBackgroundWidget
@@ -1692,10 +1720,15 @@ class TabFolder(QWidget):
         save_config(self.config)
         self._update_button_active_style(self.btn_views, mode != "detail")
         
+        # [수정] 빈 페이지가 아닐 때만 인덱스를 변경하여 데이터 없음 화면 유지
+        if not hasattr(self, 'page_empty_folder') or self.view_stack.currentWidget() != self.page_empty_folder:
+            if mode == "detail":
+                self.view_stack.setCurrentIndex(0)
+            else:
+                self.view_stack.setCurrentIndex(1)
+                
         if mode == "detail":
-            self.view_stack.setCurrentIndex(0)
             self.item_delegate.view_mode = "detail"
-            
             # 자세히 보기 모드일 때의 높이(행 크기) 복원 (기본값 120)
             saved_size = self.config.get("folder_item_size_detail", 120)
             self.slider_item_size.blockSignals(True)
@@ -1829,7 +1862,33 @@ class TabFolder(QWidget):
 
         if not data:
             self.table_model.update_data([])
+            
+            # --- [추가] 데이터가 없을 시 빈 페이지 화면 렌더링 ---
+            if hasattr(self, 'page_empty_folder'):
+                self.view_stack.setCurrentWidget(self.page_empty_folder)
+                if self.file_data_cache:
+                    self.lbl_empty_folder.setText(_("tf_empty_filtered"))
+                else:
+                    has_subfolders = False
+                    if hasattr(self, 'current_watched_folder') and self.current_watched_folder and os.path.exists(self.current_watched_folder):
+                        try:
+                            with os.scandir(self.current_watched_folder) as it:
+                                for entry in it:
+                                    if entry.is_dir(follow_symlinks=False):
+                                        has_subfolders = True
+                                        break
+                        except Exception: pass
+                    
+                    if has_subfolders and not self.btn_subfolders.isChecked():
+                        self.lbl_empty_folder.setText(_("tf_empty_has_subfolders"))
+                    else:
+                        self.lbl_empty_folder.setText(_("tf_empty_no_data"))
             return
+        else:
+            # 데이터가 정상적으로 있다면 빈 페이지에서 원래 뷰(List/Grid)로 복구
+            if hasattr(self, 'page_empty_folder') and self.view_stack.currentWidget() == self.page_empty_folder:
+                mode = self.config.get("folder_view_mode", "detail")
+                self.view_stack.setCurrentIndex(0 if mode == "detail" else 1)
 
         col_id = self.current_sort_key
         reverse = (self.current_sort_order == Qt.SortOrder.DescendingOrder)
@@ -3158,7 +3217,7 @@ class TabFolder(QWidget):
         
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("QScrollArea { border: 1px solid #444; background: #1e1e1e; }")
+        scroll.setStyleSheet("QScrollArea { border: none; background: #1e1e1e; }")
         content = QWidget()
         content.setStyleSheet("background: transparent;")
         content_layout = QVBoxLayout(content)
@@ -3220,20 +3279,38 @@ class TabFolder(QWidget):
         import shutil
         import re
         from core.parser import extract_core_title
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView
+        from PyQt6.QtCore import Qt
         
         selected_files = self.get_selected_files()
         if not selected_files: return
         
-        success_count = 0
-        
-        # 파일 조작 시 자동 새로고침 및 UI 충돌을 방지하기 위해 락 활성화
-        self._internal_action_lock = True
-        
+        move_plans = []
         for fp in selected_files:
             base_name = os.path.basename(fp)
             name_no_ext = os.path.splitext(base_name)[0]
             
             core_title = extract_core_title(name_no_ext).strip()
+            
+            # {n}부, 시즌, part 등이 원본 파일명에 포함된 경우 복구 (위치 기반으로 정확히 텍스트 추출)
+            part_match = re.search(r'(시즌\s*\d+|season\s*\d+|part\s*\d+|제?\s*\d+\s*부(?!터))', name_no_ext, re.IGNORECASE)
+            if part_match:
+                part_str = part_match.group(1).strip()
+                # 임시 키워드 앞뒤로 공백을 추가하여, 정규식(\s*)에 의해 기존 공백이 통째로 사라지는 문제 방지
+                temp_name = f"{name_no_ext[:part_match.start()]} 임시시리즈키워드우회용 {name_no_ext[part_match.end():]}"
+                core_title = extract_core_title(temp_name).strip()
+                core_title = core_title.replace("임시시리즈키워드우회용", part_str).strip()
+                core_title = re.sub(r'\s+', ' ', core_title) # 다중 공백 하나로 정리
+                
+                if part_str not in core_title:
+                    prefix = name_no_ext[:part_match.start()].strip()
+                    clean_prefix = extract_core_title(prefix).strip()
+                    if not clean_prefix:
+                        clean_prefix = prefix
+                    core_title = f"{clean_prefix} {part_str}".strip()
+            else:
+                core_title = extract_core_title(name_no_ext).strip()
+                
             if not core_title:
                 core_title = name_no_ext
             
@@ -3249,6 +3326,87 @@ class TabFolder(QWidget):
                 
             target_dir = os.path.join(current_dir, core_title)
             target_path = os.path.join(target_dir, base_name)
+            
+            move_plans.append({
+                'source': fp,
+                'target_dir': target_dir,
+                'target_path': target_path,
+                'base_name': base_name,
+                'core_title': core_title
+            })
+            
+        if not move_plans:
+            try:
+                from ui.widgets import Toast
+                Toast.show(self.main_window, _("tf_empty_no_data"))
+            except Exception: pass
+            return
+            
+        dialog = QDialog(self)
+        dialog.setWindowTitle(_("action_group_by_series"))
+        dialog.resize(750, 450)
+        dialog.setStyleSheet("QDialog { background-color: #2b2b2b; color: white; } QLabel { color: white; }")
+        
+        layout = QVBoxLayout(dialog)
+        
+        is_ko = getattr(self.main_window, 'lang', 'ko') == "ko"
+        desc_text = f"총 {len(move_plans)}개의 파일을 다음 폴더로 이동합니다. 진행하시겠습니까?" if is_ko else f"Move {len(move_plans)} files to the following folders. Proceed?"
+        desc_label = QLabel(desc_text)
+        layout.addWidget(desc_label)
+        
+        table = QTableWidget()
+        table.setColumnCount(3)
+        
+        col1_text = "대상 파일" if is_ko else "Target File"
+        col2_text = "새 폴더명" if is_ko else "New Folder"
+        col3_text = "전체 경로" if is_ko else "Full Path"
+        
+        table.setHorizontalHeaderLabels([col1_text, col2_text, col3_text])
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        table.setStyleSheet("QTableWidget { background-color: #1e1e1e; color: white; gridline-color: #444; border: 1px solid #555; } QHeaderView::section { background-color: #333; color: white; border: 1px solid #444; padding: 4px; }")
+        
+        table.setRowCount(len(move_plans))
+        for row, plan in enumerate(move_plans):
+            table.setItem(row, 0, QTableWidgetItem(plan['base_name']))
+            table.setItem(row, 1, QTableWidgetItem(plan['core_title']))
+            table.setItem(row, 2, QTableWidgetItem(plan['target_path']))
+            
+        layout.addWidget(table)
+        
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        
+        btn_ok = QPushButton(_("btn_ok"))
+        btn_ok.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_primary_color = self.config.get("btn_primary", "#0078d7")
+        btn_ok.setStyleSheet(f"QPushButton {{ background-color: {btn_primary_color}; color: white; border: none; border-radius: 4px; padding: 5px 15px; }} QPushButton:hover {{ background-color: #3a7ebf; }}")
+        btn_ok.clicked.connect(dialog.accept)
+        
+        btn_cancel = QPushButton(_("btn_cancel"))
+        btn_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_cancel.setStyleSheet("QPushButton { background-color: #555555; color: white; border: none; border-radius: 4px; padding: 5px 15px; } QPushButton:hover { background-color: #666666; }")
+        btn_cancel.clicked.connect(dialog.reject)
+        
+        btn_layout.addWidget(btn_ok)
+        btn_layout.addWidget(btn_cancel)
+        layout.addLayout(btn_layout)
+        
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+            
+        success_count = 0
+        
+        # 파일 조작 시 자동 새로고침 및 UI 충돌을 방지하기 위해 락 활성화
+        self._internal_action_lock = True
+        
+        for plan in move_plans:
+            fp = plan['source']
+            target_dir = plan['target_dir']
+            target_path = plan['target_path']
             
             if not os.path.exists(target_dir):
                 try:

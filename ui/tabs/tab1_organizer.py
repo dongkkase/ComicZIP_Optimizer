@@ -9,7 +9,8 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QStyledItemDelegate, QStyle, QApplication
                              )
 from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtGui import QColor,QTextDocument, QAbstractTextDocumentLayout
+from PyQt6.QtGui import QColor,QTextDocument, QAbstractTextDocumentLayout, QPixmap
+from config import get_resource_path
 
 from ui.widgets import OrgTreeWidget
 
@@ -185,7 +186,17 @@ class Tab1Organizer(QWidget):
         layout_empty = QVBoxLayout(page_empty)
         
         self.icon_empty_org = QLabel()
-        self.icon_empty_org.setPixmap(qta.icon('fa5s.folder-open', color='#aaaaaa').pixmap(64, 64))
+        import random
+        draganddrop_path = get_resource_path(f'src/draganddrop{random.randint(1, 3)}.png')
+        if os.path.exists(draganddrop_path):
+            draganddrop_pixmap = QPixmap(draganddrop_path)
+            self.icon_empty_org.setPixmap(draganddrop_pixmap.scaled(256, 256, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+            from PyQt6.QtWidgets import QGraphicsOpacityEffect
+            opacity_effect = QGraphicsOpacityEffect()
+            opacity_effect.setOpacity(0.55)
+            self.icon_empty_org.setGraphicsEffect(opacity_effect)
+        else:
+            self.icon_empty_org.setPixmap(qta.icon('fa5s.folder-open', color='#aaaaaa').pixmap(64, 64))
         self.icon_empty_org.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         self.lbl_empty_org = QLabel(t.get("drag_drop", ""))

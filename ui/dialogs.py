@@ -565,7 +565,7 @@ class LogDialog(QDialog):
         self.text_edit = QTextEdit()
         self.text_edit.setReadOnly(True)
         # 폰트 크기 s11 적용
-        self.text_edit.setStyleSheet(f"background-color: #1a1a1a; color: #e0e0e0; font-family: Consolas, monospace; font-size: {s11}px; padding: 10px; border: 1px solid #444; border-radius: 4px;")
+        self.text_edit.setStyleSheet(f"background-color: #1a1a1a; color: #e0e0e0; font-family: Consolas, monospace; font-size: {s11}px; padding: 10px; border: none; border-radius: 4px;")
         
         log_content = ""
         if stats['error']: log_content += "[ERRORS]\n" + "\n".join(stats['error']) + "\n\n"
