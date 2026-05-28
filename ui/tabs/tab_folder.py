@@ -1927,9 +1927,9 @@ class TabFolder(QWidget):
                 self.view_stack.setCurrentWidget(self.page_empty_folder)
                 self.lbl_empty_folder.setText(empty_text)
             else:
-            self.view_stack.hide()
-            self.lbl_empty_state.setText(empty_text)
-            self.lbl_empty_state.show()
+                self.view_stack.hide()
+                self.lbl_empty_state.setText(empty_text)
+                self.lbl_empty_state.show()
             return
         else:
             # 데이터가 정상적으로 있다면 빈 페이지에서 원래 뷰(List/Grid)로 복구
