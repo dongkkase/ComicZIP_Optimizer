@@ -1,4 +1,5 @@
 import os
+import time
 from PyQt6.QtWidgets import (
     QTreeWidget, QTableWidget, QLabel, QGraphicsOpacityEffect, 
     QComboBox, QCompleter, QMenu, QMessageBox, QWidget
@@ -155,6 +156,7 @@ class DimOverlay(QWidget):
         self._text = text
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self._show_time = 0
         
         self.opacity_effect = QGraphicsOpacityEffect(self)
         self.setGraphicsEffect(self.opacity_effect)
@@ -219,6 +221,7 @@ class DimOverlay(QWidget):
         painter.end()
 
     def showEvent(self, event):
+        self._show_time = time.time()
         self.raise_()
         self.resize(self.parent().size())
         if self.parent():
@@ -237,4 +240,18 @@ class DimOverlay(QWidget):
     def hideEvent(self, event):
         if self.movie:
             self.movie.stop()
+            
+        if getattr(self, '_show_time', 0) > 0:
+            elapsed = time.time() - self._show_time
+            if elapsed >= 60:
+                self._play_meow_sound()
+            self._show_time = 0
+            
         super().hideEvent(event)
+        
+    def _play_meow_sound(self):
+        try:
+            from utils import play_sound_file
+            play_sound_file("meow-1.mp3")
+        except Exception:
+            pass

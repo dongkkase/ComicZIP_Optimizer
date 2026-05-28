@@ -558,10 +558,6 @@ class TabFolder(QWidget):
             QToolButton::menu-indicator { image: none; }
         """
         
-        self.btn_views = QToolButton()
-        self.btn_views.setText(_("folder_views"))
-        self.btn_views.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        self.btn_views.setStyleSheet(menu_btn_style)
         
         self.btn_grouped = QToolButton()
         self.btn_grouped.setText(_("folder_grouped"))
@@ -601,7 +597,7 @@ class TabFolder(QWidget):
         self.btn_sidebar.setCursor(Qt.CursorShape.PointingHandCursor)
         list_toolbar.addWidget(self.btn_sidebar)
         
-        for btn in [self.btn_views, self.btn_grouped, self.btn_filter, self.btn_sorted, self.btn_layouts, self.btn_export]:
+        for btn in [self.btn_grouped, self.btn_filter, self.btn_sorted, self.btn_layouts, self.btn_export]:
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             list_toolbar.addWidget(btn)
             
@@ -914,6 +910,44 @@ class TabFolder(QWidget):
         bottom_bar.addWidget(self.lbl_tree_status)
         
         bottom_bar.addStretch()
+        
+        view_btn_style = """
+            QPushButton { background-color: transparent; border: none; border-radius: 4px; padding: 4px; }
+            QPushButton:hover { background-color: #3a3a3a; }
+            QPushButton:checked { background-color: #3498DB; border: 1px solid #2980B9; }
+        """
+        
+        self.btn_view_detail = QPushButton()
+        self.btn_view_detail.setIcon(qta.icon('fa5s.bars', color='white'))
+        self.btn_view_detail.setToolTip(_("menu_detail"))
+        self.btn_view_detail.setCheckable(True)
+        self.btn_view_detail.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_view_detail.setStyleSheet(view_btn_style)
+        self.btn_view_detail.setFixedSize(28, 28)
+        self.btn_view_detail.clicked.connect(lambda: self.set_view_mode("detail"))
+        
+        self.btn_view_thumb = QPushButton()
+        self.btn_view_thumb.setIcon(qta.icon('fa5s.th-large', color='white'))
+        self.btn_view_thumb.setToolTip(_("menu_thumbnail"))
+        self.btn_view_thumb.setCheckable(True)
+        self.btn_view_thumb.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_view_thumb.setStyleSheet(view_btn_style)
+        self.btn_view_thumb.setFixedSize(28, 28)
+        self.btn_view_thumb.clicked.connect(lambda: self.set_view_mode("thumbnail"))
+        
+        self.btn_view_tile = QPushButton()
+        self.btn_view_tile.setIcon(qta.icon('fa5s.list', color='white'))
+        self.btn_view_tile.setToolTip(_("menu_tile"))
+        self.btn_view_tile.setCheckable(True)
+        self.btn_view_tile.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_view_tile.setStyleSheet(view_btn_style)
+        self.btn_view_tile.setFixedSize(28, 28)
+        self.btn_view_tile.clicked.connect(lambda: self.set_view_mode("tile"))
+        
+        bottom_bar.addWidget(self.btn_view_detail)
+        bottom_bar.addWidget(self.btn_view_thumb)
+        bottom_bar.addWidget(self.btn_view_tile)
+        bottom_bar.addSpacing(15)
         
         self.slider_item_size = QSlider(Qt.Orientation.Horizontal)
         self.slider_item_size.setRange(80, 300)
@@ -1245,12 +1279,6 @@ class TabFolder(QWidget):
             self.refresh_list()
 
     def setup_menus(self):
-        self.menu_views = QMenu(self)
-        self.menu_views.addAction(_("menu_detail"), lambda: self.set_view_mode("detail"))
-        self.menu_views.addAction(_("menu_thumbnail"), lambda: self.set_view_mode("thumbnail"))
-        self.menu_views.addAction(_("menu_tile"), lambda: self.set_view_mode("tile"))
-        self.btn_views.setMenu(self.menu_views)
-
         self.menu_grouped = QMenu(self)
         self.menu_grouped.addAction(_("menu_none"), lambda: self.set_grouping("none"))
         self.menu_grouped.addAction(_("menu_folder"), lambda: self.set_grouping("path"))
@@ -1749,7 +1777,19 @@ class TabFolder(QWidget):
     def set_view_mode(self, mode):
         self.config["folder_view_mode"] = mode
         save_config(self.config)
-        self._update_button_active_style(self.btn_views, mode != "detail")
+        
+        if hasattr(self, 'btn_view_detail'):
+            self.btn_view_detail.blockSignals(True)
+            self.btn_view_thumb.blockSignals(True)
+            self.btn_view_tile.blockSignals(True)
+            
+            self.btn_view_detail.setChecked(mode == "detail")
+            self.btn_view_thumb.setChecked(mode == "thumbnail")
+            self.btn_view_tile.setChecked(mode == "tile")
+            
+            self.btn_view_detail.blockSignals(False)
+            self.btn_view_thumb.blockSignals(False)
+            self.btn_view_tile.blockSignals(False)
         
         # [수정] 빈 페이지가 아닐 때만 인덱스를 변경하여 데이터 없음 화면 유지
         if not hasattr(self, 'page_empty_folder') or self.view_stack.currentWidget() != self.page_empty_folder:
@@ -2300,14 +2340,25 @@ class TabFolder(QWidget):
 
         if has_img_out:
             row["thumb_processed"] = True
+        else:
+            # [수정] 이미지가 없는 파일이나 에러 파일의 경우 무한 재스캔을 막기 위해 0바이트 더미 썸네일 생성
+            row["thumb_processed"] = True
+            file_hash = row.get("hash", "")
+            if file_hash:
+                thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.webp")
+                if not os.path.exists(thumb_path):
+                    try: open(thumb_path, 'w').close()
+                    except: pass
 
         was_meta_already_processed = row.get("meta_processed", False)
         
         new_res = meta_dict.get("resolution", "") if meta_dict else ""
         if new_res:
             row["res"] = new_res
+        else:
+            row["res"] = "0x0"
             
-        if not was_meta_already_processed or new_res:
+        if not was_meta_already_processed or row["res"]:
             row["meta_processed"] = True 
             if meta_dict is None: meta_dict = {}
             

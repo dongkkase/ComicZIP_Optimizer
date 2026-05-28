@@ -44,3 +44,5 @@ data/
 .api_cache.db
 
 .aiexclude
+
+memo.md

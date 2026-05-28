@@ -31,3 +31,5 @@ venv/
 # Test / coverage
 .pytest_cache/
 .coverage
+
+memo.md
