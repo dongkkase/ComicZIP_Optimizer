@@ -259,7 +259,11 @@ class TabFolder(QWidget):
         print(f"[LOG] start_dup_scan 진입: {time.time()-t:.3f}s")
         
         dup_folders = self.config.get("dup_check_folders", [])
-        if not dup_folders: return
+        if not dup_folders: 
+            self.b_folder_cache = []
+            if self.btn_dup_check.isChecked():
+                self.start_dup_match()
+            return
         target_exts = ('.zip', '.cbz', '.cbr', '.rar', '.7z')
         
         if self.dup_scan_thread and self.dup_scan_thread.isRunning():
@@ -318,11 +322,12 @@ class TabFolder(QWidget):
         self.btn_dup_check.setText(_("folder_dup_check_on") if checked else _("folder_dup_check_off"))
         
         if checked:
-            if not hasattr(self, 'b_folder_cache') or not self.b_folder_cache:
+            dup_folders = self.config.get("dup_check_folders", [])
+            if dup_folders and (not hasattr(self, 'b_folder_cache') or not self.b_folder_cache):
                 print(f"[LOG] b_folder_cache 없음, start_dup_scan 호출")
                 self.start_dup_scan()
             else:
-                print(f"[LOG] b_folder_cache 존재, start_dup_match 호출")
+                print(f"[LOG] start_dup_match 호출")
                 self.start_dup_match()
         else:
             print(f"[LOG] 버튼 OFF, 스레드 취소 및 렌더링 복구 시작")
@@ -340,9 +345,28 @@ class TabFolder(QWidget):
         print(f"[LOG] start_dup_match 진입: {time.time()-t:.3f}s")
         
         if not self.btn_dup_check.isChecked(): return
-        if not hasattr(self, 'b_folder_cache') or not self.b_folder_cache: return
         if not hasattr(self, 'file_data_cache') or not self.file_data_cache: return
         
+        # [수정] 라이브러리(b_folder_cache)가 비어있어도 현재 폴더 내에서의 중복 검사를 위해 로직 개선
+        b_cache = getattr(self, 'b_folder_cache', []).copy()
+        
+        # 현재 탐색기 패널에서 열고 있는 폴더의 파일들을 중복 검사 대상(b_cache)에 동적으로 추가
+        existing_paths = {b["full_path"] for b in b_cache}
+        for row in self.file_data_cache:
+            if row.get("is_folder") or row.get("is_dup_folder") or row.get("is_dup_child"): continue
+            fp = row.get("full_path")
+            if fp and fp not in existing_paths:
+                b_cache.append({
+                    "name": row.get("name"),
+                    "path": row.get("path"),
+                    "full_path": fp,
+                    "size": row.get("raw_size", 0),
+                    "name_no_ext": os.path.splitext(row.get("name", ""))[0].lower()
+                })
+                existing_paths.add(fp)
+                
+        if not b_cache: return
+            
         current_a_paths = tuple(f.get("full_path") for f in self.file_data_cache)
         if hasattr(self, 'last_matched_a_paths') and self.last_matched_a_paths == current_a_paths:
             print(f"[LOG] 동일 데이터 감지, 캐시된 결과로 UI 갱신 시작")
@@ -364,7 +388,7 @@ class TabFolder(QWidget):
         if self.view_stack.currentIndex() == 0:
             self.dim_overlay.show()
             
-        self.dup_match_thread = DupMatchThread(self.file_data_cache, self.b_folder_cache)
+        self.dup_match_thread = DupMatchThread(self.file_data_cache, b_cache)
         self.dup_match_thread.match_progress.connect(self.on_dup_match_progress)
         self.dup_match_thread.match_finished.connect(self.on_dup_match_finished)
         self.dup_match_thread.start()

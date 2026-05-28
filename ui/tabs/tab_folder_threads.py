@@ -836,6 +836,18 @@ class MissingCheckThread(QThread):
                         db_series = record[6] if len(record) > 6 else ""
                         
                     process_record(fp, name, db_series)
+                    
+            # [수정] 라이브러리가 설정되어 있어도 현재 탐색기 패널에서 보고 있는 폴더를 누락 검사에 포함
+            for row in self.file_data_cache:
+                if row.get("is_folder") or row.get("is_dup_folder") or row.get("is_dup_child"): continue
+                fp = row.get("full_path", "")
+                name = row.get("name", "")
+                db_series = row.get("series", "") or row.get("full_meta", {}).get("series", "")
+                
+                # 이미 라이브러리에 포함된 경로면 중복 처리 방지
+                if not any(fp.startswith(os.path.normpath(d)) for d in self.dup_folders):
+                    process_record(fp, name, db_series)
+                    
         else:
             for row in self.file_data_cache:
                 if row.get("is_folder") or row.get("is_dup_folder") or row.get("is_dup_child"): continue
