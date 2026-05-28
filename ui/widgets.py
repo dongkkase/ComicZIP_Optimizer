@@ -150,9 +150,10 @@ class SearchableComboBox(QComboBox):
 
 
 class DimOverlay(QWidget):
-    def __init__(self, parent=None, show_spinner=False, text=""):
+    def __init__(self, parent=None, show_spinner=False, text="", play_sound_on_hide=False):
         super().__init__(parent)
         self.show_spinner = show_spinner
+        self.play_sound_on_hide = play_sound_on_hide
         self._text = text
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
@@ -241,7 +242,7 @@ class DimOverlay(QWidget):
         if self.movie:
             self.movie.stop()
             
-        if getattr(self, '_show_time', 0) > 0:
+        if getattr(self, 'play_sound_on_hide', False) and getattr(self, '_show_time', 0) > 0:
             elapsed = time.time() - self._show_time
             if elapsed >= 60:
                 self._play_meow_sound()

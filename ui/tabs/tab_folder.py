@@ -715,7 +715,7 @@ class TabFolder(QWidget):
         right_top_layout.addWidget(self.view_stack)
         self.view_stack.installEventFilter(self)
 
-        self.dim_overlay = DimOverlay(self.view_stack, show_spinner=True)
+        self.dim_overlay = DimOverlay(self.view_stack, show_spinner=True, play_sound_on_hide=True)
 
         # --- [추가] 데이터가 없을 때 표시할 빈 페이지 ---
         self.page_empty_folder = QWidget()
