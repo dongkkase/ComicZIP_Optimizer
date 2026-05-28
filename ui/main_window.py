@@ -300,11 +300,15 @@ class RenamerApp(QMainWindow):
         self.progress_bar.setValue(0)
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setFixedHeight(10)
+        self.progress_bar.setFixedWidth(150)
         self.progress_bar.hide() 
 
-        status_v_layout = QVBoxLayout()
-        status_v_layout.addWidget(self.lbl_status)
-        status_v_layout.addWidget(self.progress_bar)
+        status_layout = QHBoxLayout()
+        status_layout.setContentsMargins(0, 0, 0, 0)
+        status_layout.setSpacing(10)  # 텍스트와 프로그레스 바 사이의 간격 지정
+        status_layout.addWidget(self.lbl_status, alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        status_layout.addWidget(self.progress_bar, alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        status_layout.addStretch()  # 남는 공간을 채워 요소들을 왼쪽으로 밀착시킴
 
         self.btn_run = QPushButton()
         self.btn_run.setIcon(qta.icon('fa5s.rocket', color='white'))
@@ -313,8 +317,8 @@ class RenamerApp(QMainWindow):
         self.btn_run.setFixedHeight(45)
         self.btn_run.clicked.connect(self.start_process)
 
-        bottom_layout.addLayout(status_v_layout)
-        bottom_layout.addStretch()
+        bottom_layout.addLayout(status_layout)
+        # bottom_layout.addStretch()  <- 기존에 있던 이 줄은 삭제합니다.
         bottom_layout.addWidget(self.btn_run)
         main_layout.addLayout(bottom_layout)
 
