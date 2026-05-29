@@ -51,6 +51,43 @@ def _(key):
     return _TRANSLATIONS.get(_CURRENT_LANG, _TRANSLATIONS["ko"]).get(key, key)
 
 
+from PyQt6.QtWidgets import QWidgetAction
+class CustomMenuActionWidget(QWidget):
+    def __init__(self, text, shortcut, action, menu, parent=None):
+        super().__init__(parent)
+        self.action = action
+        self.menu = menu
+        # 마우스 이벤트를 통과시켜 QMenu가 네이티브 호버/클릭 및 키보드 네비게이션을 완벽하게 처리하도록 함
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.setObjectName("menuItem")
+        self.setStyleSheet("QWidget#menuItem { background-color: transparent; }")
+        
+        if self.menu:
+            self.menu.hovered.connect(self._on_menu_hovered)
+            
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(20, 6, 20, 6)
+        layout.setSpacing(30)
+        
+        self.lbl_text = QLabel(text)
+        self.lbl_text.setStyleSheet("color: white; background: transparent; border: none;")
+        layout.addWidget(self.lbl_text)
+        
+        if shortcut:
+            self.lbl_shortcut = QLabel(shortcut)
+            self.lbl_shortcut.setStyleSheet("color: rgba(255, 255, 255, 0.7); background: transparent; border: none;")
+            self.lbl_shortcut.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            layout.addStretch()
+            layout.addWidget(self.lbl_shortcut)
+        else:
+            layout.addStretch()
+
+    def _on_menu_hovered(self, action):
+        if action == self.action:
+            self.setStyleSheet("QWidget#menuItem { background-color: #3a7ebf; }")
+        else:
+            self.setStyleSheet("QWidget#menuItem { background-color: transparent; }")
+
 
 
 # ==========================================
@@ -1266,8 +1303,10 @@ class TabFolder(QWidget):
             if path: self.combo_quick_access.addItem(name, path)
 
         lib_folders = self.config.get("dup_check_folders", [])
+        self.combo_quick_access.insertSeparator(self.combo_quick_access.count())
+        self.combo_quick_access.addItem(f"⚙️ {_('grp_dup_folders_title')}", "ACTION_OPEN_LIB_SETTINGS")
+
         if lib_folders:
-            self.combo_quick_access.insertSeparator(self.combo_quick_access.count())
             for folder in lib_folders:
                 folder_name = os.path.basename(folder)
                 if not folder_name: folder_name = folder
@@ -1302,6 +1341,24 @@ class TabFolder(QWidget):
 
     def on_quick_access_changed(self, index):
         path = self.combo_quick_access.itemData(index)
+        
+        if path == "ACTION_OPEN_LIB_SETTINGS":
+            self.combo_quick_access.blockSignals(True)
+            self.combo_quick_access.setCurrentIndex(0)
+            self.combo_quick_access.blockSignals(False)
+            
+            from PyQt6.QtWidgets import QApplication
+            from ui.dialogs import SettingsDialog
+            def switch_tab():
+                for widget in QApplication.topLevelWidgets():
+                    if isinstance(widget, SettingsDialog):
+                        widget.tabs.setCurrentIndex(1)
+                        break
+            QTimer.singleShot(0, switch_tab)
+            if hasattr(self.main_window, 'open_settings'):
+                self.main_window.open_settings()
+            return
+
         if path and os.path.exists(path):
             idx = self.dir_model.index(path)
             self.tree_view.setCurrentIndex(idx)
@@ -2705,14 +2762,59 @@ class TabFolder(QWidget):
         if not index.isValid(): return
         path = self.dir_model.filePath(index)
         menu = QMenu()
+        BLANK = "     "   # U+2800
+
         
-        # 단축키 표시용 헬퍼 함수
+        menu.setStyleSheet("""
+            QMenu { background-color: #2b2b2b; border: 1px solid #444; padding: 4px 0px; }
+            QMenu::separator { height: 1px; background-color: #444; margin: 4px 0; }
+        """)
+        
         def add_menu_action(text, shortcut, slot):
-            from PyQt6.QtGui import QAction
-            action = QAction(text, self)
-            if shortcut:
-                action.setShortcut(shortcut)
-            action.triggered.connect(slot)
+            from PyQt6.QtWidgets import QWidgetAction, QWidget, QHBoxLayout, QLabel
+            from PyQt6.QtCore import Qt
+            
+            action = QWidgetAction(menu)
+            
+            class MenuItemWidget(QWidget):
+                def __init__(self, text, shortcut, parent=None):
+                    super().__init__(parent)
+                    # 커스텀 위젯이 배경색 스타일시트를 그릴 수 있도록 속성 부여
+                    self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+                    self.setObjectName("MenuItem")
+                    self.setStyleSheet("QWidget#MenuItem { background-color: transparent; border: none; }")
+                    
+                    self.setMinimumWidth(220)
+                    layout = QHBoxLayout(self)
+                    layout.setContentsMargins(20, 6, 20, 6)
+                    layout.setSpacing(20)
+                    
+                    self.lbl_text = QLabel(text)
+                    self.lbl_text.setStyleSheet("color: white; font-size: 12px; background: transparent; border: none;")
+                    
+                    self.lbl_shortcut = QLabel(shortcut if shortcut else "")
+                    self.lbl_shortcut.setStyleSheet("color: rgba(255, 255, 255, 0.7); font-size: 11px; background: transparent; border: none;")
+                    
+                    layout.addWidget(self.lbl_text)
+                    layout.addStretch()
+                    layout.addWidget(self.lbl_shortcut)
+                    
+                def enterEvent(self, event):
+                    self.setStyleSheet("QWidget#MenuItem { background-color: #3a7ebf; border: none; }")
+                    super().enterEvent(event)
+                    
+                def leaveEvent(self, event):
+                    self.setStyleSheet("QWidget#MenuItem { background-color: transparent; border: none; }")
+                    super().leaveEvent(event)
+                    
+                def mouseReleaseEvent(self, event):
+                    if event.button() == Qt.MouseButton.LeftButton:
+                        menu.close()
+                        slot()
+                    super().mouseReleaseEvent(event)
+            
+            widget = MenuItemWidget(text, shortcut, menu)
+            action.setDefaultWidget(widget)
             menu.addAction(action)
             return action
         
@@ -2720,24 +2822,23 @@ class TabFolder(QWidget):
         is_fav = any(f["path"] == path for f in custom_favs)
         
         if is_fav:
-            add_menu_action(_("action_fav_rem"), None, lambda: self.remove_from_favorites(path))
+            add_menu_action(f"{BLANK} {_('action_fav_rem')}", None, lambda: self.remove_from_favorites(path))
         else:
-            add_menu_action(_("action_fav_add"), None, lambda: self.add_to_favorites(path))
+            add_menu_action(f"📌 {_('action_fav_add')}", None, lambda: self.add_to_favorites(path))
             
         menu.addSeparator()
-        add_menu_action(_("action_open_exp"), None, lambda: self.open_in_explorer(path))
-        add_menu_action(_("action_ren_folder"), "Shift+R", lambda: self.rename_folder(index))
-        add_menu_action(_("action_move_folder_to_library"), None, lambda: self.action_move_to_library_tree(path))
-        
-        # F1~F3 메뉴 기능 추가
-        menu.addSeparator()
-        add_menu_action(_("action_flatten_structure"), "F1", self.send_to_tab1)
-        add_menu_action(_("action_inner_ren"), "F2", self.send_to_tab2)
-        add_menu_action(_("action_meta_edit"), "F3", self.send_to_tab3)
+        add_menu_action(f"📂 {_('action_open_exp')}", None, lambda: self.open_in_explorer(path))
+        add_menu_action(f"{BLANK} {_('action_ren_folder')}", "Shift+R", lambda: self.rename_folder(index))
+        add_menu_action(f"{BLANK} {_('action_move_folder_to_library')}", None, lambda: self.action_move_to_library_tree(path))
         
         menu.addSeparator()
-        add_menu_action(_("action_del_folder"), "Del", self.delete_selected)
-        add_menu_action(_("action_refresh"), "F5", self.refresh_tree)
+        add_menu_action(f"{BLANK} {_('action_flatten_structure')}", "F1", self.send_to_tab1)
+        add_menu_action(f"{BLANK} {_('action_inner_ren')}", "F2", self.send_to_tab2)
+        add_menu_action(f"{BLANK} {_('action_meta_edit')}", "F3", self.send_to_tab3)
+        
+        menu.addSeparator()
+        add_menu_action(f"{BLANK} {_('action_del_folder')}", "Del", self.delete_selected)
+        add_menu_action(f"{BLANK} {_('action_refresh')}", "F5", self.refresh_tree)
         
         menu.exec(self.tree_view.viewport().mapToGlobal(position))
 
@@ -2749,11 +2850,56 @@ class TabFolder(QWidget):
         
         menu = QMenu()
         
+        menu.setStyleSheet("""
+            QMenu { background-color: #2b2b2b; border: 1px solid #444; padding: 4px 0px; }
+            QMenu::separator { height: 1px; background-color: #444; margin: 4px 0; }
+        """)
+        
         def add_menu_action(text, shortcut, slot):
-            action = QAction(text, self)
-            if shortcut:
-                action.setShortcut(shortcut)
-            action.triggered.connect(slot)
+            from PyQt6.QtWidgets import QWidgetAction, QWidget, QHBoxLayout, QLabel
+            from PyQt6.QtCore import Qt
+            
+            action = QWidgetAction(menu)
+            
+            class MenuItemWidget(QWidget):
+                def __init__(self, text, shortcut, parent=None):
+                    super().__init__(parent)
+                    # 커스텀 위젯이 배경색 스타일시트를 그릴 수 있도록 속성 부여
+                    self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+                    self.setObjectName("MenuItem")
+                    self.setStyleSheet("QWidget#MenuItem { background-color: transparent; border: none; }")
+                    
+                    self.setMinimumWidth(220)
+                    layout = QHBoxLayout(self)
+                    layout.setContentsMargins(20, 6, 20, 6)
+                    layout.setSpacing(20)
+                    
+                    self.lbl_text = QLabel(text)
+                    self.lbl_text.setStyleSheet("color: white; font-size: 12px; background: transparent; border: none;")
+                    
+                    self.lbl_shortcut = QLabel(shortcut if shortcut else "")
+                    self.lbl_shortcut.setStyleSheet("color: rgba(255, 255, 255, 0.7); font-size: 11px; background: transparent; border: none;")
+                    
+                    layout.addWidget(self.lbl_text)
+                    layout.addStretch()
+                    layout.addWidget(self.lbl_shortcut)
+                    
+                def enterEvent(self, event):
+                    self.setStyleSheet("QWidget#MenuItem { background-color: #3a7ebf; border: none; }")
+                    super().enterEvent(event)
+                    
+                def leaveEvent(self, event):
+                    self.setStyleSheet("QWidget#MenuItem { background-color: transparent; border: none; }")
+                    super().leaveEvent(event)
+                    
+                def mouseReleaseEvent(self, event):
+                    if event.button() == Qt.MouseButton.LeftButton:
+                        menu.close()
+                        slot()
+                    super().mouseReleaseEvent(event)
+            
+            widget = MenuItemWidget(text, shortcut, menu)
+            action.setDefaultWidget(widget)
             menu.addAction(action)
             return action
 
@@ -2766,7 +2912,6 @@ class TabFolder(QWidget):
         add_menu_action(_("action_update_files"), None, self.force_update_selected_files)
         menu.addSeparator()
         
-        # 새롭게 추가된 기능: 책 제목 기반 시리즈 분류
         add_menu_action(_("action_group_by_series"), None, self.action_group_by_series)
         add_menu_action(_("action_move_file_to_library"), None, self.action_move_to_library_list)
         menu.addSeparator()
@@ -2779,7 +2924,7 @@ class TabFolder(QWidget):
         if os.path.exists(history_file):
             add_menu_action(_("tf_undo_rename"), "Ctrl+Z", self.action_undo_rename)
         
-        add_menu_action(_("action_open_exp"), None, self.open_selected_in_explorer)
+        add_menu_action(f"📂 {_('action_open_exp')}", None, self.open_selected_in_explorer)
         menu.addSeparator()
         add_menu_action(_("action_sel_all"), "Ctrl+A", self.select_all_files)
         add_menu_action(_("action_inv_sel"), None, self.invert_selection)
@@ -2907,6 +3052,7 @@ class TabFolder(QWidget):
         
         input_line = QLineEdit()
         input_line.setText(self.current_watched_folder)
+        input_line.selectAll()
         input_line.setStyleSheet("""
             QLineEdit { background-color: #1e1e1e; color: white; border: 1px solid #555; border-radius: 4px; padding: 4px 10px; }
             QLineEdit:focus { border: 1px solid #3498DB; }
