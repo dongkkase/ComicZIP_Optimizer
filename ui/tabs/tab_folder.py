@@ -1509,7 +1509,7 @@ class TabFolder(QWidget):
         if hasattr(self, 'main_optimize_btn') and self.main_optimize_btn:
             self.main_optimize_btn.hide()
             
-        path = getattr(self, 'pending_scroll_path', None) or getattr(self, 'current_watched_folder', None)
+        path = getattr(self, 'pending_scroll_path', None)
         if path:
             self.pending_scroll_path = None
             QTimer.singleShot(100, lambda: self._start_queued_scroll(path))
@@ -1584,171 +1584,6 @@ class TabFolder(QWidget):
         self.tree_view.scrollTo(idx, QAbstractItemView.ScrollHint.EnsureVisible)
         self.tree_view.scrollTo(idx, QAbstractItemView.ScrollHint.PositionAtCenter)
         self.tree_view.horizontalScrollBar().setValue(0)
-
-    def _process_next_queue_step(self):
-        if not self._pending_expand_queue:
-            return # 큐가 비었으면 작업 종료
-            
-        current_target = self._pending_expand_queue[0]
-        idx = self.dir_model.index(current_target)
-        
-        if idx.isValid():
-            # 3. 현재 뎁스의 폴더가 로딩되어 있다면: 큐에서 빼고 폴더를 엽니다.
-            self._pending_expand_queue.pop(0)
-            self.tree_view.expand(idx)
-            
-            if not self._pending_expand_queue:
-                # 4. 큐가 완전히 비워졌다 = 최종 목적지에 도달했다!
-                self.tree_view.setCurrentIndex(idx)
-                self.tree_view.setFocus()
-                
-                # 렌더링에 필요한 최소한의 시간(50ms)만 준 뒤 최종 스크롤 확정
-                QTimer.singleShot(50, lambda: self._do_final_scroll(idx))
-            else:
-                # 다음 하위 폴더 처리를 위해 곧바로 재귀 호출 (이벤트 루프가 막히지 않게 타이머 사용)
-                QTimer.singleShot(10, self._process_next_queue_step)
-        else:
-            # 아직 로딩되지 않았다면? 
-            # 여기서 while문으로 기다리는 것이 아니라 그냥 함수를 '종료'해 버립니다!
-            # (백그라운드에서 로딩이 끝나면 아래의 _on_directory_loaded_step 가 알아서 깨워줍니다)
-            pass
-
-    def _on_directory_loaded_step(self, loaded_path):
-        # QFileSystemModel이 "폴더 하나 읽기 끝났어!" 라고 신호를 보낼 때마다
-        # 큐에 남은 작업이 있다면 다음 스텝을 밟아보라고 툭 쳐줍니다.
-        if hasattr(self, '_pending_expand_queue') and self._pending_expand_queue:
-            self._process_next_queue_step()
-
-    def _do_final_scroll(self, idx):
-        # 가려져 있던 UI가 펴지면서 발생하는 미세한 픽셀 오차를 방지하기 위해 EnsureVisible 후 Center
-        self.tree_view.scrollTo(idx, QAbstractItemView.ScrollHint.EnsureVisible)
-        self.tree_view.scrollTo(idx, QAbstractItemView.ScrollHint.PositionAtCenter)
-        self.tree_view.horizontalScrollBar().setValue(0)
-
-    def _start_path_scroll(self, path):
-        if not path or not os.path.exists(path): return
-        
-        self._target_scroll_path = QDir.fromNativeSeparators(os.path.abspath(path))
-        self._scroll_retries = 100  # 외부 HDD 절전모드 해제 및 스핀업 고려 (최대 10초 대기)
-        
-        if hasattr(self, '_scroll_timer') and self._scroll_timer.isActive():
-            self._scroll_timer.stop()
-            
-        self._scroll_timer = QTimer(self)
-        self._scroll_timer.timeout.connect(self._process_path_scroll)
-        self._scroll_timer.start(100) # 0.1초마다 백그라운드에서 로딩 완료 여부 조용히 감시
-
-    def _process_path_scroll(self):
-        target = getattr(self, '_target_scroll_path', None)
-        if not target:
-            self._scroll_timer.stop()
-            return
-            
-        idx = self.dir_model.index(target)
-        
-        # 1. 인덱스가 아직 로딩되지 않았을 때 (기다림 단계)
-        if not idx.isValid():
-            self._scroll_retries -= 1
-            if self._scroll_retries <= 0:
-                self._scroll_timer.stop()
-                return
-                
-            # 역추적하며 유효한 상위 폴더를 찾아 강제로 펼치며 하위 로딩 유도
-            curr = target
-            while curr:
-                p_idx = self.dir_model.index(curr)
-                if p_idx.isValid():
-                    self.tree_view.expand(p_idx)
-                    if self.dir_model.canFetchMore(p_idx):
-                        self.dir_model.fetchMore(p_idx)
-                    break
-                
-                parent = QDir.fromNativeSeparators(os.path.dirname(curr))
-                if parent == curr or not parent: break
-                curr = parent
-            return # 아직 로딩 중이므로 다음 감시 틱(100ms 후)으로 넘김
-
-        # 2. 인덱스 로딩이 100% 완료된 시점 (사용자 요구사항 완벽 충족)
-        self._scroll_timer.stop()
-        self._target_scroll_path = None
-        
-        # 최상위 부모부터 순서대로 폴더 열기
-        parents = []
-        p = idx.parent()
-        while p.isValid():
-            parents.insert(0, p)
-            p = p.parent()
-            
-        for p in parents:
-            self.tree_view.expand(p)
-            
-        # 목표 폴더 열기, 선택 및 확실한 활성화(포커스 지정)
-        self.tree_view.expand(idx)
-        self.tree_view.setCurrentIndex(idx)
-        self.tree_view.setFocus()
-        
-        # 레이아웃이 화면에 그려질 틈을 아주 약간 주고 단 한 번만 깔끔하게 스크롤 이동
-        def final_scroll():
-            self.tree_view.scrollTo(idx, QAbstractItemView.ScrollHint.PositionAtCenter)
-            self.tree_view.horizontalScrollBar().setValue(0)
-            
-        QTimer.singleShot(100, final_scroll)
-
-    def _on_dir_loaded_for_scroll(self, path):
-        # 폴더가 하나 로딩 완료될 때마다 목표에 도달했는지 확인
-        if getattr(self, '_target_scroll_path', None):
-            self._check_and_scroll()
-
-    def _check_and_scroll(self):
-        target = getattr(self, '_target_scroll_path', None)
-        if not target: return
-        
-        idx = self.dir_model.index(target)
-        
-        # 1. 목표 경로가 아직 로딩되지 않았을 때 (기다림 단계)
-        if not idx.isValid():
-            curr = target
-            while curr:
-                p_idx = self.dir_model.index(curr)
-                if p_idx.isValid():
-                    # 유효한 부모를 열어 로딩을 유도. 로딩이 끝나면 _on_dir_loaded_for_scroll이 자동으로 다시 불립니다.
-                    self.tree_view.expand(p_idx)
-                    if self.dir_model.canFetchMore(p_idx):
-                        self.dir_model.fetchMore(p_idx)
-                    break
-                parent = QDir.fromNativeSeparators(os.path.dirname(curr))
-                if parent == curr or not parent:
-                    root_idx = self.dir_model.index(self.dir_model.rootPath())
-                    self.tree_view.expand(root_idx)
-                    break
-                curr = parent
-            return # 로딩 신호가 올 때까지 함수 종료 및 대기
-
-        # 2. 모든 로딩이 끝난 시점 (사용자 요청 사항 완벽 적용)
-        self._target_scroll_path = None # 추적 종료
-        
-        parents = []
-        p = idx.parent()
-        while p.isValid():
-            parents.insert(0, p)
-            p = p.parent()
-            
-        for p in parents:
-            self.tree_view.expand(p)
-            
-        self.tree_view.expand(idx)
-        self.tree_view.setCurrentIndex(idx)
-        self.tree_view.setFocus()
-        
-        # 로딩이 100% 보장된 상태이므로 단 한 번의 깔끔한 스크롤만 수행
-        def final_scroll():
-            self.tree_view.scrollTo(idx, QAbstractItemView.ScrollHint.PositionAtCenter)
-            self.tree_view.horizontalScrollBar().setValue(0)
-            
-        QTimer.singleShot(100, final_scroll)
-
-    def save_current_layout_state(self):
-        state = self.table_view.horizontalHeader().saveState().toHex().data().decode()
 
     def save_current_layout_state(self):
         state = self.table_view.horizontalHeader().saveState().toHex().data().decode()
@@ -2308,6 +2143,7 @@ class TabFolder(QWidget):
             self.dim_overlay.hide()
             
         if self.current_watched_folder != folder_path:
+            self.pending_scroll_path = None
             if self.current_watched_folder:
                 self.folder_watcher.removePath(self.current_watched_folder)
             self.folder_watcher.addPath(folder_path)
@@ -2867,6 +2703,7 @@ class TabFolder(QWidget):
         menu.addSeparator()
         add_menu_action(_("action_open_exp"), None, lambda: self.open_in_explorer(path))
         add_menu_action(_("action_ren_folder"), "Shift+R", lambda: self.rename_folder(index))
+        add_menu_action(_("action_move_folder_to_library"), None, lambda: self.action_move_to_library_tree(path))
         
         # F1~F3 메뉴 기능 추가
         menu.addSeparator()
@@ -2907,6 +2744,7 @@ class TabFolder(QWidget):
         
         # 새롭게 추가된 기능: 책 제목 기반 시리즈 분류
         add_menu_action(_("action_group_by_series"), None, self.action_group_by_series)
+        add_menu_action(_("action_move_file_to_library"), None, self.action_move_to_library_list)
         menu.addSeparator()
 
         add_menu_action(_("action_del_files"), "Del", self.delete_selected)
@@ -3546,3 +3384,134 @@ class TabFolder(QWidget):
                 Toast.show(self.main_window, _("msg_series_grouped").format(success_count))
             except Exception:
                 pass
+
+    def action_move_to_library_tree(self, folder_path):
+        libraries = self.config.get("dup_check_folders", [])
+        if not libraries:
+            QMessageBox.warning(self, "Warning", "환경설정에서 대상 라이브러리를 먼저 등록해주세요.")
+            return
+            
+        move_plans = [{
+            'src': folder_path,
+            'base_name': os.path.basename(folder_path),
+            'current_dir_name': ''
+        }]
+        
+        from ui.dialogs import MoveToLibraryDialog
+        dlg = MoveToLibraryDialog(move_plans, libraries, self.main_window.i18n[self.main_window.lang], is_folder_mode=True, parent=self)
+        
+        last_lib = self.config.get("last_selected_library", "")
+        if last_lib in libraries:
+            dlg.cb_lib.setCurrentText(last_lib)
+            
+        if dlg.exec():
+            file_move_plans = []
+            target_lib = dlg.cb_lib.currentText()
+            folder_name = os.path.basename(folder_path)
+            
+            self.config["last_selected_library"] = target_lib
+            save_config(self.config)
+            
+            # 폴더 이동은 내부 파일을 순회하며 1:1로 안전하게 이동시킵니다.
+            for root, dirs, files in os.walk(folder_path):
+                for f in files:
+                    src_fp = os.path.join(root, f)
+                    rel_path = os.path.relpath(src_fp, folder_path)
+                    dest_fp = os.path.join(target_lib, folder_name, rel_path)
+                    file_move_plans.append({'src': src_fp, 'dest': dest_fp})
+                    
+            self.execute_library_move(file_move_plans)
+            
+            # 파일 이동이 끝난 후 빈 폴더가 남으면 삭제
+            try:
+                if not os.listdir(folder_path):
+                    os.rmdir(folder_path)
+            except: pass
+            self.refresh_tree()
+
+    def action_move_to_library_list(self):
+        libraries = self.config.get("dup_check_folders", [])
+        if not libraries:
+            QMessageBox.warning(self, "Warning", "환경설정에서 대상 라이브러리를 먼저 등록해주세요.")
+            return
+            
+        selected_files = self.get_selected_files()
+        if not selected_files: return
+        
+        move_plans = []
+        for fp in selected_files:
+            move_plans.append({
+                'src': fp,
+                'base_name': os.path.basename(fp),
+                'current_dir_name': os.path.basename(os.path.dirname(fp))
+            })
+            
+        from ui.dialogs import MoveToLibraryDialog
+        dlg = MoveToLibraryDialog(move_plans, libraries, self.main_window.i18n[self.main_window.lang], is_folder_mode=False, parent=self)
+        
+        last_lib = self.config.get("last_selected_library", "")
+        if last_lib in libraries:
+            dlg.cb_lib.setCurrentText(last_lib)
+            
+        if dlg.exec():
+            self.config["last_selected_library"] = dlg.cb_lib.currentText()
+            save_config(self.config)
+            self.execute_library_move(dlg.move_plans)
+            
+    def execute_library_move(self, move_plans):
+        from ui.dialogs import ConflictResolutionDialog
+        import shutil
+        
+        success_count = 0
+        self._internal_action_lock = True
+        
+        for plan in move_plans:
+            src = plan['src']
+            dest = plan['dest']
+            
+            if not os.path.exists(src): continue
+            
+            if os.path.exists(dest) and os.path.normcase(src) != os.path.normcase(dest):
+                # 충돌 시 다이얼로그 호출
+                conflict_dlg = ConflictResolutionDialog(src, dest, self.main_window.i18n[self.main_window.lang], self)
+                res = conflict_dlg.exec()
+                
+                if res == 0: # 스킵
+                    continue
+                elif res == 1: # 덮어쓰기
+                    try: os.remove(dest)
+                    except: pass
+                elif res == 2: # 새 이름
+                    base, ext = os.path.splitext(dest)
+                    counter = 1
+                    while os.path.exists(f"{base}_{counter}{ext}"):
+                        counter += 1
+                    dest = f"{base}_{counter}{ext}"
+                    
+            try:
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                shutil.move(src, dest)
+                success_count += 1
+                
+                # 메모리 캐시 및 DB에서 즉각 제거
+                if src in self.file_data_map:
+                    del self.file_data_map[src]
+                self.file_data_cache = [r for r in self.file_data_cache if r.get("full_path") != src]
+                
+                if hasattr(self, 'dup_matches') and src in self.dup_matches:
+                    del self.dup_matches[src]
+                    
+            except Exception as e:
+                print(f"Library Move Error: {e}")
+                
+        self._internal_action_lock = False
+        
+        if success_count > 0:
+            self.apply_grouping_and_sorting()
+            try:
+                from ui.widgets import Toast
+                Toast.show(self.main_window, f"{success_count}개의 항목을 라이브러리로 이동했습니다.")
+                
+                # 라이브러리(B)가 변동되었으므로 백그라운드 갱신 찔러주기
+                self.start_index_update_task(force_rescan=True)
+            except: pass

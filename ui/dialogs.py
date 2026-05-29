@@ -1244,3 +1244,187 @@ class SettingsDialog(QDialog):
         if hasattr(main_win, 'tab_folder'):
             main_win.tab_folder.start_index_update_task(force_rescan=True)
             Toast.show(self, self.i18n.get("setting_update_index_msg", "인덱스가 갱신되었습니다."))
+
+
+def quick_archive_preview(filepath):
+    import zipfile
+    from PIL import Image
+    import io
+    info = {"size": "0 B", "res": "0x0", "img_bytes": None}
+    try:
+        info["size"] = f"{os.path.getsize(filepath) / 1024:.1f} KB"
+        ext = os.path.splitext(filepath)[1].lower()
+        if ext in ['.zip', '.cbz']:
+            with zipfile.ZipFile(filepath, 'r') as zf:
+                img_files = [f for f in zf.namelist() if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))]
+                if img_files:
+                    img_files.sort()
+                    cover = next((f for f in img_files if 'cover' in f.lower()), img_files[0])
+                    img_bytes = zf.read(cover)
+                    info["img_bytes"] = img_bytes
+                    try:
+                        with Image.open(io.BytesIO(img_bytes)) as img:
+                            info["res"] = f"{img.width} x {img.height}"
+                    except: pass
+    except: pass
+    return info
+
+
+class ConflictResolutionDialog(QDialog):
+    def __init__(self, src_path, dest_path, i18n, parent=None):
+        super().__init__(parent)
+        self.src_path = src_path
+        self.dest_path = dest_path
+        self.i18n = i18n
+        self.setWindowTitle(i18n.get("dlg_conflict_title", "파일 이름 중복"))
+        self.resize(600, 400)
+        self.setStyleSheet("QDialog { background-color: #2b2b2b; color: white; } QLabel { color: white; }")
+        self.setup_ui()
+
+    def setup_ui(self):
+        from PyQt6.QtGui import QPixmap, QImage
+        from PyQt6.QtCore import Qt
+        layout = QVBoxLayout(self)
+        
+        lbl_desc = QLabel(self.i18n.get("lbl_conflict_desc", "이동할 경로에 이미 같은 이름의 파일이 존재합니다."))
+        lbl_desc.setStyleSheet("font-size: 14px; font-weight: bold; color: #E74C3C;")
+        layout.addWidget(lbl_desc)
+        
+        lbl_path = QLabel(f"Target: {self.dest_path}")
+        lbl_path.setStyleSheet("color: #aaaaaa; font-size: 11px;")
+        lbl_path.setWordWrap(True)
+        layout.addWidget(lbl_path)
+        
+        compare_layout = QHBoxLayout()
+        
+        src_info = quick_archive_preview(self.src_path)
+        dest_info = quick_archive_preview(self.dest_path)
+        
+        def create_card(title, info, path):
+            card = QFrame()
+            card.setStyleSheet("background-color: #1e1e1e; border: 1px solid #444; border-radius: 8px;")
+            vbox = QVBoxLayout(card)
+            
+            lbl_t = QLabel(title)
+            lbl_t.setStyleSheet("font-weight: bold; color: #3498DB; border: none;")
+            lbl_t.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            vbox.addWidget(lbl_t)
+            
+            lbl_img = QLabel()
+            lbl_img.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl_img.setFixedSize(200, 280)
+            lbl_img.setStyleSheet("background-color: #1a1a1a; border-radius: 4px;")
+            if info["img_bytes"]:
+                img = QImage.fromData(info["img_bytes"])
+                pix = QPixmap.fromImage(img).scaled(190, 270, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                lbl_img.setPixmap(pix)
+            else:
+                lbl_img.setText("No Image")
+            vbox.addWidget(lbl_img)
+            
+            lbl_stat = QLabel(f"Size: {info['size']} | Res: {info['res']}")
+            lbl_stat.setStyleSheet("font-size: 11px; color: #ccc; border: none;")
+            lbl_stat.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            vbox.addWidget(lbl_stat)
+            return card
+            
+        compare_layout.addWidget(create_card("Source (이동할 파일)", src_info, self.src_path))
+        compare_layout.addWidget(create_card("Destination (기존 파일)", dest_info, self.dest_path))
+        layout.addLayout(compare_layout)
+        
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        
+        btn_over = QPushButton(self.i18n.get("btn_overwrite", "덮어쓰기"))
+        btn_over.setStyleSheet("background-color: #E74C3C; color: white; border-radius: 4px; padding: 6px 15px;")
+        btn_over.clicked.connect(lambda: self.done(1))
+        
+        btn_ren = QPushButton(self.i18n.get("btn_rename_new", "새 이름으로 저장"))
+        btn_ren.setStyleSheet("background-color: #3498DB; color: white; border-radius: 4px; padding: 6px 15px;")
+        btn_ren.clicked.connect(lambda: self.done(2))
+        
+        btn_skip = QPushButton(self.i18n.get("btn_skip", "건너뛰기"))
+        btn_skip.setStyleSheet("background-color: #555; color: white; border-radius: 4px; padding: 6px 15px;")
+        btn_skip.clicked.connect(lambda: self.done(0))
+        
+        btn_layout.addWidget(btn_over)
+        btn_layout.addWidget(btn_ren)
+        btn_layout.addWidget(btn_skip)
+        layout.addLayout(btn_layout)
+
+
+class MoveToLibraryDialog(QDialog):
+    def __init__(self, move_plans, libraries, i18n, is_folder_mode=False, parent=None):
+        super().__init__(parent)
+        self.move_plans = move_plans # [{'src': path, 'base_name': name, 'current_dir_name': dir_name}]
+        self.libraries = libraries
+        self.i18n = i18n
+        self.is_folder_mode = is_folder_mode
+        
+        self.setWindowTitle(i18n.get("dlg_move_lib_title", "라이브러리 폴더로 이동"))
+        self.resize(750, 450)
+        self.setStyleSheet("QDialog { background-color: #2b2b2b; color: white; } QLabel { color: white; }")
+        self.setup_ui()
+        self.update_preview()
+
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+        
+        opt_layout = QHBoxLayout()
+        opt_layout.addWidget(QLabel(self.i18n.get("lbl_select_lib", "이동할 라이브러리 선택:")))
+        
+        self.cb_lib = QComboBox()
+        self.cb_lib.addItems(self.libraries)
+        self.cb_lib.setStyleSheet("QComboBox { background-color: #1e1e1e; border: 1px solid #555; padding: 4px; }")
+        self.cb_lib.currentIndexChanged.connect(self.update_preview)
+        opt_layout.addWidget(self.cb_lib, 1)
+        layout.addLayout(opt_layout)
+        
+        self.chk_folder = QCheckBox(self.i18n.get("chk_create_folder", "현 폴더 이름으로 폴더 생성하고 이동"))
+        self.chk_folder.setChecked(True)
+        self.chk_folder.stateChanged.connect(self.update_preview)
+        if self.is_folder_mode:
+            self.chk_folder.hide()
+        layout.addWidget(self.chk_folder)
+        
+        layout.addWidget(QLabel(self.i18n.get("lbl_preview_move", "이동 경로 미리보기:")))
+        
+        self.table = QTableWidget()
+        self.table.setColumnCount(2)
+        self.table.setHorizontalHeaderLabels(["Source (현재 경로)", "Destination (이동할 경로)"])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.setStyleSheet("QTableWidget { background-color: #1e1e1e; gridline-color: #444; } QHeaderView::section { background-color: #333; }")
+        layout.addWidget(self.table)
+        
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        btn_ok = QPushButton("확인")
+        btn_ok.setStyleSheet("background-color: #3498DB; color: white; border-radius: 4px; padding: 6px 20px;")
+        btn_ok.clicked.connect(self.accept)
+        btn_cancel = QPushButton("취소")
+        btn_cancel.setStyleSheet("background-color: #555; color: white; border-radius: 4px; padding: 6px 20px;")
+        btn_cancel.clicked.connect(self.reject)
+        btn_layout.addWidget(btn_ok)
+        btn_layout.addWidget(btn_cancel)
+        layout.addLayout(btn_layout)
+
+    def update_preview(self):
+        self.table.setRowCount(0)
+        target_lib = self.cb_lib.currentText()
+        create_folder = self.chk_folder.isChecked()
+        
+        for i, plan in enumerate(self.move_plans):
+            self.table.insertRow(i)
+            src = plan['src']
+            if self.is_folder_mode:
+                # 폴더 자체가 통째로 이동
+                dest = os.path.join(target_lib, plan['base_name'])
+            else:
+                if create_folder:
+                    dest = os.path.join(target_lib, plan['current_dir_name'], plan['base_name'])
+                else:
+                    dest = os.path.join(target_lib, plan['base_name'])
+                    
+            self.table.setItem(i, 0, QTableWidgetItem(src))
+            self.table.setItem(i, 1, QTableWidgetItem(dest))
+            plan['dest'] = dest
