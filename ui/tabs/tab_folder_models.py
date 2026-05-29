@@ -344,6 +344,7 @@ class ThumbnailDelegate(QStyledItemDelegate):
         
         if self.view_mode == "thumbnail":
             img_size = int(self.item_size) - 10 
+            fixed_w = int(img_size / 1.414) # 책 커버 표준 비율(1:1.414)로 캔버스 너비 고정
             
             if pixmap.isNull():
                 pw, ph = 100, 141
@@ -351,7 +352,8 @@ class ThumbnailDelegate(QStyledItemDelegate):
                 pw, ph = pixmap.width(), pixmap.height()
                 if pw == 0 or ph == 0: pw, ph = 100, 141
                 
-            ratio = min(img_size / pw, img_size / ph)
+            # 이미지 실제 크기가 아닌 고정 캔버스 영역 안에서만 스케일링 되도록 제한
+            ratio = min(fixed_w / pw, img_size / ph)
             nw, nh = int(pw * ratio), int(ph * ratio)
             
             stack_offset = 5
@@ -405,6 +407,7 @@ class ThumbnailDelegate(QStyledItemDelegate):
             
         elif self.view_mode == "tile":
             img_size = int(self.item_size) - 10
+            fixed_w = int(img_size / 1.414) # 타일 모드에서도 커버 규격 고정
             
             if pixmap.isNull():
                 pw, ph = 100, 141
@@ -412,7 +415,8 @@ class ThumbnailDelegate(QStyledItemDelegate):
                 pw, ph = pixmap.width(), pixmap.height()
                 if pw == 0 or ph == 0: pw, ph = 100, 141
                 
-            ratio = min(img_size / pw, img_size / ph)
+            # 타일 모드에서도 가로가 긴 이미지가 텍스트 영역을 침범하지 않도록 제한
+            ratio = min(fixed_w / pw, img_size / ph)
             nw, nh = int(pw * ratio), int(ph * ratio)
             x = rect.x() + 5
             y = rect.y() + (rect.height() - nh) // 2
@@ -515,9 +519,7 @@ class ThumbnailDelegate(QStyledItemDelegate):
         painter.restore()
 
     def sizeHint(self, option, index):
-        import os
         from PyQt6.QtCore import QSize
-        from PyQt6.QtGui import QImageReader
         
         row_data = index.model()._data[index.row()]
         if row_data.get("is_group") or row_data.get("is_dup_folder") or row_data.get("is_dup_child"):
@@ -525,28 +527,14 @@ class ThumbnailDelegate(QStyledItemDelegate):
             return QSize(width - 20, 35)
 
         if self.view_mode == "thumbnail":
-            pw, ph = row_data.get("thumb_size", (0, 0))
-            if pw == 0 or ph == 0:
-                file_hash = row_data.get("hash", "")
-                if file_hash:
-                    thumb_path = os.path.join(getattr(self, 'thumb_dir', ''), f"{file_hash}.webp")
-                    if os.path.exists(thumb_path):
-                        reader = QImageReader(thumb_path)
-                        sz = reader.size()
-                        if sz.isValid():
-                            pw, ph = sz.width(), sz.height()
-                            row_data["thumb_size"] = (pw, ph) 
-                            
             img_size = int(self.item_size) - 10
             stack_offset = 8 
             
-            if pw > 0 and ph > 0:
-                ratio = min(img_size / pw, img_size / ph)
-                nw = int(pw * ratio)
-                return QSize(nw + stack_offset + 22, int(self.item_size) + 25)
-                
-            fallback_nw = int(img_size / 1.414)
-            return QSize(fallback_nw + stack_offset + 22, int(self.item_size) + 25)
+            # 가로가 긴 이미지 때문에 그리드 레이아웃이 깨지는 것을 방지하기 위해, 
+            # 모든 썸네일 아이템이 일정한 고정 너비(fixed_nw)를 갖도록 강제합니다.
+            # (QImageReader 로 실제 파일 사이즈를 디스크에서 계속 읽어오던 I/O 병목도 제거)
+            fixed_nw = int(img_size / 1.414)
+            return QSize(fixed_nw + stack_offset + 22, int(self.item_size) + 25)
             
         elif self.view_mode == "tile":
             return QSize(int(self.item_size) * 2 + 25, int(self.item_size) + 25)
