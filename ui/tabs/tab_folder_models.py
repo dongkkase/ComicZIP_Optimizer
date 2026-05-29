@@ -442,11 +442,75 @@ class ThumbnailDelegate(QStyledItemDelegate):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRoundedRect(img_rect, 4, 4)
             
-            font = QFont(font_family, 10, QFont.Weight.Bold)
-            painter.setFont(font)
-            text_rect = rect.adjusted(img_size + 15, 10, -5, -5)
-            flags = Qt.AlignmentFlag.AlignLeft.value | Qt.AlignmentFlag.AlignTop.value | Qt.TextFlag.TextWordWrap.value
-            painter.drawText(text_rect, flags, file_name)
+            # --- [타일 모드 UI 렌더링 변경] ---
+            full_meta = row_data.get("full_meta", {})
+            
+            text_x = img_rect.right() + 18
+            text_y = img_rect.top()
+            max_text_width = rect.right() - text_x - 5
+            
+            font_title = QFont(font_family, 11, QFont.Weight.Bold)
+            font_sub = QFont(font_family, 10)
+            font_desc = QFont(font_family, 9)
+            
+            fm_title = QFontMetrics(font_title)
+            fm_sub = QFontMetrics(font_sub)
+            
+            # 1. 파일 이름
+            painter.setFont(font_title)
+            painter.setPen(QColor(255, 255, 255))
+            
+            title_rect = QRect(text_x, text_y, max_text_width, fm_title.height() * 2)
+            flags_title = Qt.AlignmentFlag.AlignLeft.value | Qt.AlignmentFlag.AlignTop.value | Qt.TextFlag.TextWordWrap.value
+            
+            br_title = painter.boundingRect(title_rect, flags_title, file_name)
+            painter.drawText(title_rect, flags_title, file_name)
+            
+            current_y = text_y + min(br_title.height(), fm_title.height() * 2) + 6
+            
+            # 2. 작가·출판사·장르
+            painter.setFont(font_sub)
+            painter.setPen(QColor("#aaaaaa"))
+            
+            writer = row_data.get("writer", "") or full_meta.get("writer", "") or full_meta.get("Writer", "")
+            publisher = row_data.get("publisher", "") or full_meta.get("publisher", "") or full_meta.get("Publisher", "")
+            genre = row_data.get("genre", "") or full_meta.get("genre", "") or full_meta.get("Genre", "")
+            
+            sub1_parts = [str(p) for p in [writer, publisher, genre] if p and str(p).strip() and str(p) != "-"]
+            sub1_text = " · ".join(sub1_parts) if sub1_parts else _("info_no_series")
+                
+            sub1_elided = fm_sub.elidedText(sub1_text, Qt.TextElideMode.ElideRight, max_text_width)
+            painter.drawText(text_x, current_y + fm_sub.ascent(), sub1_elided)
+            current_y += fm_sub.height() + 4
+            
+            # 3. 페이지수·평점
+            page_count = row_data.get("page_count", "") or full_meta.get("page_count", "") or full_meta.get("PageCount", "")
+            rating = row_data.get("rating", "") or full_meta.get("rating", "") or full_meta.get("Rating", "")
+            
+            sub2_parts = []
+            if page_count and str(page_count) != "-": sub2_parts.append(f"{page_count}p")
+            if rating and str(rating) != "-": sub2_parts.append(f"★ {rating}")
+            
+            sub2_text = " · ".join(sub2_parts)
+            if sub2_text:
+                sub2_elided = fm_sub.elidedText(sub2_text, Qt.TextElideMode.ElideRight, max_text_width)
+                painter.drawText(text_x, current_y + fm_sub.ascent(), sub2_elided)
+                current_y += fm_sub.height() + 8
+            else:
+                current_y += 4
+                
+            # 4. 줄거리
+            summary = row_data.get("summary", "") or full_meta.get("summary", "") or full_meta.get("Summary", "")
+            if summary and summary != "-":
+                painter.setFont(font_desc)
+                painter.setPen(QColor("#888888"))
+                desc_rect = QRect(text_x, current_y, max_text_width, rect.bottom() - current_y)
+                flags_desc = Qt.AlignmentFlag.AlignLeft.value | Qt.AlignmentFlag.AlignTop.value | Qt.TextFlag.TextWordWrap.value
+                
+                painter.save()
+                painter.setClipRect(desc_rect)
+                painter.drawText(desc_rect, flags_desc, str(summary))
+                painter.restore()
             
         painter.restore()
 

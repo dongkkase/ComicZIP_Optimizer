@@ -2676,6 +2676,30 @@ class TabFolder(QWidget):
             ly.addWidget(v_lbl, 1)
             self.extra_layout.addWidget(w)
 
+        # [추가] 데이터 렌더링 후 실제 텍스트 길이에 맞춰 스플리터 높이 자동 조절
+        QTimer.singleShot(30, self._adjust_panel_height)
+
+    def _adjust_panel_height(self):
+        if not hasattr(self, 'right_bottom_panel') or not self.right_bottom_panel.isVisible():
+            return
+            
+        # 강제로 레이아웃을 갱신하여 줄바꿈(WordWrap) 및 동적 태그로 인한 정확한 요구 높이 계산
+        self.info_content.layout().activate()
+        content_h = self.info_content.sizeHint().height()
+        
+        cover_h = 310 # 커버 이미지 고정 높이 (최소 보장 높이)
+        ideal_height = max(content_h, cover_h) + 54 # 상하 마진(44) + 여유(10)
+        
+        sizes = self.right_splitter.sizes()
+        total = sum(sizes)
+        
+        if total > 0:
+            # 패널이 커져서 리스트 뷰를 너무 많이 가리지 않도록, 전체 스플리터 높이의 55%로 제한
+            max_h = int(total * 0.55)
+            target_h = min(ideal_height, max_h)
+            
+            self.right_splitter.setSizes([total - target_h, target_h])
+
     def show_tree_context_menu(self, position):
         index = self.tree_view.indexAt(position)
         if not index.isValid(): return
