@@ -7,7 +7,8 @@ import subprocess
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from PyQt6.QtCore import QThread, pyqtSignal, QDir, Qt
-from PyQt6.QtGui import QImage
+import io
+from PIL import Image
 import re
 from datetime import datetime
 from core.library_db import db
@@ -471,82 +472,106 @@ class MemoryExtractThread(QThread):
     def cancel(self):
         self.is_cancelled = True
 
-    def run(self):
-        for task in self.current_tasks:
-            if self.is_cancelled: return
-            
-            filepath, needs_img, needs_meta, thumb_path = task
-            meta_dict = {}
-            img_bytes = b""
-            has_img_out = False
+    def _process_task(self, task):
+        if self.is_cancelled: return None
+        
+        filepath, needs_img, needs_meta, thumb_path = task
+        meta_dict = {}
+        img_bytes = b""
+        has_img_out = False
 
-            if thumb_path and os.path.exists(thumb_path):
-                if os.path.getsize(thumb_path) > 0:
-                    has_img_out = True
+        if thumb_path and os.path.exists(thumb_path):
+            if os.path.getsize(thumb_path) > 0:
+                has_img_out = True
+            else:
+                has_img_out = False
+
+        if needs_meta or needs_img:
+            ext = os.path.splitext(filepath)[1].lower()
+            try:
+                if ext in ['.zip', '.cbz']:
+                    with zipfile.ZipFile(filepath, 'r') as zf:
+                        namelist = zf.namelist()
+                        if needs_meta:
+                            xml_name = next((f for f in namelist if f.lower() == 'comicinfo.xml'), None)
+                            if xml_name:
+                                xml_data = zf.read(xml_name).decode('utf-8', errors='ignore')
+                                meta_dict = self._parse_xml(xml_data)
+                        if needs_img:
+                            img_files = [f for f in namelist if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.bmp'))]
+                            if img_files:
+                                img_files.sort()
+                                img_bytes = zf.read(img_files[0]) 
                 else:
-                    has_img_out = False
-
-            if needs_meta or needs_img:
-                ext = os.path.splitext(filepath)[1].lower()
-                try:
-                    if ext in ['.zip', '.cbz']:
-                        with zipfile.ZipFile(filepath, 'r') as zf:
-                            namelist = zf.namelist()
-                            if needs_meta:
-                                xml_name = next((f for f in namelist if f.lower() == 'comicinfo.xml'), None)
-                                if xml_name:
-                                    xml_data = zf.read(xml_name).decode('utf-8', errors='ignore')
-                                    meta_dict = self._parse_xml(xml_data)
-                            if needs_img:
-                                img_files = [f for f in namelist if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.bmp'))]
-                                if img_files:
-                                    img_files.sort()
-                                    img_bytes = zf.read(img_files[0]) 
-                    else:
-                        cmd_l = [self.seven_zip_path, 'l', '-slt', filepath]
-                        res_l = subprocess.run(cmd_l, capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
-                        lines = res_l.stdout.splitlines()
-                        
-                        has_xml = False
-                        img_candidates = []
-                        for line in lines:
-                            if line.startswith("Path = "):
-                                fname = line.replace("Path = ", "").strip()
-                                if fname.lower() == 'comicinfo.xml':
-                                    has_xml = True
-                                elif needs_img and fname.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.bmp')):
-                                    img_candidates.append(fname)
-                                    
-                        if needs_meta and has_xml:
-                            cmd_x = [self.seven_zip_path, 'e', filepath, 'ComicInfo.xml', '-so']
-                            res_x = subprocess.run(cmd_x, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
-                            if res_x.returncode == 0:
-                                meta_dict = self._parse_xml(res_x.stdout.decode('utf-8', errors='ignore'))
+                    cmd_l = [self.seven_zip_path, 'l', '-slt', filepath]
+                    res_l = subprocess.run(cmd_l, capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
+                    lines = res_l.stdout.splitlines()
+                    
+                    has_xml = False
+                    img_candidates = []
+                    for line in lines:
+                        if line.startswith("Path = "):
+                            fname = line.replace("Path = ", "").strip()
+                            if fname.lower() == 'comicinfo.xml':
+                                has_xml = True
+                            elif needs_img and fname.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.bmp')):
+                                img_candidates.append(fname)
                                 
-                        if needs_img and img_candidates:
-                            img_candidates.sort()
-                            cmd_e = [self.seven_zip_path, 'e', filepath, img_candidates[0], '-so']
-                            res_e = subprocess.run(cmd_e, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
-                            if res_e.returncode == 0:
-                                img_bytes = res_e.stdout 
-                except Exception:
-                    pass
+                    if needs_meta and has_xml:
+                        cmd_x = [self.seven_zip_path, 'e', filepath, 'ComicInfo.xml', '-so']
+                        res_x = subprocess.run(cmd_x, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+                        if res_x.returncode == 0:
+                            meta_dict = self._parse_xml(res_x.stdout.decode('utf-8', errors='ignore'))
+                            
+                    if needs_img and img_candidates:
+                        img_candidates.sort()
+                        cmd_e = [self.seven_zip_path, 'e', filepath, img_candidates[0], '-so']
+                        res_e = subprocess.run(cmd_e, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+                        if res_e.returncode == 0:
+                            img_bytes = res_e.stdout 
+            except Exception:
+                pass
 
-            if img_bytes:
-                qimg = QImage()
-                qimg.loadFromData(img_bytes)
-                if not qimg.isNull():
-                    meta_dict["resolution"] = f"{qimg.width()} x {qimg.height()}"
+        if img_bytes:
+            try:
+                with Image.open(io.BytesIO(img_bytes)) as img:
+                    meta_dict["resolution"] = f"{img.width} x {img.height}"
                     if not has_img_out:
-                        qimg = qimg.scaled(400, 400, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                        img.thumbnail((400, 400), Image.Resampling.LANCZOS)
+                        if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
+                            alpha = img.convert('RGBA')
+                            bg = Image.new('RGBA', alpha.size, (255, 255, 255, 255))
+                            out_img = Image.alpha_composite(bg, alpha).convert('RGB')
+                        else:
+                            out_img = img.convert('RGB') if img.mode not in ('RGB', 'L') else img
+                            
                         if thumb_path:
-                            qimg.save(thumb_path, "WEBP", 85)
+                            out_img.save(thumb_path, "WEBP", quality=85)
                         has_img_out = True
+            except Exception as e:
+                print(f"Thumbnail extraction error: {e}")
+                    
+        return filepath, meta_dict, has_img_out
 
-            self.data_extracted.emit(filepath, meta_dict, has_img_out)
+    def run(self):
+        import concurrent.futures
+        max_workers = max(1, os.cpu_count() // 2)
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(self._process_task, task) for task in self.current_tasks]
             
-            if self.show_progress:
-                self.progress_updated.emit(1)
+            for future in concurrent.futures.as_completed(futures):
+                if self.is_cancelled:
+                    break
+                try:
+                    res = future.result()
+                    if res:
+                        filepath, meta_dict, has_img_out = res
+                        self.data_extracted.emit(filepath, meta_dict, has_img_out)
+                        if self.show_progress:
+                            self.progress_updated.emit(1)
+                except Exception as e:
+                    print(f"MemoryExtractThread error: {e}")
             
     def _parse_xml(self, xml_data):
         meta = {}
@@ -609,6 +634,12 @@ class FolderScanThread(QThread):
 
         from core.library_db import db
         cache_dict = db.get_all_files_in_path(self.folder_path, self.include_sub)
+
+        # [최적화] 썸네일 폴더 내 파일 목록을 미리 메모리(Set)에 로드하여 수만 번의 Disk I/O 병목 방지
+        try:
+            existing_thumbs = set(os.listdir(self.thumb_dir))
+        except Exception:
+            existing_thumbs = set()
 
         file_data_cache = []
         total_size = 0
@@ -682,8 +713,9 @@ class FolderScanThread(QThread):
                                         }
 
                                 file_hash = hashlib.md5(f"{full_path}_{mtime}".encode()).hexdigest()
-                                thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.webp")
-                                has_thumb = os.path.exists(thumb_path)
+                                thumb_filename = f"{file_hash}.webp"
+                                thumb_path = os.path.join(self.thumb_dir, thumb_filename)
+                                has_thumb = thumb_filename in existing_thumbs
                                 
                                 if res == "0x0":
                                     has_thumb = True

@@ -20,7 +20,16 @@ class LibraryDB:
 
     def get_connection(self):
         is_new = not os.path.exists(self.db_path)
-        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=20.0)
+        
+        # --- [최적화] SQLite PRAGMA 튜닝 ---
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
+        conn.execute("PRAGMA cache_size = -64000") # 64MB 캐시
+        conn.execute("PRAGMA temp_store = MEMORY")
+        conn.execute("PRAGMA mmap_size = 30000000000")
+        # ------------------------------------
+        
         if is_new:
             self._create_tables(conn)
         return conn
@@ -83,11 +92,23 @@ class LibraryDB:
                 size REAL
             )
         ''')
+            
+        # --- [최적화] 인덱스(Index) 생성 ---
+        # 주로 검색(WHERE, LIKE)이나 정렬에 사용되는 컬럼들에 인덱스 추가
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_files_series ON files(series)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_files_title ON files(title)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_files_writer ON files(writer)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_dup_target_folder ON dup_target_index(target_folder)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_dup_target_name ON dup_target_index(name)')
+        # -----------------------------------
+            
         conn.commit()
 
     def init_db(self):
         with self.lock:
-            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=20.0)
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.execute("PRAGMA synchronous = NORMAL")
             self._create_tables(conn)
             conn.close()
 
@@ -109,6 +130,23 @@ class LibraryDB:
                       tags, notes, web, thumb_path))
                 conn.commit()
             except Exception as e: print(e)
+            finally: 
+                if 'conn' in locals(): conn.close()
+
+    def upsert_file_info_bulk(self, records):
+        if not records: return
+        with self.lock:
+            try:
+                conn = self.get_connection()
+                conn.execute("PRAGMA synchronous = NORMAL") 
+                cursor = conn.cursor()
+                cursor.executemany('''
+                    INSERT OR REPLACE INTO files 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', records)
+                conn.commit()
+            except Exception as e: 
+                print(f"DB Bulk Upsert Error: {e}")
             finally: 
                 if 'conn' in locals(): conn.close()
 

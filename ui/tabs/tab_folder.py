@@ -1101,13 +1101,16 @@ class TabFolder(QWidget):
         self.extract_thread = MemoryExtractThread(tasks, seven_zip_path)
         self.extract_thread.show_progress = (real_heavy_tasks_count > 0)
         
+        if not hasattr(self, '_pending_db_records'):
+            self._pending_db_records = []
+            
         if self.extract_thread.show_progress:
             self.dim_overlay.text = _("folder_optimizing").format(self.sync_completed_tasks, self.sync_total_tasks)
             self.dim_overlay.show()
             
         self.extract_thread.data_extracted.connect(self.on_metadata_extracted)
         self.extract_thread.progress_updated.connect(self.on_extract_progress)
-        self.extract_thread.finished.connect(lambda: self.scroll_timer.start(10))
+        self.extract_thread.finished.connect(self.on_extract_finished)
         self.extract_thread.start()
 
     def on_extract_progress(self, count):
@@ -1196,8 +1199,12 @@ class TabFolder(QWidget):
         self.dim_overlay.text = _("folder_optimizing").format(self.sync_completed_tasks, self.sync_total_tasks)
         self.dim_overlay.show()
         
+        if not hasattr(self, '_pending_db_records'):
+            self._pending_db_records = []
+            
         self.extract_thread.data_extracted.connect(self.on_metadata_extracted)
         self.extract_thread.progress_updated.connect(self.on_extract_progress)
+        self.extract_thread.finished.connect(self.on_extract_finished)
         self.extract_thread.start()
 
     def export_csv(self):
@@ -2410,7 +2417,7 @@ class TabFolder(QWidget):
                 publish_date_str = f"{y}-{m}-{d}".strip('-')
                 if publish_date_str == "--": publish_date_str = ""
                 
-                db.upsert_file_info(
+                record = (
                     filepath, row.get("raw_mtime", 0), row.get("raw_size", 0), row.get("ext", ""),
                     row.get("res", ""), row["full_meta"].get("title", ""), row["full_meta"].get("series", ""),
                     row["full_meta"].get("series_group", ""), row["full_meta"].get("volume", ""), row["full_meta"].get("number", ""),
@@ -2421,6 +2428,7 @@ class TabFolder(QWidget):
                     row["full_meta"].get("characters", ""), row["full_meta"].get("teams", ""), row["full_meta"].get("locations", ""), 
                     row["full_meta"].get("story_arc", ""), row["full_meta"].get("tags", ""), row["full_meta"].get("notes", ""), row["full_meta"].get("web", ""), ""
                 )
+                self._pending_db_records.append(record)
             except Exception as e: print(f"DB Upsert Error: {e}")
 
         disp_idx = row.get("display_index")
@@ -2432,10 +2440,20 @@ class TabFolder(QWidget):
         if self.current_selected_path == filepath:
             self.update_info_panel(filepath, row.get("full_meta", {}))
 
-        # 필터가 켜져 있을 때 백그라운드 스캔으로 메타가 채워지면 리스트에서 즉시 숨기도록 디바운스 타이머 호출
+    def on_extract_finished(self):
+        if hasattr(self, '_pending_db_records') and self._pending_db_records:
+            try:
+                db.upsert_file_info_bulk(self._pending_db_records)
+            except Exception as e:
+                print(f"Bulk DB Save Error: {e}")
+            finally:
+                self._pending_db_records.clear()
+                
         if hasattr(self, 'action_filter_no_meta') and self.action_filter_no_meta.isChecked():
             if not self.grouping_timer.isActive():
                 self.grouping_timer.start(500)
+                
+        self.scroll_timer.start(10)
 
     def on_tree_selection_changed(self):
         self.refresh_list()
