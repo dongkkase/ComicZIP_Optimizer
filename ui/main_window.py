@@ -526,7 +526,11 @@ class RenamerApp(QMainWindow):
             new_font = new_data.get("font_family", "Default")
             new_scale = new_data.get("font_scale", 100)
             
-            dup_folders_changed = new_data.get("dup_check_folders", []) != self.config.get("dup_check_folders", [])
+            old_dup_folders = set(self.config.get("dup_check_folders", []))
+            new_dup_folders = set(new_data.get("dup_check_folders", []))
+            added_dup_folders = list(new_dup_folders - old_dup_folders)
+            dup_folders_changed = new_dup_folders != old_dup_folders
+            
             format_changed = new_data.get("target_format") != self.config.get("target_format")
             webp_conv_changed = new_data.get("webp_conversion") != self.config.get("webp_conversion")
             webp_qual_changed = new_data.get("img_quality") != self.config.get("img_quality")
@@ -567,7 +571,11 @@ class RenamerApp(QMainWindow):
 
             # 폴더가 변경되었으면 재인덱싱 트리거
             if dup_folders_changed:
-                self.tab_folder.start_dup_scan()
+                self.tabs.setCurrentIndex(0)
+                if hasattr(self.tab_folder, 'handle_new_library_folders'):
+                    self.tab_folder.handle_new_library_folders(added_dup_folders)
+                else:
+                    self.tab_folder.start_dup_scan()
 
             if hasattr(self.tab2, 'update_inner_preview_list'):
                 self.tab2.update_inner_preview_list()
@@ -929,16 +937,4 @@ class RenamerApp(QMainWindow):
                     self.active_task.cancel()
                 if is_tab3_running and hasattr(self.tab3.save_worker, 'cancel'):
                     self.tab3.save_worker.cancel()
-                    self.tab3.save_worker.wait(1000) # 스레드가 안전하게 파일 핸들을 놓을 수 있도록 최대 1초 대기
-
-        self.config["width"] = self.normalGeometry().width()
-        self.config["height"] = self.normalGeometry().height()
-        self.config["is_maximized"] = self.isMaximized()
-        self.config["last_tab_index"] = self.tabs.currentIndex()
-        save_config(self.config)
-        
-        # 프로그램 종료 시 활성화된 공유 서버 안전하게 중지
-        if hasattr(self, 'tab_sharing') and hasattr(self.tab_sharing, 'server_manager'):
-            self.tab_sharing.server_manager.stop_all()
-            
-        event.accept()
+                    self.tab3.save_w

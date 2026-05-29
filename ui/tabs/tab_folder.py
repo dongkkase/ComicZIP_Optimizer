@@ -289,6 +289,15 @@ class TabFolder(QWidget):
             return False
             
         return super().eventFilter(obj, event)
+        
+    def handle_new_library_folders(self, added_folders):
+        self.dim_overlay.text = _("dup_scan_start")
+        self.dim_overlay.show()
+        
+        if added_folders:
+            self._pending_optimize_folders = added_folders
+            
+        self.start_dup_scan()
     
     # --- [추가됨] 백그라운드 스레드 제어 메서드 ---
     def start_dup_scan(self):
@@ -337,19 +346,30 @@ class TabFolder(QWidget):
         except:
             pass
 
-        if self.file_data_cache:
-            self.start_dup_match()
+        if hasattr(self, '_pending_optimize_folders') and self._pending_optimize_folders:
+            target_path = self._pending_optimize_folders[0]
+            self._pending_optimize_folders = []
+            self._pending_optimize_all = True
+            
+            self.btn_subfolders.blockSignals(True)
+            self.btn_subfolders.setChecked(True)
+            self.btn_subfolders.setText(_("folder_inc_sub_on"))
+            self.btn_subfolders.blockSignals(False)
         else:
-            # [추가] 매칭할 파일 데이터가 없어서 진행되지 않는 경우 오버레이 해제
+            target_path = getattr(self, 'current_watched_folder', None)
+            if not target_path:
+                target_path = self.config.get("folder_last_path", "")
+
+        if self.file_data_cache and not getattr(self, '_pending_optimize_all', False):
+            self.start_dup_match()
+        elif not getattr(self, '_pending_optimize_all', False):
             self.dim_overlay.hide()
 
-        # [추가] 인덱싱(중복 스캔) 작업 완료 시 탐색기 패널의 선택된 폴더로 스크롤 포커싱
-        target_path = getattr(self, 'current_watched_folder', None)
-        if not target_path:
-            target_path = self.config.get("folder_last_path", "")
-            
         if target_path and os.path.exists(target_path):
-            self._start_queued_scroll(target_path)
+            if getattr(self, '_pending_optimize_all', False) and target_path == getattr(self, 'current_watched_folder', None):
+                self.refresh_list(force_update=True)
+            else:
+                self._start_queued_scroll(target_path)
 
     # 중복 검사 토글 이벤트 처리
     def on_dup_check_toggled(self, checked):
@@ -1230,6 +1250,71 @@ class TabFolder(QWidget):
         self.apply_grouping_and_sorting()
         
         seven_zip_path = get_resource_path('7za.exe')
+        self.extract_thread = MemoryExtractThread(tasks, seven_zip_path)
+        self.extract_thread.show_progress = True
+        
+        self.dim_overlay.text = _("folder_optimizing").format(self.sync_completed_tasks, self.sync_total_tasks)
+        self.dim_overlay.show()
+        
+        if not hasattr(self, '_pending_db_records'):
+            self._pending_db_records = []
+            
+        self.extract_thread.data_extracted.connect(self.on_metadata_extracted)
+        self.extract_thread.progress_updated.connect(self.on_extract_progress)
+        self.extract_thread.finished.connect(self.on_extract_finished)
+        self.extract_thread.start()
+
+    def force_update_all_files(self):
+        if not getattr(self, 'file_data_cache', []):
+            self.dim_overlay.hide()
+            self.start_dup_match()
+            return
+            
+        target_exts = ('.zip', '.cbz', '.cbr', '.rar', '.7z')
+        tasks = []
+        
+        for row in self.file_data_cache:
+            if row.get("is_folder") or row.get("is_dup_folder") or row.get("is_dup_child"): continue
+            fp = row.get("full_path", "")
+            if fp.lower().endswith(target_exts):
+                file_hash = row.get("hash", "")
+                thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.webp") if file_hash else ""
+                
+                if file_hash:
+                    if os.path.exists(thumb_path):
+                        try: os.remove(thumb_path)
+                        except: pass
+                    from PyQt6.QtGui import QPixmapCache
+                    QPixmapCache.remove(file_hash)
+                
+                row["meta_processed"] = False
+                row["thumb_processed"] = False
+                row["res"] = ""
+                row["full_meta"] = {}
+                
+                tasks.append((fp, True, True, thumb_path))
+                
+        if not tasks: 
+            self.dim_overlay.hide()
+            self.start_dup_match()
+            return
+
+        if self.extract_thread and self.extract_thread.isRunning():
+            self.extract_thread.cancel()
+            self.extract_thread.wait()
+            self.extract_thread = None
+            
+        self.scroll_timer.stop()
+        self.is_force_syncing = True 
+        self.is_syncing = False 
+
+        self.sync_total_tasks = len(tasks)
+        self.sync_completed_tasks = 0
+        
+        self.apply_grouping_and_sorting()
+        
+        seven_zip_path = get_resource_path('7za.exe')
+        from .tab_folder_threads import MemoryExtractThread
         self.extract_thread = MemoryExtractThread(tasks, seven_zip_path)
         self.extract_thread.show_progress = True
         
@@ -2176,8 +2261,12 @@ class TabFolder(QWidget):
             self.main_window.lbl_status.setText(_("status_wait"))
             
         self._pending_auto_select = True
-        self.scroll_timer.start(100)
-        self.start_dup_match()
+        if getattr(self, '_pending_optimize_all', False):
+            self._pending_optimize_all = False
+            self.force_update_all_files()
+        else:
+            self.scroll_timer.start(100)
+            self.start_dup_match()
 
     def refresh_tree(self):
         idx = self.tree_view.currentIndex()
@@ -2347,6 +2436,9 @@ class TabFolder(QWidget):
                 self.grouping_timer.start(500)
                 
         self.scroll_timer.start(10)
+        
+        if not getattr(self, 'is_force_syncing', False) and not getattr(self, 'is_syncing', False):
+            self.start_dup_match()
 
     def on_tree_selection_changed(self):
         self.refresh_list()
