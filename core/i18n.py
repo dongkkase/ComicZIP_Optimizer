@@ -43,6 +43,10 @@ def get_i18n():
             "tab_folders":"폴더",
             "tab1": "압축 파일 구조 정리(평탄화)", "tab2": "내부 파일명 변경", 
             "tab3": "메타데이터 관리", "tab_releases": "업데이트 및 릴리즈 노트",
+            
+            "nav_library": "라이브러리",
+            "nav_favorites": "즐겨찾기",
+            "nav_quick": "빠른 이동",
             "tab_sharing": "공유 서버",
             "tab_sharing_opds_title": "OPDS 공유 서버 (Panels, ComicGlass 지원)",
             "tab_sharing_api_title": "REST API 서버 (YACReader, Web 지원)",
@@ -411,6 +415,10 @@ def get_i18n():
             "tab_folders":"Folders",
             "tab1": "Archive Organizer", "tab2": "Inner Renamer", 
             "tab3": "Metadata Management", "tab_releases": "Updates & Release Notes",
+            
+            "nav_library": "Library",
+            "nav_favorites": "Favorites",
+            "nav_quick": "Quick Access",
             "tab_sharing": "Sharing",
             "tab_sharing_opds_title": "OPDS Sharing Server (Panels, ComicGlass)",
             "tab_sharing_api_title": "REST API Server (YACReader, Web)",
@@ -775,6 +783,10 @@ def get_i18n():
             "tab_folders":"フォルダ",
             "tab1": "アーカイブ構成整理 (フラット化)", "tab2": "内部ファイル名変更", 
             "tab3": "メタデータ管理", "tab_releases": "アップデート & リリースノート",
+            
+            "nav_library": "ライブラリ",
+            "nav_favorites": "お気に入り",
+            "nav_quick": "クイックアクセス",
             "tab_sharing": "共有サーバー",
             "tab_sharing_opds_title": "OPDS 共有サーバー (Panels, ComicGlass 対応)",
             "tab_sharing_api_title": "REST API サーバー (YACReader, Web 対応)",

@@ -573,15 +573,64 @@ class TabFolder(QWidget):
         row2_layout.addWidget(self.btn_refresh_tree)
         left_layout.addLayout(row2_layout)
 
-        self.combo_quick_access = QComboBox()
-        self.combo_quick_access.setStyleSheet("""
-            QComboBox { background-color: #3a3a3a; color: white; border: 1px solid #555; border-radius: 4px; padding: 4px; margin-bottom: 5px; }
-            QComboBox::drop-down { border: none; }
-        """) 
-        self.combo_quick_access.setCursor(Qt.CursorShape.PointingHandCursor)
+        # 탐색기 패널 네비게이션 리스트 UI 구성
+        header_lbl_style = f"color: #aaaaaa; font-size: {self.config.get('s12', 12)}px; font-weight: bold; margin-top: 10px; margin-bottom: 2px;"
+        list_style = """
+            QListWidget { background-color: transparent; border: none; outline: none; color: #e0e0e0; }
+            QListWidget::item { padding: 6px 10px; border-radius: 6px; margin: 1px 0px; }
+            QListWidget::item:hover { background-color: rgba(255, 255, 255, 0.08); color: #ffffff; }
+            QListWidget::item:selected { background-color: rgba(52, 152, 219, 0.8); color: #ffffff; font-weight: bold; }
+        """
+
+        # --- 라이브러리 ---
+        lib_header_layout = QHBoxLayout()
+        lib_header_layout.setContentsMargins(5, 0, 5, 0)
+        self.lbl_lib = QLabel(f"📚 {_('nav_library')}")
+        self.lbl_lib.setStyleSheet(header_lbl_style)
+        self.btn_add_lib = QPushButton("+")
+        self.btn_add_lib.setFixedSize(20, 20)
+        self.btn_add_lib.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_add_lib.setStyleSheet("background-color: transparent; color: #aaaaaa; font-weight: bold; border: none; font-size: 16px;")
+        self.btn_add_lib.clicked.connect(self.open_library_settings)
+        lib_header_layout.addWidget(self.lbl_lib)
+        lib_header_layout.addStretch()
+        lib_header_layout.addWidget(self.btn_add_lib)
+        left_layout.addLayout(lib_header_layout)
+
+        self.list_libraries = QListWidget()
+        self.list_libraries.setStyleSheet(list_style)
+        self.list_libraries.itemClicked.connect(self.on_nav_item_clicked)
+        left_layout.addWidget(self.list_libraries)
+
+        # --- 즐겨찾기 ---
+        self.lbl_fav = QLabel(f"📌 {_('nav_favorites')}")
+        self.lbl_fav.setStyleSheet(header_lbl_style)
+        self.lbl_fav.setContentsMargins(5, 0, 5, 0)
+        left_layout.addWidget(self.lbl_fav)
+
+        self.list_favorites = QListWidget()
+        self.list_favorites.setStyleSheet(list_style)
+        self.list_favorites.itemClicked.connect(self.on_nav_item_clicked)
+        left_layout.addWidget(self.list_favorites)
+
+        # --- 빠른이동 ---
+        self.lbl_quick = QLabel(f"⚡ {_('nav_quick')}")
+        self.lbl_quick.setStyleSheet(header_lbl_style)
+        self.lbl_quick.setContentsMargins(5, 0, 5, 0)
+        left_layout.addWidget(self.lbl_quick)
+
+        self.list_quick_access = QListWidget()
+        self.list_quick_access.setStyleSheet(list_style)
+        self.list_quick_access.itemClicked.connect(self.on_nav_item_clicked)
+        left_layout.addWidget(self.list_quick_access)
+
+        # --- 폴더 ---
+        self.lbl_folder = QLabel(f"📁 {_('tab_folders')}")
+        self.lbl_folder.setStyleSheet(header_lbl_style)
+        self.lbl_folder.setContentsMargins(5, 0, 5, 0)
+        left_layout.addWidget(self.lbl_folder)
+
         self.populate_quick_access()
-        
-        left_layout.addWidget(self.combo_quick_access)
 
         self.dir_model = QFileSystemModel()
         self.dir_model.setFilter(QDir.Filter.NoDotAndDotDot | QDir.Filter.AllDirs)
@@ -1054,7 +1103,6 @@ class TabFolder(QWidget):
         self.list_view.selectionModel().selectionChanged.connect(self.on_file_selection_changed)
         self.table_view.horizontalHeader().sectionMoved.connect(self.save_current_layout_state)
         self.table_view.horizontalHeader().sectionClicked.connect(self.on_header_clicked)
-        self.combo_quick_access.currentIndexChanged.connect(self.on_quick_access_changed)
 
         self.table_view.horizontalHeader().sectionClicked.connect(
             lambda: self.table_model.headerDataChanged.emit(Qt.Orientation.Horizontal, 0, len(self.table_model.active_columns) - 1)
@@ -1374,38 +1422,74 @@ class TabFolder(QWidget):
             self.refresh_list(force_update=False)
 
     def populate_quick_access(self):
-        self.combo_quick_access.blockSignals(True)
-        self.combo_quick_access.clear()
-        self.combo_quick_access.addItem(_("folder_quick_access"), "")
+        if not hasattr(self, 'list_quick_access'): return
+        
+        self.list_quick_access.blockSignals(True)
+        self.list_libraries.blockSignals(True)
+        self.list_favorites.blockSignals(True)
+
+        self.list_quick_access.clear()
+        self.list_libraries.clear()
+        self.list_favorites.clear()
+
+        # 1. 빠른 이동
         paths = [
-            (_("folder_desktop"), QStandardPaths.StandardLocation.DesktopLocation),
-            (_("folder_docs"), QStandardPaths.StandardLocation.DocumentsLocation),
-            (_("folder_downloads"), QStandardPaths.StandardLocation.DownloadLocation),
-            (_("folder_home"), QStandardPaths.StandardLocation.HomeLocation),
+            (_("folder_desktop").replace("⭐ ", ""), QStandardPaths.StandardLocation.DesktopLocation),
+            (_("folder_docs").replace("⭐ ", ""), QStandardPaths.StandardLocation.DocumentsLocation),
+            (_("folder_downloads").replace("⭐ ", ""), QStandardPaths.StandardLocation.DownloadLocation),
+            (_("folder_home").replace("⭐ ", ""), QStandardPaths.StandardLocation.HomeLocation),
         ]
         for name, loc in paths:
             path = QStandardPaths.writableLocation(loc)
-            if path: self.combo_quick_access.addItem(name, path)
+            if path: 
+                item = QListWidgetItem(name)
+                item.setData(Qt.ItemDataRole.UserRole, path)
+                self.list_quick_access.addItem(item)
+        self._adjust_list_height(self.list_quick_access)
 
+        # 2. 라이브러리
         lib_folders = self.config.get("dup_check_folders", [])
-        self.combo_quick_access.insertSeparator(self.combo_quick_access.count())
-        self.combo_quick_access.addItem(f"⚙️ {_('grp_dup_folders_title')}", "ACTION_OPEN_LIB_SETTINGS")
-
         if lib_folders:
             for folder in lib_folders:
                 folder_name = os.path.basename(folder)
                 if not folder_name: folder_name = folder
-                self.combo_quick_access.addItem(f"📚 {folder_name}", folder)
+                item = QListWidgetItem(folder_name)
+                item.setData(Qt.ItemDataRole.UserRole, folder)
+                item.setToolTip(folder)
+                self.list_libraries.addItem(item)
+        self._adjust_list_height(self.list_libraries)
+        self.lbl_lib.setVisible(True)
 
+        # 3. 즐겨찾기
         custom_favs = self.config.get("folder_favorites", [])
         if custom_favs:
-            self.combo_quick_access.insertSeparator(self.combo_quick_access.count())
             for fav in custom_favs:
                 fav_name = fav.get("name", os.path.basename(fav["path"]))
                 if not fav_name: fav_name = fav["path"]
-                self.combo_quick_access.addItem(f"📌 {fav_name}", fav["path"])
+                item = QListWidgetItem(fav_name)
+                item.setData(Qt.ItemDataRole.UserRole, fav["path"])
+                item.setToolTip(fav["path"])
+                self.list_favorites.addItem(item)
+        self._adjust_list_height(self.list_favorites)
+        self.lbl_fav.setVisible(bool(custom_favs))
 
-        self.combo_quick_access.blockSignals(False)
+        self.list_quick_access.blockSignals(False)
+        self.list_libraries.blockSignals(False)
+        self.list_favorites.blockSignals(False)
+        
+    def _adjust_list_height(self, list_widget):
+        count = list_widget.count()
+        if count == 0:
+            list_widget.hide()
+        else:
+            list_widget.show()
+            item_height = 30
+            max_h = min(count * item_height + 4, 180) # 5~6개가 넘어가면 자동으로 내부 스크롤 생성
+            list_widget.setFixedHeight(max_h)
+            if count * item_height + 4 > 180:
+                list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            else:
+                list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
     def add_to_favorites(self, path):
         custom_favs = self.config.get("folder_favorites", [])
@@ -1424,25 +1508,26 @@ class TabFolder(QWidget):
         save_config(self.config)
         self.populate_quick_access()
 
-    def on_quick_access_changed(self, index):
-        path = self.combo_quick_access.itemData(index)
-        
-        if path == "ACTION_OPEN_LIB_SETTINGS":
-            self.combo_quick_access.blockSignals(True)
-            self.combo_quick_access.setCurrentIndex(0)
-            self.combo_quick_access.blockSignals(False)
+    def open_library_settings(self):
+        from PyQt6.QtWidgets import QApplication
+        from ui.dialogs import SettingsDialog
+        def switch_tab():
+            for widget in QApplication.topLevelWidgets():
+                if isinstance(widget, SettingsDialog):
+                    widget.tabs.setCurrentIndex(1)
+                    break
+        QTimer.singleShot(0, switch_tab)
+        if hasattr(self.main_window, 'open_settings'):
+            self.main_window.open_settings()
             
-            from PyQt6.QtWidgets import QApplication
-            from ui.dialogs import SettingsDialog
-            def switch_tab():
-                for widget in QApplication.topLevelWidgets():
-                    if isinstance(widget, SettingsDialog):
-                        widget.tabs.setCurrentIndex(1)
-                        break
-            QTimer.singleShot(0, switch_tab)
-            if hasattr(self.main_window, 'open_settings'):
-                self.main_window.open_settings()
-            return
+    def on_nav_item_clicked(self, item):
+        path = item.data(Qt.ItemDataRole.UserRole)
+        
+        sender = self.sender()
+        if sender != self.list_libraries: self.list_libraries.clearSelection()
+        if sender != self.list_favorites: self.list_favorites.clearSelection()
+        if sender != self.list_quick_access: self.list_quick_access.clearSelection()
+        self.tree_view.clearSelection()
 
         if path and os.path.exists(path):
             idx = self.dir_model.index(path)
