@@ -27,6 +27,7 @@ from ui.tabs.tab1_organizer import Tab1Organizer
 from ui.tabs.tab2_renamer import Tab2Renamer
 from ui.tabs.tab3_metadata import Tab3Metadata
 from ui.tabs.tab_folder import TabFolder
+from ui.tabs.tab_sharing import TabSharing
 
 from core.i18n import get_i18n
 
@@ -265,12 +266,14 @@ class RenamerApp(QMainWindow):
         self.tab1 = Tab1Organizer(self)
         self.tab2 = Tab2Renamer(self)
         self.tab3 = Tab3Metadata(self)
+        self.tab_sharing = TabSharing(self)
         self.tab_releases = QWidget()
         
         self.tabs.addTab(self.tab_folder, "폴더")
         self.tabs.addTab(self.tab1, "")
         self.tabs.addTab(self.tab2, "")
         self.tabs.addTab(self.tab3, "")
+        self.tabs.addTab(self.tab_sharing, "공유 서버")
         self.tabs.addTab(self.tab_releases, "")
         self.tabs.currentChanged.connect(self.on_tab_changed)
         main_layout.addWidget(self.tabs, 1)
@@ -306,6 +309,11 @@ class RenamerApp(QMainWindow):
         status_layout = QHBoxLayout()
         status_layout.setContentsMargins(0, 0, 0, 0)
         status_layout.setSpacing(10)  # 텍스트와 프로그레스 바 사이의 간격 지정
+        
+        self.lbl_server_status = QLabel()
+        self.lbl_server_status.hide()
+        status_layout.addWidget(self.lbl_server_status, alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        
         status_layout.addWidget(self.lbl_status, alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         status_layout.addWidget(self.progress_bar, alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         status_layout.addStretch()  # 남는 공간을 채워 요소들을 왼쪽으로 밀착시킴
@@ -412,6 +420,20 @@ class RenamerApp(QMainWindow):
         if hasattr(self.tab2, 'update_icons'): self.tab2.update_icons(True)
         if hasattr(self.tab3, 'update_icons'): self.tab3.update_icons(True)
 
+    def update_server_status_icon(self):
+        if not hasattr(self, 'tab_sharing') or not hasattr(self, 'lbl_server_status'): return
+        
+        active_servers = list(self.tab_sharing.server_manager.servers.keys())
+        
+        if active_servers:
+            self.lbl_server_status.setPixmap(qta.icon('fa5s.broadcast-tower', color='#2ECC71').pixmap(14, 14))
+            tooltips = ", ".join(active_servers)
+            tooltip_txt = f"{tooltips} 서버 구동 중" if self.lang == "ko" else (f"{tooltips} サーバー稼働中" if self.lang == "ja" else f"{tooltips} Server Running")
+            self.lbl_server_status.setToolTip(tooltip_txt)
+            self.lbl_server_status.show()
+        else:
+            self.lbl_server_status.hide()
+
     def apply_language(self):
         t = self.i18n[self.lang]
         self.setWindowTitle(t["title"])
@@ -419,7 +441,8 @@ class RenamerApp(QMainWindow):
         self.tabs.setTabText(1, t["tab1"])
         self.tabs.setTabText(2, t["tab2"])
         self.tabs.setTabText(3, t["tab3"])
-        self.tabs.setTabText(4, t["tab_releases"])
+        self.tabs.setTabText(4, t.get("tab_sharing", "공유 서버" if self.lang == "ko" else ("Sharing" if self.lang == "en" else "共有サーバー")))
+        self.tabs.setTabText(5, t["tab_releases"])
         
         self.btn_add_folder.setText(f" {t['add_folder']}")
         self.btn_add_file.setText(f" {t['add_file']}")
@@ -434,6 +457,7 @@ class RenamerApp(QMainWindow):
         if hasattr(self.tab1, 'retranslate_ui'): self.tab1.retranslate_ui(t, self.lang)
         if hasattr(self.tab2, 'retranslate_ui'): self.tab2.retranslate_ui(t, self.lang)
         if hasattr(self.tab3, 'retranslate_ui'): self.tab3.retranslate_ui(t, self.lang)
+        if hasattr(self.tab_sharing, 'retranslate_ui'): self.tab_sharing.retranslate_ui(t, self.lang)
         
         if self.btn_run.objectName() == "actionBtn": self.btn_run.setText(f" {t['run_btn']}")
         else: self.btn_run.setText(f" {t['cancel_btn']}")
@@ -441,6 +465,7 @@ class RenamerApp(QMainWindow):
         if not self.lbl_status.text() or self.lbl_status.text() in [self.i18n["ko"]["status_wait"], self.i18n["en"]["status_wait"], self.i18n["ja"]["status_wait"]]:
             self.lbl_status.setText(t["status_wait"])
             
+        self.update_server_status_icon()
         self.update_version_button_ui()
 
     def on_tab_changed(self, index):
@@ -898,10 +923,22 @@ class RenamerApp(QMainWindow):
             if reply == QMessageBox.StandardButton.No:
                 event.ignore()
                 return
+            else:
+                # 사용자가 강제 종료를 선택했을 때 실행 중인 스레드에 중단(Cancel) 신호를 보내 안전하게 닫기
+                if hasattr(self, 'active_task') and self.active_task and hasattr(self.active_task, 'cancel'):
+                    self.active_task.cancel()
+                if is_tab3_running and hasattr(self.tab3.save_worker, 'cancel'):
+                    self.tab3.save_worker.cancel()
+                    self.tab3.save_worker.wait(1000) # 스레드가 안전하게 파일 핸들을 놓을 수 있도록 최대 1초 대기
 
         self.config["width"] = self.normalGeometry().width()
         self.config["height"] = self.normalGeometry().height()
         self.config["is_maximized"] = self.isMaximized()
         self.config["last_tab_index"] = self.tabs.currentIndex()
         save_config(self.config)
+        
+        # 프로그램 종료 시 활성화된 공유 서버 안전하게 중지
+        if hasattr(self, 'tab_sharing') and hasattr(self.tab_sharing, 'server_manager'):
+            self.tab_sharing.server_manager.stop_all()
+            
         event.accept()
