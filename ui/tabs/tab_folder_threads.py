@@ -628,12 +628,19 @@ class FolderScanThread(QThread):
         self.is_cancelled = False
 
     def run(self):
-        if not os.path.exists(self.folder_path):
+        folder_path_norm = os.path.normpath(self.folder_path)
+        if not os.path.exists(folder_path_norm):
             self.scan_finished.emit([], 0)
             return
 
         from core.library_db import db
-        cache_dict = db.get_all_files_in_path(self.folder_path, self.include_sub)
+        # 1. DB에서 캐시를 가져올 때, 모든 키를 정규화 및 소문자로 변환하여 Dictionary에 저장합니다. (대소문자 차이 무시)
+        raw_cache_dict = db.get_all_files_in_path(folder_path_norm, self.include_sub)
+        
+        cache_dict = {}
+        for k, v in raw_cache_dict.items():
+            norm_k = os.path.normpath(k).lower()
+            cache_dict[norm_k] = v
 
         # [최적화] 썸네일 폴더 내 파일 목록을 미리 메모리(Set)에 로드하여 수만 번의 Disk I/O 병목 방지
         try:
@@ -661,13 +668,15 @@ class FolderScanThread(QThread):
                         elif entry.is_file(follow_symlinks=False):
                             name = entry.name
                             if name.lower().endswith(self.target_exts):
-                                full_path = entry.path
+                                # 2. 파일 경로를 정규화(\와 / 혼용 방지)
+                                full_path = os.path.normpath(entry.path)
                                 stat = entry.stat()
                                 mtime = stat.st_mtime
                                 ctime = stat.st_ctime
                                 size = stat.st_size
 
-                                cached = cache_dict.get(full_path)
+                                # 3. 소문자로 변환하여 캐시에서 찾기 (Windows 드라이브 대소문자 혼용 방어)
+                                cached = cache_dict.get(full_path.lower())
                                 meta_processed = False
                                 full_meta = {}
                                 res, title, series, vol, num, writer = "", "", "", "", "", ""
@@ -679,6 +688,7 @@ class FolderScanThread(QThread):
                                         res    = cached[4]  if len(cached) > 4  else ""
                                         title  = cached[5]  if len(cached) > 5  else ""
                                         series = cached[6]  if len(cached) > 6  else ""
+                                        series_group = cached[7] if len(cached) > 7 else ""
                                         vol    = cached[8]  if len(cached) > 8  else ""
                                         num    = cached[9]  if len(cached) > 9  else ""
                                         writer = cached[10] if len(cached) > 10 else ""
@@ -686,7 +696,7 @@ class FolderScanThread(QThread):
                                             "resolution":   cached[4]  if len(cached) > 4  else "",
                                             "title":        cached[5]  if len(cached) > 5  else "",
                                             "series":       cached[6]  if len(cached) > 6  else "",
-                                            "series_group": cached[7]  if len(cached) > 7  else "",
+                                            "series_group": series_group,
                                             "volume":       cached[8]  if len(cached) > 8  else "",
                                             "number":       cached[9]  if len(cached) > 9  else "",
                                             "writer":       cached[10] if len(cached) > 10 else "",
@@ -712,7 +722,17 @@ class FolderScanThread(QThread):
                                             "web":          cached[30] if len(cached) > 30 else "",
                                         }
 
-                                file_hash = hashlib.md5(f"{full_path}_{mtime}".encode()).hexdigest()
+                                # 4. 기존 혼용 경로 해시값과 새로운 정규화 해시값을 모두 확인하여 기존 썸네일 재사용
+                                new_hash = hashlib.md5(f"{full_path}_{mtime}".encode()).hexdigest()
+                                old_hash = hashlib.md5(f"{entry.path}_{mtime}".encode()).hexdigest()
+                                
+                                if f"{new_hash}.webp" in existing_thumbs:
+                                    file_hash = new_hash
+                                elif f"{old_hash}.webp" in existing_thumbs:
+                                    file_hash = old_hash
+                                else:
+                                    file_hash = new_hash
+
                                 thumb_filename = f"{file_hash}.webp"
                                 thumb_path = os.path.join(self.thumb_dir, thumb_filename)
                                 has_thumb = thumb_filename in existing_thumbs

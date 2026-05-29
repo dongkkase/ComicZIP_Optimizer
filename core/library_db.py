@@ -301,13 +301,25 @@ class LibraryDB:
             try:
                 conn = self.get_connection()
                 cursor = conn.cursor()
-                if include_sub:
-                    like_path = folder_path + '%'
-                    cursor.execute('SELECT * FROM files WHERE path LIKE ?', (like_path,))
+                
+                # 경로 정규화 (슬래시 통일)
+                norm_folder = os.path.normpath(folder_path)
+                if not norm_folder.endswith(os.sep):
+                    like_path = norm_folder + os.sep + '%'
                 else:
-                    cursor.execute('SELECT * FROM files WHERE path = ?', (folder_path,))
+                    like_path = norm_folder + '%'
+                
+                cursor.execute('SELECT * FROM files WHERE path LIKE ?', (like_path,))
                 rows = cursor.fetchall()
-                return {row[0]: row for row in rows}
+                
+                result = {}
+                for row in rows:
+                    filepath = row[0]
+                    if not include_sub:
+                        if os.path.normpath(os.path.dirname(filepath)) != norm_folder:
+                            continue
+                    result[filepath] = row
+                return result
             except Exception as e:
                 print(f"get_all_files_in_path error: {e}")
                 return {}
