@@ -535,8 +535,8 @@ class MultiRenameDialog(QDialog):
                 if len(history) > 10: history = history[-10:]
                 with open(history_file, "w", encoding="utf-8") as f: json.dump(history, f, ensure_ascii=False, indent=2)
             except: pass
-        if errors: QMessageBox.warning(self, self.i18n.get("msg_notice", "알림"), f"{len(success_map)}개 성공\n오류:\n" + "\n".join(errors[:10]))
-        else: from ui.widgets import Toast; Toast.show(self.parent(), f"{len(success_map)}개의 파일 이름을 변경했습니다.")
+        if errors: QMessageBox.warning(self, self.i18n.get("msg_notice", "알림"), self.i18n.get("msg_multi_rename_errors").format(len(success_map), "\n".join(errors[:10])))
+        else: from ui.widgets import Toast; Toast.show(self.parent(), self.i18n.get("msg_multi_rename_done").format(len(success_map)))
         self.accept()
 
 class LogDialog(QDialog):
@@ -1328,8 +1328,8 @@ class ConflictResolutionDialog(QDialog):
             vbox.addWidget(lbl_stat)
             return card
             
-        compare_layout.addWidget(create_card("Source (이동할 파일)", src_info, self.src_path))
-        compare_layout.addWidget(create_card("Destination (기존 파일)", dest_info, self.dest_path))
+        compare_layout.addWidget(create_card(self.i18n.get("col_source", "Source (이동할 파일)"), src_info, self.src_path))
+        compare_layout.addWidget(create_card(self.i18n.get("col_dest", "Destination (기존 파일)"), dest_info, self.dest_path))
         layout.addLayout(compare_layout)
         
         btn_layout = QHBoxLayout()
@@ -1391,17 +1391,17 @@ class MoveToLibraryDialog(QDialog):
         
         self.table = QTableWidget()
         self.table.setColumnCount(2)
-        self.table.setHorizontalHeaderLabels(["Source (현재 경로)", "Destination (이동할 경로)"])
+        self.table.setHorizontalHeaderLabels([self.i18n.get("col_source_path", "Source (현재 경로)"), self.i18n.get("col_dest_path", "Destination (이동할 경로)")])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.setStyleSheet("QTableWidget { background-color: #1e1e1e; gridline-color: #444; } QHeaderView::section { background-color: #333; }")
         layout.addWidget(self.table)
         
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
-        btn_ok = QPushButton("확인")
+        btn_ok = QPushButton(self.i18n.get("btn_ok", "확인"))
         btn_ok.setStyleSheet("background-color: #3498DB; color: white; border-radius: 4px; padding: 6px 20px;")
         btn_ok.clicked.connect(self.accept)
-        btn_cancel = QPushButton("취소")
+        btn_cancel = QPushButton(self.i18n.get("btn_cancel", "취소"))
         btn_cancel.setStyleSheet("background-color: #555; color: white; border-radius: 4px; padding: 6px 20px;")
         btn_cancel.clicked.connect(self.reject)
         btn_layout.addWidget(btn_ok)

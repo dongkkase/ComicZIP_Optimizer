@@ -350,6 +350,7 @@ class TabFolder(QWidget):
             target_path = self._pending_optimize_folders[0]
             self._pending_optimize_folders = []
             self._pending_optimize_all = True
+            self._pending_optimize_mode = "changed_only"
             
             self.btn_subfolders.blockSignals(True)
             self.btn_subfolders.setChecked(True)
@@ -653,6 +654,8 @@ class TabFolder(QWidget):
         self.list_libraries = QListWidget()
         self.list_libraries.setStyleSheet(list_style)
         self.list_libraries.itemClicked.connect(self.on_nav_item_clicked)
+        self.list_libraries.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.list_libraries.customContextMenuRequested.connect(self.show_library_context_menu)
         left_layout.addWidget(self.list_libraries)
 
         # --- 즐겨찾기 ---
@@ -1413,7 +1416,7 @@ class TabFolder(QWidget):
         self.extract_thread.finished.connect(self.on_extract_finished)
         self.extract_thread.start()
 
-    def force_update_all_files(self):
+    def force_update_all_files(self, mode="all"):
         if not getattr(self, 'file_data_cache', []):
             self.dim_overlay.hide()
             self.start_dup_match()
@@ -1426,10 +1429,18 @@ class TabFolder(QWidget):
             if row.get("is_folder") or row.get("is_dup_folder") or row.get("is_dup_child"): continue
             fp = row.get("full_path", "")
             if fp.lower().endswith(target_exts):
+                
+                if mode == "changed_only":
+                    has_img = row.get("thumb_processed")
+                    has_meta = row.get("meta_processed")
+                    has_res = bool(row.get("res"))
+                    if has_img and has_meta and has_res:
+                        continue
+                        
                 file_hash = row.get("hash", "")
                 thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.webp") if file_hash else ""
                 
-                if file_hash:
+                if file_hash and mode == "all":
                     if os.path.exists(thumb_path):
                         try: os.remove(thumb_path)
                         except: pass
@@ -1533,14 +1544,54 @@ class TabFolder(QWidget):
 
         # 1. 라이브러리
         lib_folders = self.config.get("dup_check_folders", [])
+        last_mtimes = self.config.get("index_last_mtimes", {})
+        
         if lib_folders:
             for folder in lib_folders:
                 folder_name = os.path.basename(folder)
                 if not folder_name: folder_name = folder
-                item = QListWidgetItem(folder_name)
+                item = QListWidgetItem()
                 item.setData(Qt.ItemDataRole.UserRole, folder)
                 item.setToolTip(folder)
                 self.list_libraries.addItem(item)
+                
+                # 커스텀 위젯 (버튼 및 알림 아이콘 포함)
+                widget = QWidget()
+                widget.setStyleSheet("background: transparent;")
+                layout = QHBoxLayout(widget)
+                layout.setContentsMargins(10, 2, 8, 2)
+                layout.setSpacing(6)
+                
+                lbl_name = QLabel(folder_name)
+                lbl_name.setStyleSheet("background: transparent; border: none; font-size: 12px;")
+                lbl_name.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+                layout.addWidget(lbl_name, 1)
+                
+                try: mtime = os.stat(folder).st_mtime
+                except: mtime = 0
+                
+                # 갱신 필요 여부 아이콘 표시
+                if mtime != last_mtimes.get(folder):
+                    lbl_warn = QLabel()
+                    lbl_warn.setFixedSize(16, 16)
+                    lbl_warn.setPixmap(qta.icon('fa5s.exclamation-circle', color='#E8A020').pixmap(12, 12))
+                    lbl_warn.setToolTip(_("idx_needs_update") if _("idx_needs_update") != "idx_needs_update" else "메타데이터 색인 갱신이 필요합니다.")
+                    layout.addWidget(lbl_warn)
+                    
+                btn_menu = QToolButton()
+                btn_menu.setFixedSize(22, 22)
+                btn_menu.setIcon(qta.icon('fa5s.ellipsis-v', color='#a1a1aa'))
+                btn_menu.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn_menu.setStyleSheet("QToolButton { background: transparent; border: none; padding: 2px; } QToolButton::menu-indicator { image: none; } QToolButton:hover { background: rgba(255,255,255,0.1); border-radius: 3px; color: white; }")
+                btn_menu.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+                
+                menu = self._create_library_menu(folder)
+                btn_menu.setMenu(menu)
+                layout.addWidget(btn_menu)
+                
+                item.setSizeHint(QSize(0, 30))
+                self.list_libraries.setItemWidget(item, widget)
+                
         self._adjust_list_height(self.list_libraries)
         self.lbl_lib.setVisible(True)
 
@@ -1613,11 +1664,81 @@ class TabFolder(QWidget):
             self.list_favorites.clearSelection()
                 
         self.tree_view.clearSelection()
-
+        
         path = item.data(Qt.ItemDataRole.UserRole)
         if path and os.path.exists(path):
-            # 백그라운드 로딩 대기 후 포커스 및 스크롤 중앙 정렬 (선택 시 refresh_list 자동 트리거)
             self._start_queued_scroll(path)
+
+    def _create_library_menu(self, folder):
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu { background-color: #2b2b2b; border: 1px solid #444; padding: 4px 0px; }
+            QMenu::item { padding: 6px 25px 6px 20px; color: white; }
+            QMenu::item:selected { background-color: #3a7ebf; }
+            QMenu::separator { height: 1px; background-color: #444; margin: 4px 0; }
+        """)
+        action_sync = menu.addAction(_('setting_update_index'))
+        action_sync.triggered.connect(lambda checked, f=folder: self.action_sync_library(f))
+        action_opt = menu.addAction(_("menu_optimize_meta"))
+        action_opt.triggered.connect(lambda checked, f=folder: self.action_optimize_library_metadata(f))
+        menu.addSeparator()
+        action_exp = menu.addAction(_("action_open_exp"))
+        action_exp.triggered.connect(lambda checked, f=folder: self.open_in_explorer(f))
+        return menu
+
+    def show_library_context_menu(self, position):
+        item = self.list_libraries.itemAt(position)
+        if not item: return
+        folder = item.data(Qt.ItemDataRole.UserRole)
+        menu = self._create_library_menu(folder)
+        menu.exec(self.list_libraries.viewport().mapToGlobal(position))
+
+    def action_sync_library(self, folder=None):
+        if folder:
+            try:
+                last_mtimes = self.config.get("index_last_mtimes", {})
+                last_mtimes[folder] = os.stat(folder).st_mtime
+                self.config["index_last_mtimes"] = last_mtimes
+                save_config(self.config)
+            except Exception: pass
+            
+        self.start_index_update_task(force_rescan=True)
+        self.populate_quick_access()
+        
+        try:
+            from ui.widgets import Toast
+            Toast.show(self.main_window, _("setting_update_index_msg"))
+        except Exception: pass
+
+        if folder and os.path.exists(folder):
+            self._start_queued_scroll(folder)
+
+    def action_optimize_library_metadata(self, folder=None):
+        if not folder or not os.path.exists(folder):
+            return
+            
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle(_("menu_optimize_meta"))
+        
+        desc = _("msg_optimize_desc").format(os.path.basename(folder))
+        msg_box.setText(desc)
+        
+        btn_smart = msg_box.addButton(_("btn_smart_update"), QMessageBox.ButtonRole.AcceptRole)
+        btn_force = msg_box.addButton(_("btn_force_rescan"), QMessageBox.ButtonRole.DestructiveRole)
+        btn_cancel = msg_box.addButton(_("btn_cancel"), QMessageBox.ButtonRole.RejectRole)
+        
+        msg_box.exec()
+        
+        if msg_box.clickedButton() == btn_cancel:
+            return
+            
+        self._pending_optimize_mode = "all" if msg_box.clickedButton() == btn_force else "changed_only"
+        self._pending_optimize_all = True
+        self.btn_subfolders.blockSignals(True)
+        self.btn_subfolders.setChecked(True)
+        self.btn_subfolders.setText(_("folder_inc_sub_on") if _("folder_inc_sub_on") != "folder_inc_sub_on" else "☑ 하위 폴더 포함")
+        self.btn_subfolders.blockSignals(False)
+        self._start_queued_scroll(folder)
 
     def setup_menus(self):
         self.menu_grouped = QMenu(self)
@@ -2411,7 +2532,7 @@ class TabFolder(QWidget):
         
         # 오프라인 방어 체크
         if not os.path.exists(self.current_watched_folder):
-            self.main_window.lbl_status.setText("Network Drive Offline / 경로를 찾을 수 없습니다.")
+            self.main_window.lbl_status.setText(_("msg_network_offline"))
             self.lbl_tree_status.setText(" ")
             return
 
@@ -2431,7 +2552,8 @@ class TabFolder(QWidget):
         self._pending_auto_select = True
         if getattr(self, '_pending_optimize_all', False):
             self._pending_optimize_all = False
-            self.force_update_all_files()
+            mode = getattr(self, '_pending_optimize_mode', "changed_only")
+            self.force_update_all_files(mode)
         else:
             self.scroll_timer.start(100)
             self.start_dup_match()
@@ -2567,6 +2689,9 @@ class TabFolder(QWidget):
                 publish_date_str = f"{y}-{m}-{d}".strip('-')
                 if publish_date_str == "--": publish_date_str = ""
                 
+                file_hash = row.get("hash", "")
+                thumb_path = os.path.join(self.thumb_dir, f"{file_hash}.webp") if file_hash else ""
+                
                 record = (
                     filepath, row.get("raw_mtime", 0), row.get("raw_size", 0), row.get("ext", ""),
                     row.get("res", ""), row["full_meta"].get("title", ""), row["full_meta"].get("series", ""),
@@ -2576,7 +2701,7 @@ class TabFolder(QWidget):
                     row["full_meta"].get("format", ""), row["full_meta"].get("manga", ""), row["full_meta"].get("language", ""),
                     row["full_meta"].get("rating", ""), row["full_meta"].get("age_rating", ""), publish_date_str, row["full_meta"].get("summary", ""), 
                     row["full_meta"].get("characters", ""), row["full_meta"].get("teams", ""), row["full_meta"].get("locations", ""), 
-                    row["full_meta"].get("story_arc", ""), row["full_meta"].get("tags", ""), row["full_meta"].get("notes", ""), row["full_meta"].get("web", ""), ""
+                    row["full_meta"].get("story_arc", ""), row["full_meta"].get("tags", ""), row["full_meta"].get("notes", ""), row["full_meta"].get("web", ""), thumb_path
                 )
                 self._pending_db_records.append(record)
             except Exception as e: print(f"DB Upsert Error: {e}")
@@ -3252,7 +3377,7 @@ class TabFolder(QWidget):
             for old_path, new_path in rename_map.items():
                 try:
                     if os.path.exists(new_path) and old_path.lower() != new_path.lower():
-                        errors.append(f"중복 발생: {os.path.basename(new_path)}")
+                        errors.append(current_i18n.get("msg_dup_conflict").format(os.path.basename(new_path)))
                         continue
                         
                     os.rename(old_path, new_path)
@@ -3263,10 +3388,10 @@ class TabFolder(QWidget):
             self.refresh_list() 
             
             if errors:
-                QMessageBox.warning(self, current_i18n.get("msg_notice", "알림"), f"{success_count}개 변경 성공\n오류:\n" + "\n".join(errors))
+                QMessageBox.warning(self, current_i18n.get("msg_notice", "알림"), current_i18n.get("msg_multi_rename_errors").format(success_count, "\n".join(errors)))
             else:
                 from ui.widgets import Toast
-                Toast.show(self.main_window, f"{success_count}개의 파일 이름을 변경했습니다.")
+                Toast.show(self.main_window, current_i18n.get("msg_multi_rename_done").format(success_count))
 
     def select_all_files(self):
         self.get_active_view().selectAll()
@@ -3543,7 +3668,7 @@ class TabFolder(QWidget):
             return
             
         self.btn_check_missing.setEnabled(False)
-        self.btn_check_missing.setText(_("tf_btn_check_missing") + " (분석 중...)")
+        self.btn_check_missing.setText(_("tf_btn_check_missing") + f" ({_('msg_analyzing')})")
         
         dup_folders = self.config.get("dup_check_folders", [])
         self.missing_check_thread = MissingCheckThread(dup_folders, getattr(self, 'file_data_cache', []), is_toast=False)
@@ -3581,7 +3706,7 @@ class TabFolder(QWidget):
         
     def _build_and_show_missing_dialog(self, missing_data):
         if not missing_data:
-            QMessageBox.information(self, _("tf_dlg_missing_title"), "누락된 권수가 없습니다.")
+            QMessageBox.information(self, _("tf_dlg_missing_title"), _("msg_no_missing_vols"))
             return
             
         dialog = QDialog(self)
@@ -3611,8 +3736,8 @@ class TabFolder(QWidget):
             
             missing_str = ", ".join(item['missing'])
             if len(item['missing']) > 8:
-                missing_str = ", ".join(item['missing'][:8]) + f" ... (총 {len(item['missing'])}권)"
-            lbl_m = QLabel(f"누락: {missing_str}")
+                missing_str = ", ".join(item['missing'][:8]) + _("msg_missing_total").format(len(item['missing']))
+            lbl_m = QLabel(_("msg_missing_prefix").format(missing_str))
             lbl_m.setStyleSheet("color: #E74C3C; border: none;")
             lbl_m.setWordWrap(True)
             
@@ -3726,17 +3851,16 @@ class TabFolder(QWidget):
         
         layout = QVBoxLayout(dialog)
         
-        is_ko = getattr(self.main_window, 'lang', 'ko') == "ko"
-        desc_text = f"총 {len(move_plans)}개의 파일을 다음 폴더로 이동합니다. 진행하시겠습니까?" if is_ko else f"Move {len(move_plans)} files to the following folders. Proceed?"
+        desc_text = _("msg_group_proceed").format(len(move_plans))
         desc_label = QLabel(desc_text)
         layout.addWidget(desc_label)
         
         table = QTableWidget()
         table.setColumnCount(3)
         
-        col1_text = "대상 파일" if is_ko else "Target File"
-        col2_text = "새 폴더명" if is_ko else "New Folder"
-        col3_text = "전체 경로" if is_ko else "Full Path"
+        col1_text = _("col_target_file")
+        col2_text = _("col_new_folder")
+        col3_text = _("col_full_path")
         
         table.setHorizontalHeaderLabels([col1_text, col2_text, col3_text])
         table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
@@ -3818,7 +3942,7 @@ class TabFolder(QWidget):
     def action_move_to_library_tree(self, folder_path):
         libraries = self.config.get("dup_check_folders", [])
         if not libraries:
-            QMessageBox.warning(self, "Warning", "환경설정에서 대상 라이브러리를 먼저 등록해주세요.")
+            QMessageBox.warning(self, "Warning", _("warn_no_library"))
             return
             
         move_plans = [{
@@ -3862,7 +3986,7 @@ class TabFolder(QWidget):
     def action_move_to_library_list(self):
         libraries = self.config.get("dup_check_folders", [])
         if not libraries:
-            QMessageBox.warning(self, "Warning", "환경설정에서 대상 라이브러리를 먼저 등록해주세요.")
+            QMessageBox.warning(self, "Warning", _("warn_no_library"))
             return
             
         selected_files = self.get_selected_files()
@@ -3940,7 +4064,7 @@ class TabFolder(QWidget):
             self.apply_grouping_and_sorting()
             try:
                 from ui.widgets import Toast
-                Toast.show(self.main_window, f"{success_count}개의 항목을 라이브러리로 이동했습니다.")
+                Toast.show(self.main_window, _("msg_move_lib_done").format(success_count))
                 
                 # 라이브러리(B)가 변동되었으므로 백그라운드 갱신 찔러주기
                 self.start_index_update_task(force_rescan=True)

@@ -105,7 +105,7 @@ class RenamerApp(QMainWindow):
         from PyQt6.QtCore import Qt
 
         if not release_list:
-            error_lbl = QLabel("릴리즈 노트를 불러올 수 없습니다.")
+            error_lbl = QLabel(self.i18n[self.lang].get("msg_release_load_fail", "Failed to load release notes."))
             error_lbl.setStyleSheet(f"color: #aaaaaa; font-family: {self.config.get('font_family_str', 'Jua')};")
             self.release_layout.addWidget(error_lbl)
             self.release_layout.addStretch()
@@ -141,7 +141,7 @@ class RenamerApp(QMainWindow):
 
     def update_version_button_ui(self):
         if self.latest_version_found:
-            update_msg = f" Update Available: v{CURRENT_VERSION} ➔ v{self.latest_version_found}" if self.lang == "en" else f" 업데이트 가능: v{CURRENT_VERSION} ➔ v{self.latest_version_found}"
+            update_msg = self.i18n[self.lang].get("msg_update_available", "").format(CURRENT_VERSION, self.latest_version_found)
             self.btn_version.setText(update_msg)
             self.btn_version.setIcon(qta.icon('fa5s.gift', color='white'))
             self.btn_version.setObjectName("versionBtnUpdate")
@@ -149,7 +149,7 @@ class RenamerApp(QMainWindow):
             self.btn_version.style().polish(self.btn_version)
             self.latest_version_url = f"https://github.com/dongkkase/ComicZIP_Optimizer/releases/download/v{self.latest_version_found}/ComicZIP_Optimizer.zip"
         else:
-            latest_msg = f" v{CURRENT_VERSION} (Latest)" if self.lang == "en" else f" v{CURRENT_VERSION} (최신 버전)"
+            latest_msg = self.i18n[self.lang].get("msg_latest_version", "").format(CURRENT_VERSION)
             self.btn_version.setText(latest_msg)
             self.btn_version.setIcon(qta.icon('fa5s.check-circle', color='white'))
             self.btn_version.setObjectName("versionBtn")
@@ -162,8 +162,8 @@ class RenamerApp(QMainWindow):
             if "download" in self.latest_version_url:
                 reply = QMessageBox.question(
                     self, 
-                    "업데이트 확인" if self.lang == "ko" else "Update", 
-                    "새 버전이 있습니다. 자동으로 다운로드하고 업데이트하시겠습니까?" if self.lang == "ko" else "Do you want to automatically download and update to the new version?", 
+                    self.i18n[self.lang].get("msg_update_prompt_title"), 
+                    self.i18n[self.lang].get("msg_update_prompt"), 
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
                 )
                 if reply == QMessageBox.StandardButton.Yes:
@@ -177,7 +177,7 @@ class RenamerApp(QMainWindow):
         self.btn_version.setEnabled(False)
         self.progress_bar.show()
         self.progress_bar.setValue(0)
-        self.lbl_status.setText("업데이트 준비 중..." if self.lang == "ko" else "Preparing update...")
+        self.lbl_status.setText(self.i18n[self.lang].get("msg_prep_update", "Preparing update..."))
         
         task = AutoUpdateTask(self.latest_version_url, self.signals)
         threading.Thread(target=task.run, daemon=True).start()
@@ -506,7 +506,7 @@ class RenamerApp(QMainWindow):
 
         if is_processing:
             if hasattr(self, 'lock_overlay'):
-                self.lock_overlay.text = "Processing..." if self.lang == "en" else ("処理中です..." if self.lang == "ja" else "작업을 진행 중입니다...")
+                self.lock_overlay.text = self.i18n[self.lang].get("msg_processing_overlay", "Processing...")
                 self.lock_overlay.show()
         else:
             if hasattr(self, 'lock_overlay'):
@@ -542,9 +542,7 @@ class RenamerApp(QMainWindow):
                 self.tab3.clear_list()
                 
                 lang = new_data.get("lang", "ko")
-                if lang == "ko": msg = "포맷 및 WebP 설정 변경으로 인해 모든 탭의 작업 리스트가 초기화되었습니다."
-                elif lang == "ja": msg = "フォーマットまたはWebP設定が変更されたため、すべてのタブのタスクリストが初期化されました。"
-                else: msg = "All task lists have been cleared due to changes in format or WebP settings."
+                msg = self.i18n[lang].get("msg_format_cleared", "All task lists have been cleared.")
                 Toast.show(self, msg)
 
             self.config.update(new_data)
@@ -553,13 +551,12 @@ class RenamerApp(QMainWindow):
             
             # 설정값이 변경되었을 경우 수동 안내 대신 재시작 팝업 띄우기
             if old_lang != new_lang or old_font != new_font or old_scale != new_scale:
-                msg = "언어, 글꼴 또는 크기 설정이 변경되었습니다.\n변경사항을 적용하기 위해 프로그램을 지금 재시작하시겠습니까?"
-                if self.lang == "en": msg = "Settings changed. Do you want to restart the program now to apply changes?"
-                elif self.lang == "ja": msg = "設定が変更されました。変更を適用するために今すぐプログラムを再起動しますか？"
+                msg = self.i18n[new_lang].get("msg_restart_desc", "Settings changed. Restart?")
+                title = self.i18n[new_lang].get("msg_restart_title", "Restart Required")
                 
                 reply = QMessageBox.question(
                     self, 
-                    "재시작 확인" if self.lang == "ko" else "Restart Required", 
+                    title, 
                     msg, 
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
                 )
@@ -650,10 +647,11 @@ class RenamerApp(QMainWindow):
             final_paths = []
 
             if files_dropped and not is_auto_transfer:
-                msg = "파일이 선택되었습니다.\n선택한 파일이 포함된 '폴더 전체(시리즈)'를 추가하시겠습니까?\n\n• Yes: 파일이 속한 폴더의 모든 압축파일 함께 추가\n• No: 드래그한 파일만 개별 추가" if self.lang == "ko" else "Files were dropped.\nAdd the entire folder (Series)?\n\n• Yes: Add all archives in the folder\n• No: Add only selected files"
+                msg = self.i18n[self.lang].get("msg_drop_folders_desc", "Add entire folder?")
+                title = self.i18n[self.lang].get("msg_drop_folders_title", "Select Add Method")
                 
                 reply = QMessageBox.question(
-                    self, "추가 방식 선택" if self.lang == "ko" else "Select Add Method", msg, 
+                    self, title, msg, 
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel
                 )
 
@@ -675,7 +673,7 @@ class RenamerApp(QMainWindow):
         self.toggle_ui_elements(is_processing=True)
         self.progress_bar.show()
         self.progress_bar.setValue(0)
-        self.lbl_status.setText("목록을 불러오는 중입니다..." if self.lang == "ko" else "Loading files...")
+        self.lbl_status.setText(self.i18n[self.lang].get("msg_loading_list", "Loading files..."))
         
         if self.tabs.currentIndex() == 1:
             task = OrganizerLoadTask(paths, self.seven_zip_path, self.lang, self.signals)
@@ -695,9 +693,9 @@ class RenamerApp(QMainWindow):
         self.safe_finish_ui_reset()
         
         if skipped_files:
-            msg = "다음 파일은 내부에 폴더 구조가 없어 자동으로 제외되었습니다:\n\n" + "\n".join(skipped_files[:5])
-            if len(skipped_files) > 5: msg += f"\n...외 {len(skipped_files)-5}개"
-            QMessageBox.information(self, "알림", msg)
+            msg = self.i18n[self.lang].get("msg_org_skip_no_folder", "Skipped files:\n") + "\n".join(skipped_files[:5])
+            if len(skipped_files) > 5: msg += self.i18n[self.lang].get("msg_more_files", "\n...more").format(len(skipped_files)-5)
+            QMessageBox.information(self, self.i18n[self.lang].get("msg_notice", "Notice"), msg)
 
     def on_renamer_loaded(self, new_data, nested_files, unsupported_files):
         added = False
@@ -713,11 +711,13 @@ class RenamerApp(QMainWindow):
         self.safe_finish_ui_reset()
         
         if unsupported_files:
-            msg = "지원하지 않는 형식 제외:\n" + "\n".join(unsupported_files[:5])
-            QMessageBox.warning(self, "Warning", msg)
+            msg = self.i18n[self.lang].get("msg_unsupported_format", "Unsupported:\n") + "\n".join(unsupported_files[:5])
+            if len(unsupported_files) > 5: msg += self.i18n[self.lang].get("msg_more_files", "\n...more").format(len(unsupported_files)-5)
+            QMessageBox.warning(self, self.i18n[self.lang].get("dlg_warn", "Warning"), msg)
         if nested_files:
-            msg = "내부 압축파일 포함 제외:\n" + "\n".join(nested_files[:5])
-            QMessageBox.warning(self, "Warning", msg)
+            msg = self.i18n[self.lang].get("msg_nested_archive", "Nested archives:\n") + "\n".join(nested_files[:5])
+            if len(nested_files) > 5: msg += self.i18n[self.lang].get("msg_more_files", "\n...more").format(len(nested_files)-5)
+            QMessageBox.warning(self, self.i18n[self.lang].get("dlg_warn", "Warning"), msg)
 
     def start_process(self):
         if self.is_processing: return
@@ -725,7 +725,7 @@ class RenamerApp(QMainWindow):
         if self.tabs.currentIndex() == 1:
             targets = self.tab1.get_targets()
             if not targets:
-                QMessageBox.warning(self, "Warning", "체크(☑)된 작업 대상이 없습니다." if self.lang == "ko" else "No checked targets.")
+                QMessageBox.warning(self, self.i18n[self.lang].get("dlg_warn", "Warning"), self.i18n[self.lang].get("msg_no_targets"))
                 return
             
             self.tab2.clear_list()
@@ -752,7 +752,7 @@ class RenamerApp(QMainWindow):
         elif self.tabs.currentIndex() == 2:
             targets = self.tab2.get_targets()
             if not targets:
-                QMessageBox.warning(self, "Warning", "체크(☑)된 작업 대상이 없습니다." if self.lang == "ko" else "No checked targets.")
+                QMessageBox.warning(self, self.i18n[self.lang].get("dlg_warn", "Warning"), self.i18n[self.lang].get("msg_no_targets"))
                 return
                 
             self.tab1.clear_list()
@@ -813,14 +813,13 @@ class RenamerApp(QMainWindow):
 
         if was_cancelled:
             self.lbl_status.setText(self.i18n[self.lang]["status_wait"])
-            QMessageBox.warning(self, "Cancelled", "사용자에 의해 작업이 중단되었습니다." if self.lang == "ko" else "Process cancelled by user.")
+            QMessageBox.warning(self, "Cancelled", self.i18n[self.lang].get("msg_cancelled", "Process cancelled by user."))
             log_dlg = LogDialog(self, stats, self.i18n[self.lang], show_continue_btn=False)
             log_dlg.setStyleSheet(self.styleSheet())
             log_dlg.exec()
         else:
             if self.config.get("play_sound", True): play_complete_sound()
-            if self.lang == "ko": msg_str = f"작업 완료! (성공: {len(stats['success'])}건 / 스킵: {len(stats['skip'])}건 / 오류: {len(stats['error'])}건)"
-            else: msg_str = f"Done! (Success: {len(stats['success'])} / Skip: {len(stats['skip'])} / Error: {len(stats['error'])})"
+            msg_str = self.i18n[self.lang].get("msg_job_done", "Done!").format(len(stats['success']), len(stats['skip']), len(stats['error']))
             self.lbl_status.setText(msg_str)
             
             valid_fps = [fp for fp in new_fps if os.path.exists(fp)]
@@ -884,7 +883,7 @@ class RenamerApp(QMainWindow):
 
         if was_cancelled:
             self.safe_finish_ui_reset()
-            QMessageBox.warning(self, "Cancelled", "사용자에 의해 작업이 중단되었습니다." if self.lang == "ko" else "Process cancelled by user.")
+            QMessageBox.warning(self, "Cancelled", self.i18n[self.lang].get("msg_cancelled", "Process cancelled by user."))
             log_dlg = LogDialog(self, stats, self.i18n[self.lang], show_continue_btn=False)
             log_dlg.setStyleSheet(self.styleSheet())
             log_dlg.exec()
@@ -892,8 +891,7 @@ class RenamerApp(QMainWindow):
             if self.config.get("play_sound", True): play_complete_sound()
             self.progress_bar.hide()
             self.progress_bar.setValue(0)
-            if self.lang == "ko": msg_str = f"작업 완료! (성공: {len(stats['success'])}건 / 스킵: {len(stats['skip'])}건 / 오류: {len(stats['error'])}건)"
-            else: msg_str = f"Done! (Success: {len(stats['success'])} / Skip: {len(stats['skip'])} / Error: {len(stats['error'])})"
+            msg_str = self.i18n[self.lang].get("msg_job_done", "Done!").format(len(stats['success']), len(stats['skip']), len(stats['error']))
             self.lbl_status.setText(msg_str)
             
             show_cont = len(valid_fps) > 0
@@ -938,4 +936,13 @@ class RenamerApp(QMainWindow):
                     self.active_task.cancel()
                 if is_tab3_running and hasattr(self.tab3.save_worker, 'cancel'):
                     self.tab3.save_worker.cancel()
-                    self.tab3.save_w
+
+        # 정상 종료 시 현재 창 상태와 탭 인덱스 저장
+        self.config["width"] = self.normalGeometry().width()
+        self.config["height"] = self.normalGeometry().height()
+        self.config["is_maximized"] = self.isMaximized()
+        if hasattr(self, 'tabs'):
+            self.config["last_tab_index"] = self.tabs.currentIndex()
+            
+        save_config(self.config)
+        event.accept()

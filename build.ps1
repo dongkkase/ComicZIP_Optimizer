@@ -28,6 +28,8 @@ Write-Host "`n[1/2] PyInstaller 빌드 시작..." -ForegroundColor Cyan
 # 파워쉘은 백틱(`)을 사용하여 안전하게 줄바꿈을 지원합니다.
 pyinstaller -y -w -D --icon=app.ico -n "$APP_NAME" `
     --paths "$ROOT_DIR" `
+    --hidden-import fastapi `
+    --hidden-import uvicorn `
     --hidden-import ui.main_window `
     --hidden-import ui.dialogs `
     --hidden-import ui.widgets `

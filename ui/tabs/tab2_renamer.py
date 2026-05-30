@@ -344,10 +344,11 @@ class Tab2Renamer(QWidget):
         if not fp or not os.path.exists(fp): return
         
         menu = QMenu(self)
+        t = self.main_app.i18n[self.main_app.lang]
         
-        action_open_dir = QAction(qta.icon('fa5s.folder-open'), "경로 찾기", self)
-        action_rename = QAction(qta.icon('fa5s.edit'), "파일 이름 변경", self)
-        action_reload = QAction(qta.icon('fa5s.sync-alt'), "다시 불러오기", self)
+        action_open_dir = QAction(qta.icon('fa5s.folder-open'), t.get("action_find_path", "경로 찾기"), self)
+        action_rename = QAction(qta.icon('fa5s.edit'), t.get("action_rename_file", "파일 이름 변경"), self)
+        action_reload = QAction(qta.icon('fa5s.sync-alt'), t.get("action_reload_file", "다시 불러오기"), self)
         
         action_open_dir.triggered.connect(lambda: self._open_file_location(fp))
         action_rename.triggered.connect(lambda: self._rename_archive_file(fp, row))
@@ -368,11 +369,12 @@ class Tab2Renamer(QWidget):
             else:
                 subprocess.Popen(["xdg-open", os.path.dirname(filepath)])
         except Exception as e:
-            Toast.show(self.main_app, f"경로를 열 수 없습니다: {e}")
+            Toast.show(self.main_app, self.main_app.i18n[self.main_app.lang].get("msg_path_open_fail").format(e))
 
     def _rename_archive_file(self, old_filepath, row):
+        t = self.main_app.i18n[self.main_app.lang]
         if not os.path.exists(old_filepath):
-            QMessageBox.warning(self, "오류", "파일이 존재하지 않습니다.\n(이미 외부에서 이름이 변경되었거나 삭제되었을 수 있습니다.)")
+            QMessageBox.warning(self, t.get("dlg_err", "오류"), t.get("msg_file_not_exist", "파일이 존재하지 않습니다."))
             return
             
         old_dir = os.path.dirname(old_filepath)
@@ -380,8 +382,8 @@ class Tab2Renamer(QWidget):
         
         new_name, ok = QInputDialog.getText(
             self, 
-            "파일 이름 변경", 
-            "새로운 파일 이름을 입력하세요 (확장자 포함):", 
+            t.get("msg_rename_title", "파일 이름 변경"), 
+            t.get("msg_rename_desc", "새로운 파일 이름을 입력하세요:"), 
             QLineEdit.EchoMode.Normal, 
             old_name
         )
@@ -390,7 +392,7 @@ class Tab2Renamer(QWidget):
             new_filepath = os.path.join(old_dir, new_name)
             
             if os.path.exists(new_filepath):
-                QMessageBox.warning(self, "오류", "동일한 이름의 파일이 이미 존재합니다.")
+                QMessageBox.warning(self, t.get("dlg_err", "오류"), t.get("msg_rename_dup", "동일한 파일이 존재합니다."))
                 return
                 
             try:
@@ -405,7 +407,7 @@ class Tab2Renamer(QWidget):
                 if self.current_archive_path == old_filepath:
                     self.current_archive_path = new_filepath
                 
-                Toast.show(self.main_app, "파일 이름이 성공적으로 변경되었습니다.")
+                Toast.show(self.main_app, t.get("msg_rename_success", "이름 변경 성공"))
                 self.refresh_list()
                 
                 for i in range(self.table_archives.rowCount()):
@@ -414,11 +416,12 @@ class Tab2Renamer(QWidget):
                         break
                         
             except PermissionError:
-                QMessageBox.critical(self, "권한 오류", "파일을 다른 프로그램에서 사용 중이거나 이름 변경 권한이 없습니다.")
+                QMessageBox.critical(self, t.get("msg_perm_err_title", "권한 오류"), t.get("msg_perm_err_desc", "사용 중입니다."))
             except Exception as e:
-                QMessageBox.critical(self, "오류", f"이름 변경 실패:\n{str(e)}")
+                QMessageBox.critical(self, t.get("dlg_err", "오류"), t.get("msg_err_rename_fail", "실패: {0}").format(str(e)))
 
     def _reload_archive_file(self, filepath):
+        t = self.main_app.i18n[self.main_app.lang]
         if filepath in self.archive_data:
             is_checked = self.archive_data[filepath].get('checked', True)
             del self.archive_data[filepath]
@@ -427,13 +430,13 @@ class Tab2Renamer(QWidget):
                 success = self.load_archive_info(filepath)
                 if success == True:
                     self.archive_data[filepath]['checked'] = is_checked
-                    Toast.show(self.main_app, f"파일 구조를 다시 불러왔습니다.")
+                    Toast.show(self.main_app, t.get("msg_reload_success", "다시 불러왔습니다."))
                 elif success == "nested":
-                    Toast.show(self.main_app, f"내부 압축 파일 포함으로 작업에서 제외되었습니다.")
+                    Toast.show(self.main_app, t.get("msg_reload_nested", "내부 압축 파일 포함됨."))
                 else:
-                    Toast.show(self.main_app, f"파일을 불러오지 못했습니다.")
+                    Toast.show(self.main_app, t.get("msg_reload_fail", "불러오기 실패."))
             else:
-                Toast.show(self.main_app, f"경로에 파일이 존재하지 않습니다.\n(외부에서 삭제되거나 이름이 변경되었습니다.)")
+                Toast.show(self.main_app, t.get("msg_file_not_found", "파일 없음."))
                 
             self.refresh_list()
             
@@ -879,8 +882,8 @@ class Tab2Renamer(QWidget):
             nested_exts = {'.zip', '.cbz', '.cbr', '.7z', '.rar', '.alz', '.egg'}
             if any(Path(e['filename']).suffix.lower() in nested_exts for e in entries):
                 if not batch_mode:
-                    msg = f"[{os.path.basename(filepath)}]\n내부에 압축 파일이 포함되어 제외됩니다." if self.main_app.lang == "ko" else f"[{os.path.basename(filepath)}]\nContains nested archives. Skipped."
-                    QMessageBox.warning(self, "Warning", msg)
+                    msg = f"[{os.path.basename(filepath)}]\n" + self.main_app.i18n[self.main_app.lang].get("msg_reload_nested", "")
+                    QMessageBox.warning(self, self.main_app.i18n[self.main_app.lang].get("dlg_warn", "Warning"), msg)
                 return "nested"
 
             self.archive_data[filepath] = {

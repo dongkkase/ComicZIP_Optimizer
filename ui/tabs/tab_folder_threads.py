@@ -310,6 +310,11 @@ class DupMatchThread(QThread):
         import time 
         from core.library_db import db
         
+        from core.i18n import get_i18n
+        from config import load_config
+        lang = load_config().get("language", load_config().get("lang", "ko"))
+        msg_match_all = get_i18n().get(lang, get_i18n()["ko"]).get("msg_folder_match_all", "(Folder Full Match)")
+        
         matches = {}
         total_a = len(self.a_files)
         
@@ -409,7 +414,7 @@ class DupMatchThread(QThread):
                     )
                     if is_folder_match:
                         dummy_b_file = {
-                            "name": "(폴더 전체 매칭)",
+                            "name": msg_match_all,
                             "size": b_folder["size"],
                             "full_path": bp,
                             "path": bp

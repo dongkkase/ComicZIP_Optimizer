@@ -5,19 +5,29 @@ from pathlib import Path
 
 def clean_display_title(text):
     cleaned = str(text)
-    cleaned = re.sub(r'[\[\(](번외편?|외전|스핀오프|특별편?|단편(?!선)|합본)[\]\)]', r' \1 ', cleaned) 
+    cleaned = re.sub(r'[\[\(](번외편?|외전|스핀오프|특별편?|단편|합본)[\]\)]', r' \1 ', cleaned) 
+    
     cleaned = re.sub(r'[\[\(].*?[\]\)]', ' ', cleaned) 
     cleaned = re.sub(r'\.(zip|cbz|cbr|rar|7z)$', '', cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r'\d{4}-\d{2}-\d{2}', '', cleaned)
     cleaned = re.sub(r'\d{4}년\s*\d{1,2}월\s*\d{1,2}일', '', cleaned)
     cleaned = re.sub(r'업로드\s*$', '', cleaned)
     cleaned = re.sub(r'\+\s*\d+\s*$', '', cleaned)
-    cleaned = re.sub(r'(?:\s|^)[가-힣a-zA-Z]+\s*(?:원작|그림|지음|글|작화|스토리|번역)(?=\s|$)', ' ', cleaned)
+    
+    # --- [수정된 부분] 작가명 제거 로직 분리 ---
+    # '원작, 그림, 지음' 등은 공백이 없어도(예: 홍길동그림) 제거하지만
+    # '글'은 단어 끝에 흔하게 쓰이므로 앞에 반드시 공백이 1개 이상(\s+) 있을 때만 제거합니다.
+    cleaned = re.sub(r'(?:\s|^)[가-힣a-zA-Z]+\s*(?:원작|그림|지음|작화|스토리|번역)(?=\s|$)', ' ', cleaned)
+    cleaned = re.sub(r'(?:\s|^)[가-힣a-zA-Z]+\s+글(?=\s|$)', ' ', cleaned)
+    # ----------------------------------------
+    
     cleaned = re.sub(r'\d{3,4}\s*px', ' ', cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r'\d+(?:\.\d+)?\s*[~-]\s*\d+(?:\.\d+)?\s*(?:권|화|장|편|부)?', ' ', cleaned)
     cleaned = re.sub(r'\d+(?:\.\d+)?\s*(?:권|화|장|편|부)', ' ', cleaned)
+    
     cleaned = re.sub(r'[-_+,]+', ' ', cleaned)
-    return re.sub(r'\s+', ' ', cleaned).strip()
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    return cleaned
 
 def extract_core_title(text):
     cleaned = clean_display_title(text)

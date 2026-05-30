@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                              QPushButton, QSpinBox, QTextEdit, QGroupBox, QGridLayout, QLineEdit, QApplication)
-from PyQt6.QtCore import pyqtSlot
+from PyQt6.QtCore import pyqtSlot, Qt
 
 # 프로젝트 최상위의 servers 패키지에서 ServerManager를 임포트
 from servers.manager import ServerManager
@@ -16,25 +16,95 @@ class TabSharing(QWidget):
         self.init_ui()
 
     def init_ui(self):
+        import qtawesome as qta
+
         main_layout = QHBoxLayout()
+        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setSpacing(20)
+        
         left_layout = QVBoxLayout()
+        left_layout.setSpacing(15)
+
+        group_style = """
+            QGroupBox { 
+                font-size: 13px;
+                font-weight: bold; 
+                border: 1px solid #3f3f46; 
+                border-radius: 8px; 
+                margin-top: 15px; 
+                padding-top: 20px; 
+                background-color: #18181b; 
+            }
+            QGroupBox::title { 
+                subcontrol-origin: margin; 
+                subcontrol-position: top left;
+                left: 15px; 
+                padding: 0 5px; 
+                color: #60a5fa; 
+            }
+        """
+
+        input_style = """
+            QLineEdit, QSpinBox { 
+                background-color: #09090b; 
+                color: #f4f4f5; 
+                border: 1px solid #27272a; 
+                border-radius: 6px; 
+                padding: 8px 12px; 
+                font-size: 13px;
+            }
+            QLineEdit:focus, QSpinBox:focus { 
+                border: 1px solid #3b82f6; 
+                background-color: #18181b; 
+            }
+        """
+
+        copy_btn_style = """
+            QPushButton { 
+                background-color: #27272a; 
+                color: #f4f4f5; 
+                border: 1px solid #3f3f46; 
+                border-radius: 6px; 
+                padding: 8px 15px; 
+                font-weight: bold; 
+            }
+            QPushButton:hover { 
+                background-color: #3f3f46; 
+                border: 1px solid #52525b; 
+            }
+            QPushButton:pressed {
+                background-color: #52525b;
+            }
+        """
+        
+        self.setStyleSheet(input_style)
 
         # --- OPDS 서버 설정 그룹 (Panels, ComicGlass) ---
         self.opds_group = QGroupBox("OPDS 공유 서버 (Panels, ComicGlass 지원)")
+        self.opds_group.setStyleSheet(group_style)
         opds_vlayout = QVBoxLayout()
+        opds_vlayout.setContentsMargins(15, 10, 15, 15)
+        opds_vlayout.setSpacing(12)
+        
         opds_layout = QHBoxLayout()
         
         self.lbl_opds_port = QLabel("포트:")
+        self.lbl_opds_port.setStyleSheet("color: #a1a1aa; font-weight: bold;")
         opds_layout.addWidget(self.lbl_opds_port)
+        
         self.opds_port_spin = QSpinBox()
         self.opds_port_spin.setRange(1024, 65535)
         self.opds_port_spin.setValue(self.config.get("opds_port", 8080))
         self.opds_port_spin.valueChanged.connect(self.save_ports)
-        self.opds_port_spin.setFixedHeight(36)
+        self.opds_port_spin.setFixedWidth(100)
         opds_layout.addWidget(self.opds_port_spin)
+        
+        opds_layout.addSpacing(10)
         
         self.btn_opds_toggle = QPushButton("OPDS 서버 켜기")
         self.btn_opds_toggle.setObjectName("actionBtnGreen")
+        self.btn_opds_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_opds_toggle.setIcon(qta.icon('fa5s.power-off', color='white'))
         self.btn_opds_toggle.clicked.connect(lambda: self.toggle_server("OPDS", self.opds_port_spin, self.btn_opds_toggle))
         opds_layout.addWidget(self.btn_opds_toggle)
         
@@ -45,7 +115,11 @@ class TabSharing(QWidget):
         self.opds_url_label = QLineEdit()
         self.opds_url_label.setReadOnly(True)
         opds_url_layout.addWidget(self.opds_url_label)
+        
         self.btn_opds_copy = QPushButton("URL 복사")
+        self.btn_opds_copy.setIcon(qta.icon('fa5s.copy', color='#f4f4f5'))
+        self.btn_opds_copy.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_opds_copy.setStyleSheet(copy_btn_style)
         self.btn_opds_copy.clicked.connect(lambda: QApplication.clipboard().setText(self.opds_url_label.text()))
         opds_url_layout.addWidget(self.btn_opds_copy)
         opds_vlayout.addLayout(opds_url_layout)
@@ -53,51 +127,31 @@ class TabSharing(QWidget):
         self.opds_group.setLayout(opds_vlayout)
         left_layout.addWidget(self.opds_group)
 
-        # --- REST API 서버 설정 그룹 (YACReader, Web) ---
-        self.api_group = QGroupBox("REST API 서버 (YACReader, Web 지원)")
-        api_vlayout = QVBoxLayout()
-        api_layout = QHBoxLayout()
-        
-        self.lbl_api_port = QLabel("포트:")
-        api_layout.addWidget(self.lbl_api_port)
-        self.api_port_spin = QSpinBox()
-        self.api_port_spin.setRange(1024, 65535)
-        self.api_port_spin.setValue(self.config.get("api_port", 8081))
-        self.api_port_spin.valueChanged.connect(self.save_ports)
-        self.api_port_spin.setFixedHeight(36)
-        api_layout.addWidget(self.api_port_spin)
-        
-        self.btn_api_toggle = QPushButton("API 서버 켜기")
-        self.btn_api_toggle.setObjectName("actionBtnGreen")
-        self.btn_api_toggle.clicked.connect(lambda: self.toggle_server("API", self.api_port_spin, self.btn_api_toggle))
-        api_layout.addWidget(self.btn_api_toggle)
-        
-        api_layout.addStretch()
-        api_vlayout.addLayout(api_layout)
-        
-        api_url_layout = QHBoxLayout()
-        self.api_url_label = QLineEdit()
-        self.api_url_label.setReadOnly(True)
-        api_url_layout.addWidget(self.api_url_label)
-        self.btn_api_copy = QPushButton("URL 복사")
-        self.btn_api_copy.clicked.connect(lambda: QApplication.clipboard().setText(self.api_url_label.text()))
-        api_url_layout.addWidget(self.btn_api_copy)
-        api_vlayout.addLayout(api_url_layout)
-        
-        self.api_group.setLayout(api_vlayout)
-        left_layout.addWidget(self.api_group)
         left_layout.addStretch()
         
         main_layout.addLayout(left_layout, 1)
 
         # --- 서버 상태 로그 출력 ---
         self.log_group = QGroupBox("서버 상태 로그")
+        self.log_group.setStyleSheet(group_style)
         log_layout = QVBoxLayout()
+        log_layout.setContentsMargins(15, 15, 15, 15)
         self.log_console = QTextEdit()
         self.log_console.setReadOnly(True)
+        self.log_console.setStyleSheet("""
+            QTextEdit {
+                font-family: Consolas, monospace;
+                font-size: 12px;
+                background-color: #09090b;
+                color: #d4d4d8;
+                border: 1px solid #27272a;
+                border-radius: 6px;
+                padding: 10px;
+            }
+        """)
         log_layout.addWidget(self.log_console)
         self.log_group.setLayout(log_layout)
-        main_layout.addWidget(self.log_group, 2)
+        main_layout.addWidget(self.log_group, 1)
 
         self.setLayout(main_layout)
         self.update_urls()
@@ -117,27 +171,26 @@ class TabSharing(QWidget):
         self.i18n_t = t
         self.lang = lang
         self.opds_group.setTitle(t.get("tab_sharing_opds_title", "OPDS 공유 서버 (Panels, ComicGlass 지원)"))
-        self.api_group.setTitle(t.get("tab_sharing_api_title", "REST API 서버 (YACReader, Web 지원)"))
         self.log_group.setTitle(t.get("tab_sharing_log_title", "서버 상태 로그"))
         
         self.lbl_opds_port.setText(t.get("tab_sharing_port", "포트:"))
-        self.lbl_api_port.setText(t.get("tab_sharing_port", "포트:"))
         self.btn_opds_copy.setText(t.get("tab_sharing_copy", "URL 복사"))
-        self.btn_api_copy.setText(t.get("tab_sharing_copy", "URL 복사"))
         
         self._update_btn_text(self.btn_opds_toggle, "OPDS")
-        self._update_btn_text(self.btn_api_toggle, "API")
 
     def _update_btn_text(self, btn, protocol):
+        import qtawesome as qta
         t = getattr(self, 'i18n_t', {})
         is_running = protocol in self.server_manager.servers and self.server_manager.servers[protocol].is_running
         
         if is_running:
             turn_off_text = t.get("tab_sharing_turn_off", f"{protocol} 서버 끄기")
             btn.setText(turn_off_text.replace("{protocol}", protocol))
+            btn.setIcon(qta.icon('fa5s.stop-circle', color='white'))
         else:
             turn_on_text = t.get("tab_sharing_turn_on", f"{protocol} 서버 켜기")
             btn.setText(turn_on_text.replace("{protocol}", protocol))
+            btn.setIcon(qta.icon('fa5s.power-off', color='white'))
 
     def update_urls(self):
         import os
@@ -145,16 +198,15 @@ class TabSharing(QWidget):
         cert_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "cert.pem")
         scheme = "https" if os.path.exists(cert_path) else "http"
         self.opds_url_label.setText(f"{scheme}://{ip}:{self.opds_port_spin.value()}/opds")
-        self.api_url_label.setText(f"{scheme}://{ip}:{self.api_port_spin.value()}/api")
 
     def save_ports(self):
         self.config["opds_port"] = self.opds_port_spin.value()
-        self.config["api_port"] = self.api_port_spin.value()
         save_config(self.config)
         self.update_urls()
 
     def toggle_server(self, protocol, port_spin, btn_toggle):
         """버튼 하나로 특정 프로토콜 서버를 켜거나 끄는 로직"""
+        import qtawesome as qta
         t = getattr(self, 'i18n_t', {})
         turn_on_template = t.get("tab_sharing_turn_on", "{protocol} 서버 켜기")
         turn_off_template = t.get("tab_sharing_turn_off", "{protocol} 서버 끄기")
@@ -174,6 +226,7 @@ class TabSharing(QWidget):
                     
                 btn_toggle.setText(turn_off_template.replace("{protocol}", protocol))
                 btn_toggle.setObjectName("actionBtnCancel")
+                btn_toggle.setIcon(qta.icon('fa5s.stop-circle', color='white'))
                 btn_toggle.style().unpolish(btn_toggle)
                 btn_toggle.style().polish(btn_toggle)
                 port_spin.setEnabled(False)
@@ -187,6 +240,7 @@ class TabSharing(QWidget):
             if success:
                 btn_toggle.setText(turn_on_template.replace("{protocol}", protocol))
                 btn_toggle.setObjectName("actionBtnGreen")
+                btn_toggle.setIcon(qta.icon('fa5s.power-off', color='white'))
                 btn_toggle.style().unpolish(btn_toggle)
                 btn_toggle.style().polish(btn_toggle)
                 port_spin.setEnabled(True)

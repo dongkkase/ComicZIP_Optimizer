@@ -1,5 +1,4 @@
 from .opds_server import OPDSServerThread
-from .api_server import APIServerThread
 # from .webdav_server import WebDAVServerThread
 import socket
 
@@ -24,13 +23,15 @@ class ServerManager:
             
         # 포트 충돌 선제 검사
         if self.is_port_in_use(port):
-            return False, f"포트 {port}번은 이미 다른 프로그램에서 사용 중입니다."
+            from core.i18n import get_i18n
+            from config import load_config
+            lang = load_config().get("language", load_config().get("lang", "ko"))
+            msg = get_i18n().get(lang, get_i18n()["ko"]).get("msg_port_in_use", "Port {} is already in use.").format(port)
+            return False, msg
 
         server_thread = None
         if protocol == "OPDS":
             server_thread = OPDSServerThread(port=port, root_path=root_path)
-        elif protocol == "API":
-            server_thread = APIServerThread(port=port, root_path=root_path)
         elif protocol == "WebDAV":
             # server_thread = WebDAVServerThread(port=port, root_path=root_path)
             pass
