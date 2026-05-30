@@ -392,6 +392,48 @@ class ThumbnailDelegate(QStyledItemDelegate):
             gradient.setColorAt(1.0, QColor(0, 0, 0, 240))
             painter.fillRect(grad_rect, gradient)
             
+            # --- [추가] 커버 상단 뱃지 (별점, 페이지 수) ---
+            full_meta = row_data.get("full_meta", {})
+            rating = row_data.get("rating", "") or full_meta.get("rating", "") or full_meta.get("Rating", "")
+            page_count = row_data.get("page_count", "") or full_meta.get("page_count", "") or full_meta.get("PageCount", "")
+            
+            font_badge = QFont(font_family, 9, QFont.Weight.Bold)
+            fm_badge = QFontMetrics(font_badge)
+            painter.setFont(font_badge)
+            
+            # 좌측 상단: 별점
+            if rating and str(rating) != "-" and str(rating).strip():
+                rating_text = f"★ {rating}"
+                bw = fm_badge.horizontalAdvance(rating_text) + 12
+                bh = fm_badge.height() + 4
+                bx = img_rect.x() + 4
+                by = img_rect.y() + 4
+                badge_rect = QRect(bx, by, bw, bh)
+                
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QColor(0, 0, 0, 180))
+                painter.drawRoundedRect(badge_rect, 4, 4)
+                
+                painter.setPen(QColor("#F5A623")) # 주황/노란색 별점 강조
+                painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, rating_text)
+
+            # 우측 상단: 페이지수
+            if page_count and str(page_count) != "-" and str(page_count).strip():
+                page_text = f"{page_count}p"
+                bw = fm_badge.horizontalAdvance(page_text) + 12
+                bh = fm_badge.height() + 4
+                bx = img_rect.right() - bw - 4
+                by = img_rect.y() + 4
+                badge_rect = QRect(bx, by, bw, bh)
+                
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QColor(0, 0, 0, 180))
+                painter.drawRoundedRect(badge_rect, 4, 4)
+                
+                painter.setPen(QColor("#cccccc"))
+                painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, page_text)
+            # -----------------------------------------------
+
             painter.restore() 
             
             painter.setPen(QPen(QColor(150, 150, 150, 150), 1))
