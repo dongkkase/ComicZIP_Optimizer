@@ -582,11 +582,10 @@ class TabFolder(QWidget):
                 font-size: {self.config.get('s12', 12)}px;
                 font-weight: bold;
                 background-color: transparent;
-                border-top: 1px solid rgba(255, 255, 255, 0.2);
-                border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-                border-left:0;border-right:0;
+                border:0;
                 border-radius: 0px;
-                padding: 10px 0px 10px 0px;
+                height:30px;
+                padding: 10px 0px 1px 0px;
                 margin:0px 0px 0px 0px;
 
             }}
@@ -594,10 +593,10 @@ class TabFolder(QWidget):
 
         list_style = f"""
             QListWidget {{
-                background-color: transparent;
+                background-color: rgba(255, 255, 255, 0.06); 
+                border-radius: 4px;
                 outline: none;
                 color: #d1d5db;
-                border-radius: 0px;
                 height:100%;
                 width: 100%;
                 margin:0px 0px 0px 0px;
@@ -628,29 +627,23 @@ class TabFolder(QWidget):
             }}
         """
 
-        from PyQt6.QtWidgets import QGraphicsDropShadowEffect
-        def apply_text_shadow(widget):
-            shadow = QGraphicsDropShadowEffect(widget)
-            shadow.setBlurRadius(2) # 퍼짐 정도
-            shadow.setColor(QColor(0, 0, 0, 200)) # 검은색 반투명 그림자
-            shadow.setOffset(1, 1) # X, Y 오프셋
-            widget.setGraphicsEffect(shadow)
 
         # --- 라이브러리 ---
         self.lbl_lib = QLabel(f"{_('nav_library')}")
+        self.lbl_lib.setAlignment(Qt.AlignmentFlag.AlignBottom)
+
         self.lbl_lib.setStyleSheet(header_lbl_style + "QLabel { border-top: 0; }")
         self.lbl_lib.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        apply_text_shadow(self.lbl_lib)
         
         lib_header_layout = QHBoxLayout(self.lbl_lib)
         lib_header_layout.setContentsMargins(0, 0, 0, 0)
         lib_header_layout.addStretch()
 
         self.btn_add_lib = QPushButton()
-        self.btn_add_lib.setIcon(qta.icon('fa5s.plus', color='#a7bfbf'))
+        self.btn_add_lib.setIcon(qta.icon('fa5s.cog', color='#a7bfbf'))
         self.btn_add_lib.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_add_lib.setToolTip(_("grp_dup_folders_title"))
-        self.btn_add_lib.setStyleSheet("QPushButton { background: transparent; border: none; padding-right: 15px; }")
+        self.btn_add_lib.setStyleSheet("QPushButton { background: transparent; border: none; padding: 2px; }")
         self.btn_add_lib.clicked.connect(self.open_library_settings)
         lib_header_layout.addWidget(self.btn_add_lib)
         
@@ -664,9 +657,9 @@ class TabFolder(QWidget):
 
         # --- 즐겨찾기 ---
         self.lbl_fav = QLabel(f"{_('nav_favorites')}")
+        self.lbl_fav.setAlignment(Qt.AlignmentFlag.AlignBottom)
         self.lbl_fav.setStyleSheet(header_lbl_style)
         self.lbl_fav.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        apply_text_shadow(self.lbl_fav)
         left_layout.addWidget(self.lbl_fav)
 
         self.list_favorites = QListWidget()
@@ -676,15 +669,15 @@ class TabFolder(QWidget):
 
         # --- 폴더 ---
         self.lbl_folder = QLabel(f"{_('tab_folders')}")
+        self.lbl_folder.setAlignment(Qt.AlignmentFlag.AlignBottom)
         self.lbl_folder.setStyleSheet(header_lbl_style)
         self.lbl_folder.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        apply_text_shadow(self.lbl_folder)
         
         folder_header_layout = QHBoxLayout(self.lbl_folder)
         folder_header_layout.setContentsMargins(0, 0, 0, 0)
         folder_header_layout.addStretch()
         
-        quick_btn_style = "QPushButton { background: transparent; border: none; padding-right: 12px; }"
+        quick_btn_style = "QPushButton { background: transparent; border: none; padding: 2px; }"
         quick_paths = [
             ('fa5s.desktop', _("folder_desktop").replace("⭐ ", ""), QStandardPaths.StandardLocation.DesktopLocation),
             ('fa5s.file-alt', _("folder_docs").replace("⭐ ", ""), QStandardPaths.StandardLocation.DocumentsLocation),
@@ -737,7 +730,10 @@ class TabFolder(QWidget):
         self.tree_view.setStyleSheet(f"""
             QTreeView {{ 
                 border: none; 
-                background-color: transparent; 
+                background-color: rgba(255, 255, 255, 0.06); 
+                border-radius: 4px;
+                padding:3px;
+                
                 selection-background-color: transparent;
                 outline: none; 
                 color: #cccccc; 
@@ -750,13 +746,13 @@ class TabFolder(QWidget):
             QTreeView::branch:selected {{ background-color: transparent; }}
             QTreeView::branch:hover {{ background-color: transparent; }}
 
-            QScrollBar:vertical {{ border: none; background-color: transparent; width: 8px; margin: 0px; }}
+            QScrollBar:vertical {{ border: none; background-color: transparent; width: 4px; margin: 0px; }}
             QScrollBar::handle:vertical {{ background-color: #555555; border-radius: 4px; min-height: 20px; }}
             QScrollBar::handle:vertical:hover {{ background-color: #777777; }}
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0px; }}
             QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background-color: transparent; }}
             
-            QScrollBar:horizontal {{ border: none; background-color: transparent; height: 8px; margin: 0px; }}
+            QScrollBar:horizontal {{ border: none; background-color: transparent; height: 4px; margin: 0px; }}
             QScrollBar::handle:horizontal {{ background-color: #555555; border-radius: 4px; min-width: 20px; }}
             QScrollBar::handle:horizontal:hover {{ background-color: #777777; }}
             QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0px; }}
