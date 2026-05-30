@@ -1,6 +1,7 @@
 import os
 import re
 import tempfile
+import sys
 import subprocess
 import shutil
 from .base import BaseServerThread
@@ -43,6 +44,11 @@ class WebDAVServerThread(BaseServerThread):
             self.error_signal.emit(f"WebDAV 라이브러리 로드 실패: {e}\n터미널에서 'pip install wsgidav cheroot' 명령어를 실행해주세요.")
             return
 
+        # 이중 안전장치: 스레드 내부에서도 sys.stdout/stderr 검증
+        # WSGI 프레임워크가 클라이언트 요청 처리 중 로그를 쓰려다 발생하는 NoneType 에러 방어
+        if sys.stdout is None: sys.stdout = open(os.devnull, "w")
+        if sys.stderr is None: sys.stderr = open(os.devnull, "w")
+
         config = load_config()
         lib_folders = config.get("dup_check_folders", [])
         
@@ -71,7 +77,8 @@ class WebDAVServerThread(BaseServerThread):
                         counter += 1
                         
                     # Windows Junction(디렉토리 교차점) 생성 (관리자 권한 불필요)
-                    subprocess.run(f'mklink /J "{link_path}" "{lib_path}"', shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    creationflags = 0x08000000 if os.name == 'nt' else 0
+                    subprocess.run(f'mklink /J "{link_path}" "{lib_path}"', shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=creationflags)
         except Exception as e:
             self.error_signal.emit(f"가상 루트 폴더 생성 실패: {e}")
             return
@@ -91,6 +98,9 @@ class WebDAVServerThread(BaseServerThread):
                 "user_mapping": {
                     "*": { username: {"password": password} }
                 }
+            },
+            "dir_browser": {
+                "enable": False
             },
             "logging": { "enable": False }
         }

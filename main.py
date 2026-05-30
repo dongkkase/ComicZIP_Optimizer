@@ -3,6 +3,11 @@ import ctypes
 import traceback
 import os
 
+# [핵심] PyInstaller -w 모드(콘솔 숨김)에서 sys.stdout/stderr가 None이 되어
+# 외부 백엔드 서버(WebDAV 등)가 내부 로깅을 시도하다 크래시(연결 유실)되는 현상을 전역적으로 차단합니다.
+if sys.stdout is None: sys.stdout = open(os.devnull, "w")
+if sys.stderr is None: sys.stderr = open(os.devnull, "w")
+
 os.environ["QT_LOGGING_RULES"] = "qt.gui.icc.warning=false"
 
 from PyQt6.QtWidgets import QApplication
