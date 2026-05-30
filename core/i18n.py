@@ -456,8 +456,8 @@ def get_i18n():
             "col_source_path": "Source (현재 경로)",
             "col_dest_path": "Destination (이동할 경로)",
             
-            "msg_update_available": "🎉 업데이트 가능: v{0} ➔ v{1}",
-            "msg_latest_version": "✅ v{0} (최신 버전)",
+            "msg_update_available": "업데이트 가능: v{0} ➔ v{1}",
+            "msg_latest_version": "v{0} (최신 버전)",
             "msg_update_prompt_title": "업데이트 확인",
             "msg_update_prompt": "새 버전이 있습니다. 자동으로 다운로드하고 업데이트하시겠습니까?",
             "msg_no_targets": "체크(☑)된 작업 대상이 없습니다.",
@@ -887,8 +887,8 @@ def get_i18n():
             "col_source_path": "Source Path",
             "col_dest_path": "Destination Path",
             
-            "msg_update_available": "🎉 Update Available: v{0} ➔ v{1}",
-            "msg_latest_version": "✅ v{0} (Latest)",
+            "msg_update_available": "Update Available: v{0} ➔ v{1}",
+            "msg_latest_version": "v{0} (Latest)",
             "msg_update_prompt_title": "Update",
             "msg_update_prompt": "Do you want to automatically download and update to the new version?",
             "msg_no_targets": "No checked targets.",
@@ -1322,8 +1322,8 @@ def get_i18n():
             "col_source_path": "ソース (現在のパス)",
             "col_dest_path": "宛先 (移動先のパス)",
             
-            "msg_update_available": "🎉 アップデート可能: v{0} ➔ v{1}",
-            "msg_latest_version": "✅ v{0} (最新バージョン)",
+            "msg_update_available": "アップデート可能: v{0} ➔ v{1}",
+            "msg_latest_version": "v{0} (最新バージョン)",
             "msg_update_prompt_title": "アップデート確認",
             "msg_update_prompt": "新しいバージョンがあります。自動的にダウンロードして更新しますか？",
             "msg_no_targets": "チェック(☑)された対象がありません。",
