@@ -492,6 +492,8 @@ class TabFolder(QWidget):
     def get_active_view(self):
         return self.table_view if self.view_stack.currentIndex() == 0 else self.list_view
 
+
+
     def setup_ui(self):
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(5, 5, 5, 5)
@@ -574,28 +576,86 @@ class TabFolder(QWidget):
         left_layout.addLayout(row2_layout)
 
         # 탐색기 패널 네비게이션 리스트 UI 구성
-        header_lbl_style = f"color: #aaaaaa; font-size: {self.config.get('s12', 12)}px; font-weight: bold; margin-top: 10px; margin-bottom: 2px;"
-        list_style = """
-            QListWidget { background-color: transparent; border: none; outline: none; color: #e0e0e0; }
-            QListWidget::item { padding: 6px 10px; border-radius: 6px; margin: 1px 0px; }
-            QListWidget::item:hover { background-color: rgba(255, 255, 255, 0.08); color: #ffffff; }
-            QListWidget::item:selected { background-color: rgba(52, 152, 219, 0.8); color: #ffffff; font-weight: bold; }
+        header_lbl_style = f"""
+            QLabel {{
+                color: #a7bfbf;
+                font-size: {self.config.get('s12', 12)}px;
+                font-weight: bold;
+                background-color: transparent;
+                border-top: 1px solid rgba(255, 255, 255, 0.2);
+                border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+                border-left:0;border-right:0;
+                border-radius: 0px;
+                padding: 10px 0px 10px 0px;
+                margin:0px 0px 0px 0px;
+
+            }}
         """
 
+        list_style = f"""
+            QListWidget {{
+                background-color: transparent;
+                outline: none;
+                color: #d1d5db;
+                border-radius: 0px;
+                height:100%;
+                width: 100%;
+                margin:0px 0px 0px 0px;
+                padding:0;
+                border:0px;
+                font-size: {self.config.get('s10', 10)}px;
+            }}
+            QListWidget::item {{
+                padding: 0px;
+                border-radius: 0px;
+                width: 100%;
+                margin: 0px;
+                padding:-2px 0 -2px 10px;
+                border-left: 2px solid transparent;
+            }}
+            QListWidget::item:hover {{
+                background-color: rgba(255, 255, 255, 0.06);
+                color: #ffffff;
+                border-radius: 0px;
+                border-left: 2px solid rgba(52, 152, 219, 0.5);
+            }}
+            QListWidget::item:selected {{
+                background-color: rgba(52, 152, 219, 0.18);
+                color: #ffffff;
+                font-weight: bold;
+                border-radius: 0px;
+                border-left: 2px solid #3498DB;
+            }}
+        """
+
+        from PyQt6.QtWidgets import QGraphicsDropShadowEffect
+        def apply_text_shadow(widget):
+            shadow = QGraphicsDropShadowEffect(widget)
+            shadow.setBlurRadius(2) # 퍼짐 정도
+            shadow.setColor(QColor(0, 0, 0, 200)) # 검은색 반투명 그림자
+            shadow.setOffset(1, 1) # X, Y 오프셋
+            widget.setGraphicsEffect(shadow)
+
         # --- 라이브러리 ---
-        lib_header_layout = QHBoxLayout()
-        lib_header_layout.setContentsMargins(5, 0, 5, 0)
-        self.lbl_lib = QLabel(f"📚 {_('nav_library')}")
-        self.lbl_lib.setStyleSheet(header_lbl_style)
-        self.btn_add_lib = QPushButton("+")
-        self.btn_add_lib.setFixedSize(20, 20)
-        self.btn_add_lib.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_add_lib.setStyleSheet("background-color: transparent; color: #aaaaaa; font-weight: bold; border: none; font-size: 16px;")
-        self.btn_add_lib.clicked.connect(self.open_library_settings)
-        lib_header_layout.addWidget(self.lbl_lib)
+        self.lbl_lib = QLabel(f"{_('nav_library')}")
+        self.lbl_lib.setStyleSheet(header_lbl_style + "QLabel { border-top: 0; }")
+        self.lbl_lib.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        apply_text_shadow(self.lbl_lib)
+        
+        lib_header_layout = QHBoxLayout(self.lbl_lib)
+        lib_header_layout.setContentsMargins(0, 0, 0, 0)
         lib_header_layout.addStretch()
+
+        self.btn_add_lib = QPushButton()
+        self.btn_add_lib.setIcon(qta.icon('fa5s.plus', color='#a7bfbf'))
+        self.btn_add_lib.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_add_lib.setToolTip(_("grp_dup_folders_title"))
+        self.btn_add_lib.setStyleSheet("QPushButton { background: transparent; border: none; padding-right: 15px; }")
+        self.btn_add_lib.clicked.connect(self.open_library_settings)
         lib_header_layout.addWidget(self.btn_add_lib)
-        left_layout.addLayout(lib_header_layout)
+        
+        left_layout.addWidget(self.lbl_lib)
+
 
         self.list_libraries = QListWidget()
         self.list_libraries.setStyleSheet(list_style)
@@ -603,9 +663,10 @@ class TabFolder(QWidget):
         left_layout.addWidget(self.list_libraries)
 
         # --- 즐겨찾기 ---
-        self.lbl_fav = QLabel(f"📌 {_('nav_favorites')}")
+        self.lbl_fav = QLabel(f"{_('nav_favorites')}")
         self.lbl_fav.setStyleSheet(header_lbl_style)
-        self.lbl_fav.setContentsMargins(5, 0, 5, 0)
+        self.lbl_fav.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        apply_text_shadow(self.lbl_fav)
         left_layout.addWidget(self.lbl_fav)
 
         self.list_favorites = QListWidget()
@@ -613,21 +674,42 @@ class TabFolder(QWidget):
         self.list_favorites.itemClicked.connect(self.on_nav_item_clicked)
         left_layout.addWidget(self.list_favorites)
 
-        # --- 빠른이동 ---
-        self.lbl_quick = QLabel(f"⚡ {_('nav_quick')}")
-        self.lbl_quick.setStyleSheet(header_lbl_style)
-        self.lbl_quick.setContentsMargins(5, 0, 5, 0)
-        left_layout.addWidget(self.lbl_quick)
-
-        self.list_quick_access = QListWidget()
-        self.list_quick_access.setStyleSheet(list_style)
-        self.list_quick_access.itemClicked.connect(self.on_nav_item_clicked)
-        left_layout.addWidget(self.list_quick_access)
-
         # --- 폴더 ---
-        self.lbl_folder = QLabel(f"📁 {_('tab_folders')}")
+        self.lbl_folder = QLabel(f"{_('tab_folders')}")
         self.lbl_folder.setStyleSheet(header_lbl_style)
-        self.lbl_folder.setContentsMargins(5, 0, 5, 0)
+        self.lbl_folder.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        apply_text_shadow(self.lbl_folder)
+        
+        folder_header_layout = QHBoxLayout(self.lbl_folder)
+        folder_header_layout.setContentsMargins(0, 0, 0, 0)
+        folder_header_layout.addStretch()
+        
+        quick_btn_style = "QPushButton { background: transparent; border: none; padding-right: 12px; }"
+        quick_paths = [
+            ('fa5s.desktop', _("folder_desktop").replace("⭐ ", ""), QStandardPaths.StandardLocation.DesktopLocation),
+            ('fa5s.file-alt', _("folder_docs").replace("⭐ ", ""), QStandardPaths.StandardLocation.DocumentsLocation),
+            ('fa5s.download', _("folder_downloads").replace("⭐ ", ""), QStandardPaths.StandardLocation.DownloadLocation),
+            ('fa5s.home', _("folder_home").replace("⭐ ", ""), QStandardPaths.StandardLocation.HomeLocation),
+        ]
+        
+        for icon_name, tooltip, loc in quick_paths:
+            btn = QPushButton()
+            btn.setIcon(qta.icon(icon_name, color='#a7bfbf'))
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setToolTip(tooltip)
+            btn.setStyleSheet(quick_btn_style)
+            
+            def navigate_to(checked=False, loc_val=loc):
+                path = QStandardPaths.writableLocation(loc_val)
+                if path and os.path.exists(path):
+                    self.list_libraries.clearSelection()
+                    self.list_favorites.clearSelection()
+                    self.tree_view.clearSelection()
+                    self._start_queued_scroll(path)
+                    
+            btn.clicked.connect(navigate_to)
+            folder_header_layout.addWidget(btn)
+            
         left_layout.addWidget(self.lbl_folder)
 
         self.populate_quick_access()
@@ -652,10 +734,33 @@ class TabFolder(QWidget):
         self.tree_view.header().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
 
         self.tree_view.setStyle(QStyleFactory.create("Fusion"))
-        self.tree_view.setStyleSheet("""
-            QTreeView { border: none; background-color: transparent; outline: none; color: white; } 
-            QTreeView::item:hover { background-color: #3a3a3a; } 
-            QTreeView::item:selected { background-color: #3a7ebf; color: white; }
+        self.tree_view.setStyleSheet(f"""
+            QTreeView {{ 
+                border: none; 
+                background-color: transparent; 
+                selection-background-color: transparent;
+                outline: none; 
+                color: #cccccc; 
+                show-decoration-selected: 1;
+                font-size: {self.config.get('s10', 10)}px;
+            }}
+            QTreeView::item {{ padding: 4px 0px; padding:0; }}
+            QTreeView::item:hover {{ background-color: rgba(255, 255, 255, 0.05); color: #ffffff; }} 
+            QTreeView::item:selected {{ background-color: rgba(52, 152, 219, 0.18); color: #ffffff; }}
+            QTreeView::branch:selected {{ background-color: transparent; }}
+            QTreeView::branch:hover {{ background-color: transparent; }}
+
+            QScrollBar:vertical {{ border: none; background-color: transparent; width: 8px; margin: 0px; }}
+            QScrollBar::handle:vertical {{ background-color: #555555; border-radius: 4px; min-height: 20px; }}
+            QScrollBar::handle:vertical:hover {{ background-color: #777777; }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0px; }}
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background-color: transparent; }}
+            
+            QScrollBar:horizontal {{ border: none; background-color: transparent; height: 8px; margin: 0px; }}
+            QScrollBar::handle:horizontal {{ background-color: #555555; border-radius: 4px; min-width: 20px; }}
+            QScrollBar::handle:horizontal:hover {{ background-color: #777777; }}
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0px; }}
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{ background-color: transparent; }}
         """)
         for i in range(1, 4): self.tree_view.hideColumn(i)
         left_layout.addWidget(self.tree_view)
@@ -1422,32 +1527,15 @@ class TabFolder(QWidget):
             self.refresh_list(force_update=False)
 
     def populate_quick_access(self):
-        if not hasattr(self, 'list_quick_access'): return
+        if not hasattr(self, 'list_libraries'): return
         
-        self.list_quick_access.blockSignals(True)
         self.list_libraries.blockSignals(True)
         self.list_favorites.blockSignals(True)
 
-        self.list_quick_access.clear()
         self.list_libraries.clear()
         self.list_favorites.clear()
 
-        # 1. 빠른 이동
-        paths = [
-            (_("folder_desktop").replace("⭐ ", ""), QStandardPaths.StandardLocation.DesktopLocation),
-            (_("folder_docs").replace("⭐ ", ""), QStandardPaths.StandardLocation.DocumentsLocation),
-            (_("folder_downloads").replace("⭐ ", ""), QStandardPaths.StandardLocation.DownloadLocation),
-            (_("folder_home").replace("⭐ ", ""), QStandardPaths.StandardLocation.HomeLocation),
-        ]
-        for name, loc in paths:
-            path = QStandardPaths.writableLocation(loc)
-            if path: 
-                item = QListWidgetItem(name)
-                item.setData(Qt.ItemDataRole.UserRole, path)
-                self.list_quick_access.addItem(item)
-        self._adjust_list_height(self.list_quick_access)
-
-        # 2. 라이브러리
+        # 1. 라이브러리
         lib_folders = self.config.get("dup_check_folders", [])
         if lib_folders:
             for folder in lib_folders:
@@ -1473,7 +1561,6 @@ class TabFolder(QWidget):
         self._adjust_list_height(self.list_favorites)
         self.lbl_fav.setVisible(bool(custom_favs))
 
-        self.list_quick_access.blockSignals(False)
         self.list_libraries.blockSignals(False)
         self.list_favorites.blockSignals(False)
         
@@ -1483,13 +1570,11 @@ class TabFolder(QWidget):
             list_widget.hide()
         else:
             list_widget.show()
-            item_height = 30
-            max_h = min(count * item_height + 4, 180) # 5~6개가 넘어가면 자동으로 내부 스크롤 생성
-            list_widget.setFixedHeight(max_h)
-            if count * item_height + 4 > 180:
-                list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-            else:
-                list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            
+            from PyQt6.QtWidgets import QAbstractScrollArea
+            list_widget.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
+            list_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
     def add_to_favorites(self, path):
         custom_favs = self.config.get("folder_favorites", [])
@@ -1520,21 +1605,23 @@ class TabFolder(QWidget):
         if hasattr(self.main_window, 'open_settings'):
             self.main_window.open_settings()
             
+    def on_nav_button_clicked(self, clicked_btn, path):
+        for btn in getattr(self, 'all_nav_buttons', []):
+            if btn != clicked_btn:
+                btn.setChecked(False)
     def on_nav_item_clicked(self, item):
-        path = item.data(Qt.ItemDataRole.UserRole)
-        
         sender = self.sender()
-        if sender != self.list_libraries: self.list_libraries.clearSelection()
-        if sender != self.list_favorites: self.list_favorites.clearSelection()
-        if sender != self.list_quick_access: self.list_quick_access.clearSelection()
+        if sender != self.list_libraries:
+            self.list_libraries.clearSelection()
+        if sender != self.list_favorites:
+            self.list_favorites.clearSelection()
+                
         self.tree_view.clearSelection()
 
+        path = item.data(Qt.ItemDataRole.UserRole)
         if path and os.path.exists(path):
-            idx = self.dir_model.index(path)
-            self.tree_view.setCurrentIndex(idx)
-            self.tree_view.scrollTo(idx)
-            self.tree_view.expand(idx)
-            self.refresh_list()
+            # 백그라운드 로딩 대기 후 포커스 및 스크롤 중앙 정렬 (선택 시 refresh_list 자동 트리거)
+            self._start_queued_scroll(path)
 
     def setup_menus(self):
         self.menu_grouped = QMenu(self)
@@ -2329,7 +2416,7 @@ class TabFolder(QWidget):
         # 오프라인 방어 체크
         if not os.path.exists(self.current_watched_folder):
             self.main_window.lbl_status.setText("Network Drive Offline / 경로를 찾을 수 없습니다.")
-            self.lbl_tree_status.setText("")
+            self.lbl_tree_status.setText(" ")
             return
 
         self.file_data_cache = file_data_cache
@@ -2422,7 +2509,7 @@ class TabFolder(QWidget):
         self.table_view.setUpdatesEnabled(True)
         # --------------------------------------------------------
         self.main_window.lbl_status.setText(_("folder_scan_prep"))
-        self.lbl_tree_status.setText("")
+        self.lbl_tree_status.setText(" ")
         self.is_syncing = False
         self.main_window.progress_bar.hide()
         

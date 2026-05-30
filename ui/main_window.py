@@ -408,6 +408,7 @@ class RenamerApp(QMainWindow):
         QTableWidget::indicator, QTreeWidget::indicator {{ width: 18px; height: 18px; }}
         
         QScrollArea {{ background-color: transparent; border: none; }}
+
         QSlider::groove:horizontal {{ border-radius: 4px; height: 8px; background: #3a3a3a; }}
         QSlider::handle:horizontal {{ background: #3498DB; width: 16px; height: 16px; margin: -4px 0; border-radius: 8px; }}
         QSlider::handle:horizontal:hover {{ background: #5DADE2; }}
