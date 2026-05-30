@@ -47,6 +47,20 @@ class ReorderableTableWidget(QTableWidget):
                     return
         super().dropEvent(event)
 
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Home:
+            if self.rowCount() > 0:
+                self.selectRow(0)
+                self.scrollToTop()
+            event.accept()
+        elif event.key() == Qt.Key.Key_End:
+            if self.rowCount() > 0:
+                self.selectRow(self.rowCount() - 1)
+                self.scrollToBottom()
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+
 class Tab2Renamer(QWidget):
     def __init__(self, main_app):
         super().__init__()
