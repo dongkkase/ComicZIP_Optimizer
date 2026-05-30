@@ -143,15 +143,21 @@ class TabSharing(QWidget):
         self.lbl_webdav_id = QLabel("아이디:")
         self.lbl_webdav_id.setStyleSheet("color: #a1a1aa; font-weight: bold;")
         self.webdav_id_input = QLineEdit(self.config.get("webdav_username", "user"))
-        self.webdav_id_input.setFixedWidth(100)
+        self.webdav_id_input.setFixedWidth(110)
         self.webdav_id_input.textChanged.connect(self.save_ports)
         
         self.lbl_webdav_pw = QLabel("비밀번호:")
         self.lbl_webdav_pw.setStyleSheet("color: #a1a1aa; font-weight: bold;")
         self.webdav_pw_input = QLineEdit(self.config.get("webdav_password", "1234"))
-        self.webdav_pw_input.setFixedWidth(100)
+        self.webdav_pw_input.setFixedWidth(110)
         self.webdav_pw_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.webdav_pw_input.textChanged.connect(self.save_ports)
+        
+        self.webdav_pw_action = self.webdav_pw_input.addAction(
+            qta.icon('fa5s.eye-slash', color='#a1a1aa'),
+            QLineEdit.ActionPosition.TrailingPosition
+        )
+        self.webdav_pw_action.triggered.connect(self.toggle_webdav_pw_visibility)
         
         webdav_auth_layout.addWidget(self.lbl_webdav_id)
         webdav_auth_layout.addWidget(self.webdav_id_input)
@@ -230,6 +236,15 @@ class TabSharing(QWidget):
 
         self.setLayout(main_layout)
         self.update_urls()
+
+    def toggle_webdav_pw_visibility(self):
+        import qtawesome as qta
+        if self.webdav_pw_input.echoMode() == QLineEdit.EchoMode.Password:
+            self.webdav_pw_input.setEchoMode(QLineEdit.EchoMode.Normal)
+            self.webdav_pw_action.setIcon(qta.icon('fa5s.eye', color='#a1a1aa'))
+        else:
+            self.webdav_pw_input.setEchoMode(QLineEdit.EchoMode.Password)
+            self.webdav_pw_action.setIcon(qta.icon('fa5s.eye-slash', color='#a1a1aa'))
 
     def get_local_ip(self):
         try:
