@@ -602,7 +602,7 @@ class TabFolder(QWidget):
                 margin:0px 0px 0px 0px;
                 padding:0;
                 border:0px;
-                font-size: {self.config.get('s10', 10)}px;
+                font-size: {self.config.get('s12', 12)}px;
             }}
             QListWidget::item {{
                 padding: 0px;
@@ -738,7 +738,7 @@ class TabFolder(QWidget):
                 outline: none; 
                 color: #cccccc; 
                 show-decoration-selected: 1;
-                font-size: {self.config.get('s10', 10)}px;
+                font-size: {self.config.get('s12', 12)}px;
             }}
             QTreeView::item {{ padding: 4px 0px; padding:0; }}
             QTreeView::item:hover {{ background-color: rgba(255, 255, 255, 0.05); color: #ffffff; }} 
