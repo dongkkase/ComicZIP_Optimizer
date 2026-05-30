@@ -1,5 +1,5 @@
 from .opds_server import OPDSServerThread
-# from .webdav_server import WebDAVServerThread
+from .webdav_server import WebDAVServerThread
 import socket
 
 class ServerManager:
@@ -33,8 +33,7 @@ class ServerManager:
         if protocol == "OPDS":
             server_thread = OPDSServerThread(port=port, root_path=root_path)
         elif protocol == "WebDAV":
-            # server_thread = WebDAVServerThread(port=port, root_path=root_path)
-            pass
+            server_thread = WebDAVServerThread(port=port, root_path=root_path)
         else:
             return False, f"Unsupported protocol: {protocol}"
 
