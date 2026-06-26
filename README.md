@@ -1,4 +1,30 @@
 # ComicZIP Optimizer
+
+> ## 안내 / Notice
+>
+> 이 저장소의 Python 기반 ComicZIP Optimizer는 더 이상 유지보수되지 않습니다.
+>
+> 새 버전은 Electron 기반의 **BookManager**로 전환되었으며, 이후 업데이트와 기능 개선은 아래 저장소에서 제공됩니다.
+>
+> https://github.com/dongkkase/BookManager
+>
+> 기존 Python 버전은 계속 다운로드할 수 있지만, 신규 기능 추가 및 오류 수정은 BookManager에서만 진행됩니다.
+>
+> 새로 설치하거나 업데이트하려는 경우 BookManager를 사용해 주세요.
+>
+> ---
+>
+> The Python-based ComicZIP Optimizer in this repository is no longer maintained.
+>
+> The new version has moved to the Electron-based **BookManager**. Future updates and improvements will be provided in the repository below.
+>
+> https://github.com/dongkkase/BookManager
+>
+> The existing Python version remains available for download, but new features and bug fixes will only be provided through BookManager.
+>
+> Please use BookManager for new installations and future updates.
+
+
 > **This program supports `Korean`, `English`, `Japanese`.**
 > **The program description on the wiki page is only available in `Korean`. Please use Chrome's translation feature.**
 
